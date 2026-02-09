@@ -15,6 +15,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 # --- Tavily settings ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
+# --- Telegram settings ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID") or "0")
+
 # --- Data directory ---
 GENIE_DATA_DIR = Path(os.getenv("GENIE_DATA_DIR", Path.home() / ".genie"))
 

@@ -30,6 +30,11 @@ def parse_args():
         action="store_true",
         help="List available model presets and exit",
     )
+    parser.add_argument(
+        "--telegram",
+        action="store_true",
+        help="Run as a Telegram bot instead of the terminal REPL",
+    )
     return parser.parse_args()
 
 
@@ -41,6 +46,14 @@ def main():
         for name, preset in MODEL_PRESETS.items():
             marker = " <-- default" if name == OLLAMA_MODEL else ""
             print(f"  {name:20s} {preset['description']}{marker}")
+        return
+
+    if args.telegram:
+        import asyncio
+
+        from genie.telegram import run_telegram_bot
+
+        asyncio.run(run_telegram_bot(model_name=args.model))
         return
 
     from genie.cli import main as cli_main
