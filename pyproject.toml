@@ -1,0 +1,21 @@
+[project]
+name = "genie"
+version = "0.1.0"
+description = "A terminal-based AI agent powered by local Ollama models and LangGraph Deep Agents"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "deepagents",
+    "langgraph",
+    "langchain-ollama",
+    "langchain-community",
+    "tavily-python",
+    "rich",
+    "prompt-toolkit",
+    "python-dotenv",
+    "langgraph-checkpoint-sqlite",
+    "langchain-tavily>=0.2.17",
+]
+
+[project.scripts]
+genie = "genie.cli:main"
