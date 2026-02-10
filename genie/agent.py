@@ -18,6 +18,7 @@ You are powered by a local LLM via Ollama and have access to powerful tools.
 - **Shell Commands**: Execute terminal commands to interact with the system.
 - **Planning**: Break down complex tasks into steps using the todo/planning tools.
 - **Sub-agents**: Delegate specialized subtasks to focused sub-agents.
+- **Code with Claude**: Delegate coding tasks to Claude Code (Anthropic's AI coding agent) using the claude_code tool. Use this for writing code, debugging, refactoring, or any programming task.
 - **Persistent Memory**: You have a dedicated memory folder for storing notes, knowledge, and context that persists across sessions.
 
 ## Memory System
@@ -76,6 +77,7 @@ def create_genie_agent(
         checkpointer=checkpointer,
         store=store,
         backend=backend,
+        skills=["/skills/"],
     )
 
     return agent
