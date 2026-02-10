@@ -1,8 +1,9 @@
 """Core Genie agent built on Deep Agents."""
 
 from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
 
-from genie.config import MEMORY_DIR, OLLAMA_MODEL, TAVILY_API_KEY, ensure_memory_dir
+from genie.config import MEMORY_DIR, OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensure_memory_dir
 from genie.models import get_model
 from genie.tools import get_custom_tools
 
@@ -66,12 +67,15 @@ def create_genie_agent(
     memory_dir = ensure_memory_dir()
     system_prompt = SYSTEM_PROMPT.format(memory_dir=memory_dir)
 
+    backend = FilesystemBackend(root_dir=str(WORKSPACE_DIR))
+
     agent = create_deep_agent(
         model=model,
         tools=custom_tools,
         system_prompt=system_prompt,
         checkpointer=checkpointer,
         store=store,
+        backend=backend,
     )
 
     return agent
