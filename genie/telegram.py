@@ -217,6 +217,31 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
         app.bot_data["agent"] = agent
         app.bot_data["model_name"] = model_name
 
+        # Set up cron scheduler
+        from genie.scheduler import CronScheduler, set_scheduler
+
+        async def send_to_owner(text: str) -> None:
+            """Send a cron job result to the bot owner."""
+            chunks = _split_message(text)
+            for chunk in chunks:
+                try:
+                    await app.bot.send_message(
+                        chat_id=TELEGRAM_OWNER_ID,
+                        text=chunk,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    await app.bot.send_message(
+                        chat_id=TELEGRAM_OWNER_ID,
+                        text=chunk,
+                    )
+
+        scheduler = CronScheduler(
+            agent=agent,
+            send_callback=send_to_owner,
+        )
+        set_scheduler(scheduler)
+
         # Register handlers
         app.add_handler(CommandHandler("start", cmd_start))
         app.add_handler(CommandHandler("new", cmd_new))
@@ -232,6 +257,9 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
         await app.start()
         await app.updater.start_polling()
 
+        # Start cron scheduler
+        await scheduler.start()
+
         # Block until interrupted
         stop_event = asyncio.Event()
         try:
@@ -239,6 +267,8 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
         except asyncio.CancelledError:
             pass
         finally:
+            await scheduler.stop()
+            set_scheduler(None)
             await app.updater.stop()
             await app.stop()
             await app.shutdown()

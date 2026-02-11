@@ -16,6 +16,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite",
     "langchain-tavily>=0.2.17",
     "python-telegram-bot>=21.0",
+    "apscheduler>=3.10,<4",
 ]
 
 [project.scripts]

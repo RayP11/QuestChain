@@ -91,3 +91,8 @@ def get_db_path() -> Path:
 def get_history_path() -> Path:
     """Get the path to the command history file."""
     return ensure_data_dir() / "history"
+
+
+def get_cron_jobs_path() -> Path:
+    """Get the path to the cron jobs JSON file."""
+    return ensure_data_dir() / "cron_jobs.json"
