@@ -19,12 +19,22 @@ def get_model(model_name: str, base_url: str | None = None) -> ChatOllama:
     base_url = base_url or OLLAMA_BASE_URL
     preset = MODEL_PRESETS.get(model_name, {})
 
-    return ChatOllama(
+    num_ctx = preset.get("num_ctx", 32768)
+
+    model = ChatOllama(
         model=model_name,
         base_url=base_url,
         temperature=preset.get("temperature", 0.7),
-        num_ctx=preset.get("num_ctx", 32768),
+        num_ctx=num_ctx,
+        num_predict=preset.get("num_predict", 4096),
     )
+
+    # Set profile so deepagents SummarizationMiddleware uses fraction-based
+    # thresholds (85% trigger, 10% keep) instead of the 170K token fallback
+    # which is unreachable with local model context windows.
+    model.profile = {"max_input_tokens": num_ctx}
+
+    return model
 
 
 def check_ollama_connection(base_url: str | None = None) -> bool:

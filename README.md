@@ -70,6 +70,9 @@ python -m genie --no-memory
 - **Shell Commands** — Execute terminal commands
 - **Planning** — Break down complex tasks into steps with built-in todo tools
 - **Sub-agents** — Delegate subtasks to focused child agents
+- **Code with Claude** — Delegate coding tasks to Claude Code with configurable complexity and mode
+- **Cron Jobs** — Schedule recurring tasks on a cron schedule (Telegram mode only)
+- **Telegram Bot** — Run Genie as a Telegram bot for remote access
 - **Persistent Memory** — Saves notes and context to `workspace/memory/` across sessions
 - **Conversation History** — Resume previous conversations via SQLite checkpointing
 
@@ -85,11 +88,18 @@ Genie/
 │   ├── agent.py                # Deep Agent wiring and system prompt
 │   ├── config.py               # Settings, model presets, paths
 │   ├── models.py               # ChatOllama setup and Ollama helpers
+│   ├── telegram.py             # Telegram bot integration
+│   ├── scheduler.py            # Cron job scheduler
 │   ├── tools/
 │   │   ├── web_search.py       # Tavily search tool
-│   │   └── web_browse.py       # Tavily extract tool
+│   │   ├── web_browse.py       # Tavily extract tool
+│   │   ├── claude_code.py      # Claude Code delegation tool
+│   │   └── cron.py             # Cron job management tools
 │   └── memory/
 │       └── store.py            # SQLite checkpointer + memory store
+├── skills/
+│   ├── claude-code/            # Claude Code skill definition
+│   └── cron-jobs/              # Cron jobs skill definition
 └── workspace/
     └── memory/                 # Agent's persistent notes and knowledge
 ```
@@ -103,21 +113,26 @@ All settings are managed via environment variables (or `.env` file):
 | `OLLAMA_MODEL`        | `qwen3:8b`                 | Default Ollama model         |
 | `OLLAMA_BASE_URL`     | `http://localhost:11434`   | Ollama server URL            |
 | `TAVILY_API_KEY`      | —                          | Tavily API key for web tools |
+| `TELEGRAM_BOT_TOKEN`  | —                          | Telegram bot token           |
+| `TELEGRAM_OWNER_ID`   | —                          | Telegram user ID for auth    |
 | `GENIE_DATA_DIR`      | `~/.genie`                 | Checkpoints and history      |
 | `GENIE_WORKSPACE_DIR` | Project root               | Workspace root directory     |
 
 ## Model Presets
 
-| Model                       | Description                                    |
-|-----------------------------|------------------------------------------------|
-| `qwen3:8b`                  | Qwen 3 8B — Fast, strong tool calling (default)|
-| `qwen2.5:7b`                | Qwen 2.5 7B — Fast, good tool calling          |
-| `qwen2.5:14b`               | Qwen 2.5 14B — More capable, needs ~10GB VRAM  |
-| `deepseek-r1:7b`            | DeepSeek R1 7B — Strong reasoning               |
-| `deepseek-r1:14b`           | DeepSeek R1 14B — Stronger reasoning            |
-| `dolphin3:latest`           | Dolphin 3 8B — Uncensored, good for agents      |
-| `llama3.1:8b-instruct-q4_0` | Llama 3.1 8B — Well-rounded                    |
-| `mistral:7b`                | Mistral 7B — Fast and efficient                 |
+| Model                  | Description                                         |
+|------------------------|-----------------------------------------------------|
+| `qwen3:8b`             | Qwen 3 8B — Fast, excellent tool calling (default)  |
+| `qwen2.5:7b-instruct`  | Qwen 2.5 7B Instruct — Top-tier tool calling        |
+| `qwen2.5:14b-instruct` | Qwen 2.5 14B Instruct — More capable, ~10GB VRAM    |
+| `llama3.1:8b-instruct` | Llama 3.1 8B Instruct — Best overall tool calling   |
+| `llama3.3:8b-instruct` | Llama 3.3 8B Instruct — Newer Llama, strong tool use|
+| `mistral:7b`           | Mistral 7B — Fast, low resource, good tool calling  |
+| `mistral-nemo:12b`     | Mistral Nemo 12B — Stronger Mistral variant         |
+| `dolphin3:latest`      | Dolphin 3 8B — Uncensored, good for agents          |
+| `deepseek-r1:7b`       | DeepSeek R1 7B — Strong reasoning                   |
+| `deepseek-r1:14b`      | DeepSeek R1 14B — Stronger reasoning, ~10GB VRAM    |
+| `deepseek-coder-v2:16b`| DeepSeek Coder V2 16B — Best local code generation  |
 
 Any Ollama model can be used via `python -m genie -m <model-name>`, even if not in the presets.
 

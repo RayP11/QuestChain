@@ -28,45 +28,53 @@ MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 
 # --- Model presets ---
 MODEL_PRESETS = {
+    # -- Top-tier tool calling (recommended) --
     "qwen3:8b": {
-        "description": "Qwen 3 8B - Fast, strong tool calling (default)",
-        "num_ctx": 32768,
-        "temperature": 0.7,
+        "description": "Qwen 3 8B — Fast, excellent tool calling (default)",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
-    "qwen2.5:7b": {
-        "description": "Qwen 2.5 7B - Fast, good tool calling",
-        "num_ctx": 32768,
-        "temperature": 0.7,
+    "qwen2.5:7b-instruct": {
+        "description": "Qwen 2.5 7B Instruct — Top-tier tool calling",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
-    "qwen2.5:14b": {
-        "description": "Qwen 2.5 14B - More capable, needs ~10GB VRAM",
-        "num_ctx": 32768,
-        "temperature": 0.7,
+    "qwen2.5:14b-instruct": {
+        "description": "Qwen 2.5 14B Instruct — More capable, ~10GB VRAM",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
-    "deepseek-r1:7b": {
-        "description": "DeepSeek R1 7B - Strong reasoning",
-        "num_ctx": 32768,
-        "temperature": 0.6,
+    "llama3.1:8b-instruct": {
+        "description": "Llama 3.1 8B Instruct — Best overall tool calling (BFCL 77-81%)",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
-    "deepseek-r1:14b": {
-        "description": "DeepSeek R1 14B - Stronger reasoning, needs ~10GB VRAM",
-        "num_ctx": 32768,
-        "temperature": 0.6,
+    "llama3.3:8b-instruct": {
+        "description": "Llama 3.3 8B Instruct — Newer Llama, strong tool use",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
+    },
+    # -- Good alternatives --
+    "mistral:7b": {
+        "description": "Mistral 7B — Fast, low resource, good tool calling",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
+    },
+    "mistral-nemo:12b": {
+        "description": "Mistral Nemo 12B — Stronger Mistral variant",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
     "dolphin3:latest": {
-        "description": "Dolphin 3 8B - Uncensored, good for agents",
-        "num_ctx": 32768,
-        "temperature": 0.7,
+        "description": "Dolphin 3 8B — Uncensored, good for agents",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
     },
-    "llama3.1:8b-instruct-q4_0": {
-        "description": "Llama 3.1 8B Instruct - Well-rounded, good tool calling",
-        "num_ctx": 8192,
-        "temperature": 0.7,
+    # -- Reasoning-focused (weaker at tool calling) --
+    "deepseek-r1:7b": {
+        "description": "DeepSeek R1 7B — Strong reasoning (not ideal for tool calling)",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.6,
     },
-    "mistral:7b": {
-        "description": "Mistral 7B - Fast and efficient",
-        "num_ctx": 32768,
-        "temperature": 0.7,
+    "deepseek-r1:14b": {
+        "description": "DeepSeek R1 14B — Stronger reasoning, ~10GB VRAM",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.6,
+    },
+    # -- Code-focused --
+    "deepseek-coder-v2:16b": {
+        "description": "DeepSeek Coder V2 16B — Best local code generation",
+        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.6,
     },
 }
 

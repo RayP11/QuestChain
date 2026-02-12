@@ -3,24 +3,77 @@
 import asyncio
 import json
 import shutil
+from typing import Literal
 
 from langchain_core.tools import tool
 
 from genie.config import WORKSPACE_DIR
 
-_TIMEOUT = 900  # 15 minutes
+# Complexity → model + timeout mapping
+_COMPLEXITY_CONFIG = {
+    "simple":  {"model": "haiku",  "timeout": 300},   # 5 min
+    "medium":  {"model": "sonnet", "timeout": 600},   # 10 min
+    "complex": {"model": "sonnet", "timeout": 900},   # 15 min
+}
+
+# Mode → permission flags mapping
+_MODE_CONFIG = {
+    "code": {
+        "permission_mode": "acceptEdits",
+        "allowed_tools": None,
+    },
+    "review": {
+        "permission_mode": "plan",
+        "allowed_tools": "Read,Glob,Grep,Bash(git:*)",
+    },
+}
+
+_APPEND_SYSTEM = (
+    "You are working inside the Genie project at {cwd}. "
+    "This is a Python project using uv, LangGraph Deep Agents, and Ollama."
+)
 
 
 @tool
-async def claude_code(task: str) -> str:
+async def claude_code(
+    task: str,
+    complexity: Literal["simple", "medium", "complex"] = "medium",
+    mode: Literal["code", "review"] = "code",
+    context: str = "",
+) -> str:
     """Delegate a coding task to Claude Code (Anthropic's AI coding agent).
 
     Use this for writing code, debugging, refactoring, creating files,
-    or any programming task. Claude Code will operate on the filesystem
-    and return its result.
+    reviewing code, or any programming task. Claude Code operates directly
+    on the filesystem and returns its result.
+
+    WHEN TO USE:
+    - Writing new code, scripts, or files
+    - Debugging or fixing bugs in existing code
+    - Refactoring or improving code quality
+    - Code review and analysis
+    - Any task that involves reading, writing, or editing source code
 
     Args:
-        task: The coding task or prompt to send to Claude Code.
+        task: The coding task or prompt to send to Claude Code. Be specific
+              about what to build/change, which files are involved, and any
+              constraints.
+        complexity: Controls which Claude model and timeout to use.
+            - "simple": Fast model (Haiku), 5min timeout. Use for explanations,
+              small edits, quick questions about code.
+            - "medium": Capable model (Sonnet), 10min timeout. Use for most
+              coding tasks, bug fixes, new features. (default)
+            - "complex": Capable model (Sonnet), 15min timeout. Use for large
+              refactors, multi-file changes, complex implementations.
+        mode: Controls what Claude Code is allowed to do.
+            - "code": Can read AND write/edit files. Use when you need code
+              changes made. (default)
+            - "review": Read-only access. Use for code review, analysis, or
+              when you only need information about the codebase.
+        context: Optional additional project context to include with the task.
+            Use this to pass relevant information from the conversation that
+            Claude Code might need (e.g. error messages, user requirements,
+            file paths mentioned earlier).
     """
     claude_bin = shutil.which("claude")
     if not claude_bin:
@@ -28,13 +81,32 @@ async def claude_code(task: str) -> str:
 
     cwd = str(WORKSPACE_DIR)
 
+    # Build structured prompt
+    prompt_parts = [f"## Task\n{task}"]
+    if context:
+        prompt_parts.append(f"## Context\n{context}")
+    structured_prompt = "\n\n".join(prompt_parts)
+
+    # Resolve complexity config
+    comp_cfg = _COMPLEXITY_CONFIG[complexity]
+    timeout = comp_cfg["timeout"]
+    model = comp_cfg["model"]
+
+    # Resolve mode config
+    mode_cfg = _MODE_CONFIG[mode]
+
+    # Build command
     cmd = [
         claude_bin,
-        "-p", task,
+        "-p", structured_prompt,
         "--output-format", "json",
-        "--permission-mode", "acceptEdits",
-        "--max-budget-usd", "0.50",
+        "--model", model,
+        "--permission-mode", mode_cfg["permission_mode"],
+        "--append-system-prompt", _APPEND_SYSTEM.format(cwd=cwd),
     ]
+
+    if mode_cfg["allowed_tools"]:
+        cmd.extend(["--allowedTools", mode_cfg["allowed_tools"]])
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -44,11 +116,11 @@ async def claude_code(task: str) -> str:
             cwd=cwd,
         )
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_TIMEOUT
+            proc.communicate(), timeout=timeout
         )
     except asyncio.TimeoutError:
         proc.kill()
-        return "Error: Claude Code timed out after 15 minutes."
+        return f"Error: Claude Code timed out after {timeout // 60} minutes."
     except Exception as e:
         return f"Error running Claude Code: {e}"
 
