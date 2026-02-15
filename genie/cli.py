@@ -23,6 +23,27 @@ from genie.models import check_ollama_connection, list_available_models
 console = Console()
 
 
+async def _play_audio(wav_bytes: bytes) -> None:
+    """Play WAV bytes on laptop speakers using sounddevice."""
+    import io
+    import wave
+
+    import numpy as np
+    import sounddevice as sd
+
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        sample_rate = wf.getframerate()
+        n_channels = wf.getnchannels()
+        frames = wf.readframes(wf.getnframes())
+
+    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767.0
+    if n_channels > 1:
+        audio = audio.reshape(-1, n_channels)
+
+    sd.play(audio, samplerate=sample_rate)
+    sd.wait()
+
+
 def print_banner(model_name: str):
     """Display the Genie welcome banner."""
     banner = Text()
@@ -169,6 +190,7 @@ async def repl(model_name: str, thread_id: str | None = None, use_memory: bool =
                     model_name=model_name,
                     checkpointer=checkpointer,
                     store=store,
+                    on_audio=_play_audio,
                 )
             except Exception as e:
                 console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
@@ -176,7 +198,7 @@ async def repl(model_name: str, thread_id: str | None = None, use_memory: bool =
             await _repl_loop(session, agent, session_state)
     else:
         try:
-            agent = create_genie_agent(model_name=model_name)
+            agent = create_genie_agent(model_name=model_name, on_audio=_play_audio)
         except Exception as e:
             console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
             return

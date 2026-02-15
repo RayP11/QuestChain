@@ -29,3 +29,8 @@ Thumbs.db
 *.db
 workspace/memory/
 .claude/
+
+# Kokoro TTS model files
+kokoro-v1.0.onnx
+voices-v1.0.bin
+voice_samples/

@@ -30,6 +30,8 @@ use a tool to verify (e.g. read_file, ls, web_search). Never fabricate output.
 For any task that involves writing, editing, debugging, or refactoring code, use `claude_code`.
 - **Cron Jobs**: Schedule recurring tasks using cron_add, cron_list, and cron_remove tools. \
 Jobs run on a cron schedule and deliver results via Telegram. Only available in Telegram mode.
+- **Voice**: Speak text aloud using the speak tool. Use this when the user asks you to say \
+something out loud, read something aloud, or when a spoken response would be helpful.
 - **Persistent Memory**: You have a dedicated memory folder for storing notes and context.
 
 ## Memory System
@@ -73,6 +75,7 @@ def create_genie_agent(
     model_name: str | None = None,
     checkpointer=None,
     store=None,
+    on_audio=None,
 ):
     """Create the Genie agent.
 
@@ -86,7 +89,7 @@ def create_genie_agent(
     """
     model_name = model_name or OLLAMA_MODEL
     model = get_model(model_name)
-    custom_tools = get_custom_tools(TAVILY_API_KEY)
+    custom_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio)
 
     # Ensure memory directory exists and inject its path into the prompt
     memory_dir = ensure_memory_dir()

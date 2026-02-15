@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 _thread_ids: dict[int, str] = {}
 
 
+class _AudioSender:
+    """Callable that sends WAV audio as a Telegram voice message.
+
+    The `.update` attribute is set before each agent invocation so the
+    callback always targets the correct chat.
+    """
+
+    def __init__(self):
+        self.update: Update | None = None
+
+    async def __call__(self, wav_bytes: bytes) -> None:
+        if self.update is None:
+            logger.warning("AudioSender called but no update is set")
+            return
+        import io
+        await self.update.message.reply_voice(voice=io.BytesIO(wav_bytes))
+
+
 def _get_thread_id(chat_id: int) -> str:
     """Get or create a thread ID for a Telegram chat."""
     if chat_id not in _thread_ids:
@@ -117,6 +135,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     agent = context.bot_data["agent"]
+    audio_sender: _AudioSender = context.bot_data["audio_sender"]
+    audio_sender.update = update
     chat_id = update.effective_chat.id
     thread_id = _get_thread_id(chat_id)
     config = {"configurable": {"thread_id": thread_id}}
@@ -204,18 +224,22 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
 
     store = create_memory_store()
 
+    audio_sender = _AudioSender()
+
     async with create_checkpointer() as checkpointer:
         agent = create_genie_agent(
             model_name=model_name,
             checkpointer=checkpointer,
             store=store,
+            on_audio=audio_sender,
         )
 
         app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-        # Store agent and model name in bot_data for handlers
+        # Store agent, model name, and audio sender in bot_data for handlers
         app.bot_data["agent"] = agent
         app.bot_data["model_name"] = model_name
+        app.bot_data["audio_sender"] = audio_sender
 
         # Set up cron scheduler
         from genie.scheduler import CronScheduler, set_scheduler
