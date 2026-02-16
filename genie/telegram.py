@@ -290,7 +290,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def run_telegram_bot(
     model_name: str | None = None,
-    heartbeat_minutes: int | None = 60,
+    busy_work_minutes: int | None = 60,
 ) -> None:
     """Start the Telegram bot (blocking)."""
     model_name = model_name or OLLAMA_MODEL
@@ -369,18 +369,18 @@ async def run_telegram_bot(
         # Start cron scheduler
         await scheduler.start()
 
-        # Start heartbeat (if enabled)
-        heartbeat = None
-        if heartbeat_minutes is not None:
-            from genie.heartbeat import HeartbeatRunner
+        # Start busy work (if enabled)
+        busy_work = None
+        if busy_work_minutes is not None:
+            from genie.busy_work import BusyWorkRunner
 
-            heartbeat = HeartbeatRunner(
+            busy_work = BusyWorkRunner(
                 agent=agent,
                 send_callback=send_to_owner,
-                interval_minutes=heartbeat_minutes,
+                interval_minutes=busy_work_minutes,
             )
-            await heartbeat.start()
-            logger.info("Heartbeat started (every %d min)", heartbeat_minutes)
+            await busy_work.start()
+            logger.info("Busy work started (every %d min)", busy_work_minutes)
 
         # Block until interrupted
         stop_event = asyncio.Event()
@@ -389,8 +389,8 @@ async def run_telegram_bot(
         except asyncio.CancelledError:
             pass
         finally:
-            if heartbeat:
-                await heartbeat.stop()
+            if busy_work:
+                await busy_work.stop()
             await scheduler.stop()
             set_scheduler(None)
             await app.updater.stop()

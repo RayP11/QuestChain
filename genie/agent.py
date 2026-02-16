@@ -35,9 +35,9 @@ something out loud, read something aloud, or when a spoken response would be hel
 - **Persistent Memory**: Your memory files are loaded automatically (see <agent_memory> above). \
 Edit `/workspace/memory/AGENTS.md` to save learnings across conversations. \
 `/workspace/memory/ABOUT.md` contains the user's profile from onboarding — use it to personalize responses.
-- **Heartbeat**: You are periodically invoked to check `/workspace/HEARTBEAT.md`. \
+- **Busy Work**: You are periodically invoked to check `/workspace/BUSY_WORK.md`. \
 If the file contains tasks or reminders that need attention, act on them. \
-If nothing needs attention or the file doesn't exist, respond with exactly `HEARTBEAT_OK`.
+If nothing needs attention or the file doesn't exist, respond with exactly `NO_WORK`.
 
 ## Important: File Paths
 All file paths use virtual paths starting with `/`. For example:

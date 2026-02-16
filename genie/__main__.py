@@ -2,7 +2,7 @@
 
 import argparse
 
-from genie.config import MODEL_PRESETS, OLLAMA_MODEL
+from genie.config import DEFAULT_BUSY_WORK_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
 
 
 def parse_args():
@@ -35,6 +35,18 @@ def parse_args():
         action="store_true",
         help="Run as a Telegram bot instead of the terminal REPL",
     )
+    parser.add_argument(
+        "--busy-work",
+        type=int,
+        default=DEFAULT_BUSY_WORK_MINUTES,
+        metavar="MINUTES",
+        help=f"Busy work interval in minutes (default: {DEFAULT_BUSY_WORK_MINUTES})",
+    )
+    parser.add_argument(
+        "--no-busy-work",
+        action="store_true",
+        help="Disable the periodic busy work check",
+    )
     return parser.parse_args()
 
 
@@ -48,12 +60,17 @@ def main():
             print(f"  {name:20s} {preset['description']}{marker}")
         return
 
+    busy_work_minutes = None if args.no_busy_work else args.busy_work
+
     if args.telegram:
         import asyncio
 
         from genie.telegram import run_telegram_bot
 
-        asyncio.run(run_telegram_bot(model_name=args.model))
+        asyncio.run(run_telegram_bot(
+            model_name=args.model,
+            busy_work_minutes=busy_work_minutes,
+        ))
         return
 
     from genie.cli import main as cli_main
@@ -62,6 +79,7 @@ def main():
         model_name=args.model,
         thread_id=args.thread,
         use_memory=not args.no_memory,
+        busy_work_minutes=busy_work_minutes,
     )
 
 

@@ -13,7 +13,7 @@ from rich.text import Text
 from genie import __version__
 from genie.agent import create_genie_agent
 from genie.config import (
-    DEFAULT_HEARTBEAT_MINUTES,
+    DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
     TAVILY_API_KEY,
     get_history_path,
@@ -101,12 +101,12 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         console.print(f"[cyan]Thread ID:[/cyan] {session_state['thread_id']}")
         return True
 
-    if cmd == "/heartbeat":
-        hb = session_state.get("heartbeat_runner")
-        if hb and hb.running:
-            console.print(f"[green]Heartbeat:[/green] active (every {hb.interval_minutes} min)")
+    if cmd == "/busy":
+        runner = session_state.get("busy_work_runner")
+        if runner and runner.running:
+            console.print(f"[green]Busy work:[/green] active (every {runner.interval_minutes} min)")
         else:
-            console.print("[yellow]Heartbeat:[/yellow] disabled")
+            console.print("[yellow]Busy work:[/yellow] disabled")
         return True
 
     if cmd == "/onboard":
@@ -120,7 +120,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /new        - Start a new conversation\n"
             "  /model      - Show current model and available models\n"
             "  /thread     - Show current thread ID\n"
-            "  /heartbeat  - Show heartbeat status\n"
+            "  /busy       - Show busy work status\n"
             "  /onboard    - Re-run the onboarding flow\n"
             "  /clear      - Clear the screen\n"
             "  /quit       - Exit Genie\n"
@@ -173,7 +173,7 @@ async def repl(
     model_name: str,
     thread_id: str | None = None,
     use_memory: bool = True,
-    heartbeat_minutes: int | None = DEFAULT_HEARTBEAT_MINUTES,
+    busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
 ):
     """Run the main REPL loop."""
     # Check Ollama connection
@@ -217,42 +217,42 @@ async def repl(
             except Exception as e:
                 console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
                 return
-            await _run_with_heartbeat(session, agent, session_state, heartbeat_minutes, use_memory=True)
+            await _run_with_busy_work(session, agent, session_state, busy_work_minutes, use_memory=True)
     else:
         try:
             agent = create_genie_agent(model_name=model_name, on_audio=_play_audio)
         except Exception as e:
             console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
             return
-        await _run_with_heartbeat(session, agent, session_state, heartbeat_minutes, use_memory=False)
+        await _run_with_busy_work(session, agent, session_state, busy_work_minutes, use_memory=False)
 
 
-async def _run_with_heartbeat(
+async def _run_with_busy_work(
     session: PromptSession,
     agent,
     session_state: dict,
-    heartbeat_minutes: int | None,
+    busy_work_minutes: int | None,
     use_memory: bool = True,
 ):
-    """Start heartbeat (if enabled), run the REPL, then clean up."""
-    from genie.heartbeat import HeartbeatRunner
+    """Start busy work (if enabled), run the REPL, then clean up."""
+    from genie.busy_work import BusyWorkRunner
 
-    heartbeat: HeartbeatRunner | None = None
+    runner: BusyWorkRunner | None = None
 
-    if heartbeat_minutes is not None:
-        async def cli_heartbeat_callback(text: str) -> None:
+    if busy_work_minutes is not None:
+        async def cli_busy_work_callback(text: str) -> None:
             console.print()
-            console.print(Panel(text, title="Heartbeat", border_style="magenta"))
+            console.print(Panel(text, title="Busy Work", border_style="magenta"))
             console.print()
 
-        heartbeat = HeartbeatRunner(
+        runner = BusyWorkRunner(
             agent=agent,
-            send_callback=cli_heartbeat_callback,
-            interval_minutes=heartbeat_minutes,
+            send_callback=cli_busy_work_callback,
+            interval_minutes=busy_work_minutes,
         )
-        await heartbeat.start()
-        session_state["heartbeat_runner"] = heartbeat
-        console.print(f"[dim]Heartbeat: every {heartbeat_minutes} min[/dim]")
+        await runner.start()
+        session_state["busy_work_runner"] = runner
+        console.print(f"[dim]Busy work: every {busy_work_minutes} min[/dim]")
 
     # First-run onboarding — jump straight into the conversation
     if use_memory and not is_onboarded():
@@ -261,8 +261,8 @@ async def _run_with_heartbeat(
     try:
         await _repl_loop(session, agent, session_state)
     finally:
-        if heartbeat:
-            await heartbeat.stop()
+        if runner:
+            await runner.stop()
 
 
 async def _repl_loop(session: PromptSession, agent, session_state: dict):
@@ -306,8 +306,8 @@ def main(
     model_name: str | None = None,
     thread_id: str | None = None,
     use_memory: bool = True,
-    heartbeat_minutes: int | None = DEFAULT_HEARTBEAT_MINUTES,
+    busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
 ):
     """Entry point for the Genie CLI."""
     model_name = model_name or OLLAMA_MODEL
-    asyncio.run(repl(model_name, thread_id, use_memory, heartbeat_minutes))
+    asyncio.run(repl(model_name, thread_id, use_memory, busy_work_minutes))

@@ -111,5 +111,5 @@ def get_onboarded_marker_path() -> Path:
     return ensure_data_dir() / "onboarded"
 
 
-# --- Heartbeat settings ---
-DEFAULT_HEARTBEAT_MINUTES = 60
+# --- Busy work settings ---
+DEFAULT_BUSY_WORK_MINUTES = 60
