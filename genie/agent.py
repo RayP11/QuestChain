@@ -32,19 +32,18 @@ For any task that involves writing, editing, debugging, or refactoring code, use
 Jobs run on a cron schedule and deliver results via Telegram. Only available in Telegram mode.
 - **Voice**: Speak text aloud using the speak tool. Use this when the user asks you to say \
 something out loud, read something aloud, or when a spoken response would be helpful.
-- **Persistent Memory**: You have a dedicated memory folder for storing notes and context.
+- **Persistent Memory**: Your memory files are loaded automatically (see <agent_memory> above). \
+Edit `/workspace/memory/AGENTS.md` to save learnings across conversations. \
+`/workspace/memory/ABOUT.md` contains the user's profile from onboarding — use it to personalize responses.
+- **Heartbeat**: You are periodically invoked to check `/workspace/HEARTBEAT.md`. \
+If the file contains tasks or reminders that need attention, act on them. \
+If nothing needs attention or the file doesn't exist, respond with exactly `HEARTBEAT_OK`.
 
-## Memory System
-You have a persistent memory directory at: `{memory_dir}`
-
-Use this folder to:
-- **Save notes and learnings**: Write files here to remember important information across conversations.
-- **Store user preferences**: Keep track of what the user likes, their coding style, project conventions, etc.
-- **Track project context**: Save summaries of ongoing work, decisions made, and things to follow up on.
-- **Organize by topic**: Create files like `notes.md`, `preferences.md`, `projects.md`, etc.
-
-At the start of a conversation, check your memory folder (use `ls` or `read_file`) to recall prior context.
-When you learn something important or the user shares a preference, proactively save it to memory.
+## Important: File Paths
+All file paths use virtual paths starting with `/`. For example:
+- `/workspace/memory/AGENTS.md` — your persistent memory file
+- `/skills/` — your skills directory
+Do NOT use Windows-style paths (like `C:\\...`). Always use forward slashes starting with `/`.
 
 ## Tool Usage Guidelines
 - **Coding tasks** → Delegate to `claude_code`. Set complexity and mode appropriately.
@@ -91,11 +90,19 @@ def create_genie_agent(
     model = get_model(model_name)
     custom_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio)
 
-    # Ensure memory directory exists and inject its path into the prompt
-    memory_dir = ensure_memory_dir()
-    system_prompt = SYSTEM_PROMPT.format(memory_dir=memory_dir)
+    # Ensure memory directory exists on disk
+    ensure_memory_dir()
 
-    backend = FilesystemBackend(root_dir=str(WORKSPACE_DIR))
+    backend = FilesystemBackend(root_dir=str(WORKSPACE_DIR), virtual_mode=True)
+
+    # Memory: deepagents MemoryMiddleware auto-loads AGENTS.md into the system
+    # prompt and injects guidelines for the agent to edit it with edit_file.
+    # The virtual path /workspace/memory/AGENTS.md resolves to the real
+    # WORKSPACE_DIR/workspace/memory/AGENTS.md via FilesystemBackend.
+    memory_paths = [
+        "/workspace/memory/AGENTS.md",
+        "/workspace/memory/ABOUT.md",
+    ]
 
     # Note: SummarizationMiddleware is added automatically by create_deep_agent.
     # It uses model.profile["max_input_tokens"] (set in models.py) to compute
@@ -105,11 +112,12 @@ def create_genie_agent(
     agent = create_deep_agent(
         model=model,
         tools=custom_tools,
-        system_prompt=system_prompt,
+        system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
         store=store,
         backend=backend,
         skills=["/skills/"],
+        memory=memory_paths,
     )
 
     return agent

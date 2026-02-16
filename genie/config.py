@@ -104,3 +104,12 @@ def get_history_path() -> Path:
 def get_cron_jobs_path() -> Path:
     """Get the path to the cron jobs JSON file."""
     return ensure_data_dir() / "cron_jobs.json"
+
+
+def get_onboarded_marker_path() -> Path:
+    """Get the path to the onboarded marker file."""
+    return ensure_data_dir() / "onboarded"
+
+
+# --- Heartbeat settings ---
+DEFAULT_HEARTBEAT_MINUTES = 60

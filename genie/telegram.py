@@ -21,6 +21,7 @@ from genie.config import (
     TELEGRAM_OWNER_ID,
 )
 from genie.memory.store import create_checkpointer, create_memory_store
+from genie.onboarding import ONBOARDING_SYSTEM, OPENING_QUESTION, is_onboarded, mark_onboarded
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,58 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Current model: {model_name}")
 
 
+async def _run_agent_collect(agent, user_text: str, config: dict, update: Update) -> str:
+    """Run the agent, collect full response, and send it to the user."""
+    stop_typing = asyncio.Event()
+
+    async def typing_loop():
+        while not stop_typing.is_set():
+            try:
+                await update.effective_chat.send_action(ChatAction.TYPING)
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                pass
+
+    typing_task = asyncio.create_task(typing_loop())
+
+    try:
+        full_response = ""
+        async for event in agent.astream_events(
+            {"messages": [{"role": "user", "content": user_text}]},
+            config=config,
+            version="v2",
+        ):
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if hasattr(chunk, "content") and isinstance(chunk.content, str):
+                    full_response += chunk.content
+    except Exception as e:
+        logger.exception("Agent error")
+        full_response = f"Error: {e}"
+    finally:
+        stop_typing.set()
+        await typing_task
+
+    if not full_response.strip():
+        full_response = "(No response generated)"
+
+    # Strip the ONBOARDING_COMPLETE token from user-visible output
+    display_text = full_response.replace("ONBOARDING_COMPLETE", "").strip()
+    if display_text:
+        chunks = _split_message(display_text)
+        for chunk in chunks:
+            try:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await update.message.reply_text(chunk)
+
+    return full_response
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages — invoke the Genie agent."""
     if not _is_owner(update.effective_user.id):
@@ -138,6 +191,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     audio_sender: _AudioSender = context.bot_data["audio_sender"]
     audio_sender.update = update
     chat_id = update.effective_chat.id
+
+    # First-run onboarding: intercept the first message
+    onboarding_active = context.chat_data.get("onboarding_active", False)
+    if not is_onboarded() and not onboarding_active:
+        # Send hardcoded opening question, then start onboarding with user's reply
+        context.chat_data["onboarding_active"] = True
+        await update.message.reply_text(OPENING_QUESTION)
+        return
+
+    if onboarding_active:
+        # Continue onboarding conversation on a dedicated thread
+        thread_id = "onboarding"
+        config = {"configurable": {"thread_id": thread_id}}
+        await update.effective_chat.send_action(ChatAction.TYPING)
+
+        # First reply from user gets wrapped with system context
+        if not context.chat_data.get("onboarding_intro_sent", False):
+            context.chat_data["onboarding_intro_sent"] = True
+            message = f"[System: {ONBOARDING_SYSTEM}]\n\nUser's introduction: {user_text}"
+        else:
+            message = user_text
+
+        full_response = await _run_agent_collect(agent, message, config, update)
+        if "ONBOARDING_COMPLETE" in full_response:
+            mark_onboarded()
+            context.chat_data["onboarding_active"] = False
+            context.chat_data.pop("onboarding_intro_sent", None)
+        return
+
     thread_id = _get_thread_id(chat_id)
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -206,7 +288,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(summary)
 
 
-async def run_telegram_bot(model_name: str | None = None) -> None:
+async def run_telegram_bot(
+    model_name: str | None = None,
+    heartbeat_minutes: int | None = 60,
+) -> None:
     """Start the Telegram bot (blocking)."""
     model_name = model_name or OLLAMA_MODEL
 
@@ -284,6 +369,19 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
         # Start cron scheduler
         await scheduler.start()
 
+        # Start heartbeat (if enabled)
+        heartbeat = None
+        if heartbeat_minutes is not None:
+            from genie.heartbeat import HeartbeatRunner
+
+            heartbeat = HeartbeatRunner(
+                agent=agent,
+                send_callback=send_to_owner,
+                interval_minutes=heartbeat_minutes,
+            )
+            await heartbeat.start()
+            logger.info("Heartbeat started (every %d min)", heartbeat_minutes)
+
         # Block until interrupted
         stop_event = asyncio.Event()
         try:
@@ -291,6 +389,8 @@ async def run_telegram_bot(model_name: str | None = None) -> None:
         except asyncio.CancelledError:
             pass
         finally:
+            if heartbeat:
+                await heartbeat.stop()
             await scheduler.stop()
             set_scheduler(None)
             await app.updater.stop()
