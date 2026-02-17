@@ -5,7 +5,7 @@ import random
 from rich.panel import Panel
 from rich.text import Text
 
-from genie.config import get_onboarded_marker_path
+from genie.config import RECURSION_LIMIT, get_onboarded_marker_path
 
 GENIE_ART = (
     " ██████╗ ███████╗███╗   ██╗██╗███████╗\n"
@@ -138,7 +138,10 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     Returns True if onboarding completed, False if skipped.
     """
-    config = {"configurable": {"thread_id": "onboarding"}}
+    config = {
+        "configurable": {"thread_id": "onboarding"},
+        "recursion_limit": RECURSION_LIMIT,
+    }
 
     # Show the welcome banner
     console.print()

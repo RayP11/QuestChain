@@ -10,7 +10,7 @@ from typing import Any, Callable, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from genie.config import get_cron_jobs_path
+from genie.config import RECURSION_LIMIT, get_cron_jobs_path
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,10 @@ class CronScheduler:
         logger.info("Executing cron job '%s' (id=%s)", job_name, job_id)
 
         try:
-            config = {"configurable": {"thread_id": thread_id}}
+            config = {
+                "configurable": {"thread_id": thread_id},
+                "recursion_limit": RECURSION_LIMIT,
+            }
             full_response = ""
 
             async for event in self._agent.astream_events(

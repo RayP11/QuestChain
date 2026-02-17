@@ -15,6 +15,7 @@ from genie.agent import create_genie_agent
 from genie.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
+    RECURSION_LIMIT,
     TAVILY_API_KEY,
     get_history_path,
 )
@@ -292,7 +293,10 @@ async def _repl_loop(session: PromptSession, agent, session_state: dict):
                 continue
 
         # Run agent
-        config = {"configurable": {"thread_id": session_state["thread_id"]}}
+        config = {
+            "configurable": {"thread_id": session_state["thread_id"]},
+            "recursion_limit": RECURSION_LIMIT,
+        }
         try:
             console.print("\n[bold magenta]Genie[/bold magenta]", end="")
             await run_agent_stream(agent, user_input, config)

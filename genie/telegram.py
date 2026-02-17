@@ -17,6 +17,7 @@ from telegram.ext import (
 from genie.agent import create_genie_agent
 from genie.config import (
     OLLAMA_MODEL,
+    RECURSION_LIMIT,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_OWNER_ID,
 )
@@ -104,7 +105,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Just send me a message and I'll help out.\n\n"
         "Commands:\n"
         "/new — Start a fresh conversation\n"
-        "/model — Show current model"
+        "/model — Show current model\n"
+        "/thread — Show current thread ID\n"
+        "/busy — Show busy work status\n"
+        "/onboard — Re-run the onboarding flow\n"
+        "/help — Show all commands"
+    )
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /help command."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    await update.message.reply_text(
+        "Commands:\n"
+        "/new — Start a fresh conversation\n"
+        "/model — Show current model\n"
+        "/thread — Show current thread ID\n"
+        "/busy — Show busy work status\n"
+        "/onboard — Re-run the onboarding flow\n"
+        "/help — Show this help message"
     )
 
 
@@ -124,6 +145,43 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     model_name = context.bot_data.get("model_name", OLLAMA_MODEL)
     await update.message.reply_text(f"Current model: {model_name}")
+
+
+async def cmd_thread(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /thread command — show current thread ID."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    chat_id = update.effective_chat.id
+    thread_id = _get_thread_id(chat_id)
+    await update.message.reply_text(f"Thread ID: {thread_id}")
+
+
+async def cmd_busy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /busy command — show busy work status."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    runner = context.bot_data.get("busy_work_runner")
+    if runner and runner.running:
+        await update.message.reply_text(
+            f"Busy work: active (every {runner.interval_minutes} min)"
+        )
+    else:
+        await update.message.reply_text("Busy work: disabled")
+
+
+async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /onboard command — re-run onboarding."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from genie.onboarding import clear_onboarded
+    clear_onboarded()
+    # Set active so the next message goes to the AI as the user's intro
+    context.chat_data["onboarding_active"] = True
+    context.chat_data.pop("onboarding_intro_sent", None)
+    await update.message.reply_text(OPENING_QUESTION)
 
 
 async def _run_agent_collect(agent, user_text: str, config: dict, update: Update) -> str:
@@ -203,7 +261,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if onboarding_active:
         # Continue onboarding conversation on a dedicated thread
         thread_id = "onboarding"
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
         await update.effective_chat.send_action(ChatAction.TYPING)
 
         # First reply from user gets wrapped with system context
@@ -221,7 +279,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     thread_id = _get_thread_id(chat_id)
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
 
     # Send typing indicator
     await update.effective_chat.send_action(ChatAction.TYPING)
@@ -353,8 +411,12 @@ async def run_telegram_bot(
 
         # Register handlers
         app.add_handler(CommandHandler("start", cmd_start))
+        app.add_handler(CommandHandler("help", cmd_help))
         app.add_handler(CommandHandler("new", cmd_new))
         app.add_handler(CommandHandler("model", cmd_model))
+        app.add_handler(CommandHandler("thread", cmd_thread))
+        app.add_handler(CommandHandler("busy", cmd_busy))
+        app.add_handler(CommandHandler("onboard", cmd_onboard))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
         logger.info("Starting Genie Telegram bot (model: %s)...", model_name)
@@ -380,6 +442,7 @@ async def run_telegram_bot(
                 interval_minutes=busy_work_minutes,
             )
             await busy_work.start()
+            app.bot_data["busy_work_runner"] = busy_work
             logger.info("Busy work started (every %d min)", busy_work_minutes)
 
         # Block until interrupted

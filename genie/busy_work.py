@@ -3,6 +3,8 @@
 import logging
 from typing import Awaitable, Callable
 
+from genie.config import RECURSION_LIMIT
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -64,7 +66,10 @@ class BusyWorkRunner:
         """Single busy work tick: invoke agent and deliver if needed."""
         logger.debug("Busy work tick")
         thread_id = "busy_work"
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": RECURSION_LIMIT,
+        }
 
         try:
             full_response = ""

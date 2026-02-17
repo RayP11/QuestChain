@@ -113,3 +113,8 @@ def get_onboarded_marker_path() -> Path:
 
 # --- Busy work settings ---
 DEFAULT_BUSY_WORK_MINUTES = 60
+
+# --- Agent recursion limit ---
+# Default LangGraph limit is 25, which is too low for multi-step agent tasks
+# (web search → browse → summarize can easily take 10+ steps).
+RECURSION_LIMIT = 150
