@@ -1,11 +1,28 @@
 """Core Genie agent built on Deep Agents."""
 
+from datetime import datetime
+
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 
 from genie.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensure_memory_dir
 from genie.models import get_model
 from genie.tools import get_custom_tools
+
+
+def build_input(content: str) -> dict:
+    """Build the agent input dict with a timestamped system context.
+
+    Every invocation gets the current date/time so the agent always knows
+    what time it is without needing a tool call.
+    """
+    now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    return {
+        "messages": [
+            {"role": "system", "content": f"Current date and time: {now}"},
+            {"role": "user", "content": content},
+        ]
+    }
 
 SYSTEM_PROMPT = """\
 You are Genie, a capable AI assistant running locally via Ollama.

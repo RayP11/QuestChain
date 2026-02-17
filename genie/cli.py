@@ -11,11 +11,10 @@ from rich.panel import Panel
 from rich.text import Text
 
 from genie import __version__
-from genie.agent import create_genie_agent
+from genie.agent import build_input, create_genie_agent
 from genie.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
-    RECURSION_LIMIT,
     TAVILY_API_KEY,
     get_history_path,
 )
@@ -141,7 +140,7 @@ async def run_agent_stream(agent, user_input: str, config: dict):
     tool_calls_shown = set()
 
     async for event in agent.astream_events(
-        {"messages": [{"role": "user", "content": user_input}]},
+        build_input(user_input),
         config=config,
         version="v2",
     ):
@@ -293,10 +292,7 @@ async def _repl_loop(session: PromptSession, agent, session_state: dict):
                 continue
 
         # Run agent
-        config = {
-            "configurable": {"thread_id": session_state["thread_id"]},
-            "recursion_limit": RECURSION_LIMIT,
-        }
+        config = {"configurable": {"thread_id": session_state["thread_id"]}}
         try:
             console.print("\n[bold magenta]Genie[/bold magenta]", end="")
             await run_agent_stream(agent, user_input, config)

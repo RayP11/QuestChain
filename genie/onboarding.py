@@ -5,7 +5,8 @@ import random
 from rich.panel import Panel
 from rich.text import Text
 
-from genie.config import RECURSION_LIMIT, get_onboarded_marker_path
+from genie.agent import build_input
+from genie.config import get_onboarded_marker_path
 
 GENIE_ART = (
     " ██████╗ ███████╗███╗   ██╗██╗███████╗\n"
@@ -100,7 +101,7 @@ async def _stream_agent(agent, message: str, config: dict, console) -> str:
     """Send a message to the agent and stream the response. Returns full text."""
     full_response = ""
     async for event in agent.astream_events(
-        {"messages": [{"role": "user", "content": message}]},
+        build_input(message),
         config=config,
         version="v2",
     ):
@@ -138,10 +139,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     Returns True if onboarding completed, False if skipped.
     """
-    config = {
-        "configurable": {"thread_id": "onboarding"},
-        "recursion_limit": RECURSION_LIMIT,
-    }
+    config = {"configurable": {"thread_id": "onboarding"}}
 
     # Show the welcome banner
     console.print()

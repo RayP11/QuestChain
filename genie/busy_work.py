@@ -3,7 +3,7 @@
 import logging
 from typing import Awaitable, Callable
 
-from genie.config import RECURSION_LIMIT
+from genie.agent import build_input
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -66,15 +66,12 @@ class BusyWorkRunner:
         """Single busy work tick: invoke agent and deliver if needed."""
         logger.debug("Busy work tick")
         thread_id = "busy_work"
-        config = {
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": RECURSION_LIMIT,
-        }
+        config = {"configurable": {"thread_id": thread_id}}
 
         try:
             full_response = ""
             async for event in self._agent.astream_events(
-                {"messages": [{"role": "user", "content": BUSY_WORK_PROMPT}]},
+                build_input(BUSY_WORK_PROMPT),
                 config=config,
                 version="v2",
             ):

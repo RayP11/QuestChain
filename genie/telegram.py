@@ -14,10 +14,9 @@ from telegram.ext import (
     filters,
 )
 
-from genie.agent import create_genie_agent
+from genie.agent import build_input, create_genie_agent
 from genie.config import (
     OLLAMA_MODEL,
-    RECURSION_LIMIT,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_OWNER_ID,
 )
@@ -204,7 +203,7 @@ async def _run_agent_collect(agent, user_text: str, config: dict, update: Update
     try:
         full_response = ""
         async for event in agent.astream_events(
-            {"messages": [{"role": "user", "content": user_text}]},
+            build_input(user_text),
             config=config,
             version="v2",
         ):
@@ -261,7 +260,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if onboarding_active:
         # Continue onboarding conversation on a dedicated thread
         thread_id = "onboarding"
-        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+        config = {"configurable": {"thread_id": thread_id}}
         await update.effective_chat.send_action(ChatAction.TYPING)
 
         # First reply from user gets wrapped with system context
@@ -279,7 +278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     thread_id = _get_thread_id(chat_id)
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+    config = {"configurable": {"thread_id": thread_id}}
 
     # Send typing indicator
     await update.effective_chat.send_action(ChatAction.TYPING)
@@ -305,7 +304,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tool_names = []
 
         async for event in agent.astream_events(
-            {"messages": [{"role": "user", "content": user_text}]},
+            build_input(user_text),
             config=config,
             version="v2",
         ):
