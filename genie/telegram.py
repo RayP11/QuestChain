@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -424,6 +424,17 @@ async def run_telegram_bot(
 
         # Run polling within the checkpointer context
         await app.initialize()
+
+        # Register commands in Telegram's "/" menu
+        await app.bot.set_my_commands([
+            BotCommand("new", "Start a fresh conversation"),
+            BotCommand("model", "Show current model"),
+            BotCommand("thread", "Show current thread ID"),
+            BotCommand("busy", "Show busy work status"),
+            BotCommand("onboard", "Re-run the onboarding flow"),
+            BotCommand("help", "Show all commands"),
+        ])
+
         await app.start()
         await app.updater.start_polling()
 
