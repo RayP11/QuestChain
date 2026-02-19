@@ -132,12 +132,29 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     return None
 
 
-async def run_agent_stream(agent, user_input: str, config: dict):
-    """Stream agent response to the console."""
-    console.print()
+async def run_agent_stream(agent, user_input: str, config: dict) -> str:
+    """Stream agent response to the console, returning the full text."""
+    from rich.live import Live
+    from rich.spinner import Spinner
 
     full_response = ""
     tool_calls_shown = set()
+    past_spinner = False
+
+    live = Live(
+        Spinner("dots", text=" Thinking…"),
+        console=console,
+        refresh_per_second=10,
+        transient=True,
+    )
+    live.start(refresh=True)
+
+    def _stop_spinner():
+        nonlocal past_spinner
+        if not past_spinner:
+            past_spinner = True
+            live.stop()
+            console.print("[bold magenta]Genie[/bold magenta]")
 
     async for event in agent.astream_events(
         build_input(user_input),
@@ -146,27 +163,47 @@ async def run_agent_stream(agent, user_input: str, config: dict):
     ):
         kind = event["event"]
 
-        # Stream text tokens
         if kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
-            if hasattr(chunk, "content") and isinstance(chunk.content, str):
+            if hasattr(chunk, "content") and isinstance(chunk.content, str) and chunk.content:
+                _stop_spinner()
                 full_response += chunk.content
                 console.print(chunk.content, end="")
 
-        # Show tool calls
         elif kind == "on_tool_start":
             tool_name = event.get("name", "unknown")
             tool_input = event.get("data", {}).get("input", {})
             call_id = f"{tool_name}:{id(event)}"
             if call_id not in tool_calls_shown:
                 tool_calls_shown.add(call_id)
+                _stop_spinner()
                 console.print()
                 print_tool_call(tool_name, tool_input)
 
         elif kind == "on_tool_end":
             pass
 
+    _stop_spinner()  # Safety: in case no tokens were generated
     console.print()
+    return full_response
+
+
+async def _maybe_start_telegram(agent, model_name: str):
+    """Start Telegram bot alongside the CLI if token is configured.
+
+    Returns ``(send_fn, stop_fn, telegram_queue)`` or ``(None, None, None)``.
+    """
+    from genie.config import TELEGRAM_BOT_TOKEN
+    if not TELEGRAM_BOT_TOKEN:
+        return None, None, None
+    try:
+        from genie.telegram import run_telegram_alongside_cli
+        telegram_queue: asyncio.Queue = asyncio.Queue()
+        send_fn, stop_fn = await run_telegram_alongside_cli(agent, model_name, telegram_queue)
+        return send_fn, stop_fn, telegram_queue
+    except Exception as e:
+        console.print(f"[yellow]Telegram: failed to start ({e})[/yellow]")
+        return None, None, None
 
 
 async def repl(
@@ -217,14 +254,36 @@ async def repl(
             except Exception as e:
                 console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
                 return
-            await _run_with_busy_work(session, agent, session_state, busy_work_minutes, use_memory=True)
+            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name)
+            if telegram_send:
+                console.print("[dim]Telegram: bot active[/dim]")
+            try:
+                await _run_with_busy_work(
+                    session, agent, session_state, busy_work_minutes,
+                    use_memory=True, telegram_send=telegram_send,
+                    telegram_queue=telegram_queue,
+                )
+            finally:
+                if telegram_stop:
+                    await telegram_stop()
     else:
         try:
             agent = create_genie_agent(model_name=model_name, on_audio=_play_audio)
         except Exception as e:
             console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
             return
-        await _run_with_busy_work(session, agent, session_state, busy_work_minutes, use_memory=False)
+        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name)
+        if telegram_send:
+            console.print("[dim]Telegram: bot active[/dim]")
+        try:
+            await _run_with_busy_work(
+                session, agent, session_state, busy_work_minutes,
+                use_memory=False, telegram_send=telegram_send,
+                telegram_queue=telegram_queue,
+            )
+        finally:
+            if telegram_stop:
+                await telegram_stop()
 
 
 async def _run_with_busy_work(
@@ -233,6 +292,8 @@ async def _run_with_busy_work(
     session_state: dict,
     busy_work_minutes: int | None,
     use_memory: bool = True,
+    telegram_send=None,
+    telegram_queue=None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
     from genie.busy_work import BusyWorkRunner
@@ -240,14 +301,16 @@ async def _run_with_busy_work(
     runner: BusyWorkRunner | None = None
 
     if busy_work_minutes is not None:
-        async def cli_busy_work_callback(text: str) -> None:
+        async def merged_callback(text: str) -> None:
             console.print()
             console.print(Panel(text, title="Busy Work", border_style="magenta"))
             console.print()
+            if telegram_send:
+                await telegram_send(text)
 
         runner = BusyWorkRunner(
             agent=agent,
-            send_callback=cli_busy_work_callback,
+            send_callback=merged_callback,
             interval_minutes=busy_work_minutes,
         )
         await runner.start()
@@ -259,47 +322,96 @@ async def _run_with_busy_work(
         await run_onboarding(agent, console, prompt_session=session)
 
     try:
-        await _repl_loop(session, agent, session_state)
+        await _repl_loop(session, agent, session_state, telegram_queue=telegram_queue)
     finally:
         if runner:
             await runner.stop()
 
 
-async def _repl_loop(session: PromptSession, agent, session_state: dict):
-    """Inner REPL loop."""
+async def _repl_loop(
+    session: PromptSession,
+    agent,
+    session_state: dict,
+    telegram_queue: asyncio.Queue | None = None,
+):
+    """Inner REPL loop.
+
+    When *telegram_queue* is provided, the loop races between waiting for CLI
+    input and waiting for a queued Telegram message.  Whichever arrives first
+    is processed through the same streaming display.  The queue item is a
+    ``(user_text, agent_config, response_future)`` tuple; the future is
+    resolved with the full response text so the Telegram handler can send it
+    back to the user.
+    """
     while True:
-        try:
-            user_input = await asyncio.to_thread(
-                session.prompt, "\n🧞 You > "
+        source = "cli"
+        response_future = None
+        agent_config = None
+
+        if telegram_queue is not None:
+            prompt_task = asyncio.create_task(session.prompt_async("\n🧞 You > "))
+            queue_task = asyncio.create_task(telegram_queue.get())
+            done, pending = await asyncio.wait(
+                [prompt_task, queue_task],
+                return_when=asyncio.FIRST_COMPLETED,
             )
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]Goodbye![/dim]")
-            break
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+            if prompt_task in done:
+                try:
+                    user_input = prompt_task.result()
+                except (EOFError, KeyboardInterrupt):
+                    console.print("\n[dim]Goodbye![/dim]")
+                    break
+            else:
+                user_text, agent_config, response_future = queue_task.result()
+                user_input = user_text
+                source = "telegram"
+                console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
+        else:
+            try:
+                user_input = await session.prompt_async("\n🧞 You > ")
+            except (EOFError, KeyboardInterrupt):
+                console.print("\n[dim]Goodbye![/dim]")
+                break
 
         user_input = user_input.strip()
         if not user_input:
+            if response_future and not response_future.done():
+                response_future.set_result("")
             continue
 
-        # Handle slash commands
-        if user_input.startswith("/"):
+        # Slash commands are CLI-only
+        if source == "cli" and user_input.startswith("/"):
             result = handle_command(user_input, session_state)
             if result is False:
                 break
             if result is True:
-                # Check if /onboard was triggered
                 if session_state.pop("run_onboard", False):
                     await run_onboarding(agent, console, prompt_session=session)
                 continue
 
-        # Run agent
-        config = {"configurable": {"thread_id": session_state["thread_id"]}}
+        if agent_config is None:
+            agent_config = {"configurable": {"thread_id": session_state["thread_id"]}}
+
         try:
-            console.print("\n[bold magenta]Genie[/bold magenta]", end="")
-            await run_agent_stream(agent, user_input, config)
+            console.print()
+            full_response = await run_agent_stream(agent, user_input, agent_config)
+            if response_future and not response_future.done():
+                response_future.set_result(full_response)
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted.[/yellow]")
+            if response_future and not response_future.done():
+                response_future.set_result("")
         except Exception as e:
             console.print(f"\n[bold red]Error:[/bold red] {e}")
+            if response_future and not response_future.done():
+                response_future.set_exception(e)
 
 
 def main(

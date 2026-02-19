@@ -12,6 +12,21 @@ load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
+# Number of GPU layers to offload to VRAM. -1 = all layers (full GPU), 0 = CPU only.
+# Leave unset (empty string) to use Ollama's server-side default.
+_num_gpu_env = os.getenv("OLLAMA_NUM_GPU", "")
+OLLAMA_NUM_GPU: int | None = int(_num_gpu_env) if _num_gpu_env else None
+
+# Number of CPU threads for inference. Leave unset to let Ollama auto-detect.
+_num_thread_env = os.getenv("OLLAMA_NUM_THREAD", "")
+OLLAMA_NUM_THREAD: int | None = int(_num_thread_env) if _num_thread_env else None
+
+# --- Response cache settings ---
+# When enabled, identical LLM prompts are served from a SQLite cache instead
+# of re-invoking Ollama. Useful when the same question is asked repeatedly.
+# Set GENIE_RESPONSE_CACHE=true in your .env to enable.
+GENIE_RESPONSE_CACHE = os.getenv("GENIE_RESPONSE_CACHE", "false").lower() in ("1", "true", "yes")
+
 # --- Tavily settings ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
@@ -29,6 +44,8 @@ MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 # --- Model presets ---
 MODEL_PRESETS = {
     # -- Top-tier tool calling (recommended) --
+    # Quantization note: Ollama defaults to Q4_K_M. For higher quality use
+    # the :fp16 tag; for lower VRAM use :q4_0 or :q3_K_M (e.g. "qwen3:8b-q4_0").
     "qwen3:8b": {
         "description": "Qwen 3 8B — Fast, excellent tool calling (default)",
         "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
@@ -104,6 +121,11 @@ def get_history_path() -> Path:
 def get_cron_jobs_path() -> Path:
     """Get the path to the cron jobs JSON file."""
     return ensure_data_dir() / "cron_jobs.json"
+
+
+def get_response_cache_path() -> Path:
+    """Get the path to the LLM response cache SQLite database."""
+    return ensure_data_dir() / "response_cache.db"
 
 
 def get_onboarded_marker_path() -> Path:

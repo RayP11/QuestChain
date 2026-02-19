@@ -31,11 +31,6 @@ def parse_args():
         help="List available model presets and exit",
     )
     parser.add_argument(
-        "--telegram",
-        action="store_true",
-        help="Run as a Telegram bot instead of the terminal REPL",
-    )
-    parser.add_argument(
         "--busy-work",
         type=int,
         default=DEFAULT_BUSY_WORK_MINUTES,
@@ -61,17 +56,6 @@ def main():
         return
 
     busy_work_minutes = None if args.no_busy_work else args.busy_work
-
-    if args.telegram:
-        import asyncio
-
-        from genie.telegram import run_telegram_bot
-
-        asyncio.run(run_telegram_bot(
-            model_name=args.model,
-            busy_work_minutes=busy_work_minutes,
-        ))
-        return
 
     from genie.cli import main as cli_main
 
