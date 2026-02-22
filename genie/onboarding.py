@@ -1,5 +1,7 @@
 """First-run onboarding flow for Genie."""
 
+import asyncio
+import os
 import random
 
 from rich.panel import Panel
@@ -97,6 +99,84 @@ def clear_onboarded() -> None:
         path.unlink()
 
 
+async def _prompt_input(
+    prompt_session, console, prompt_str: str, password: bool = False
+) -> str:
+    """Prompt for a single value. Returns empty string if skipped or interrupted."""
+    try:
+        if prompt_session:
+            return (await prompt_session.prompt_async(prompt_str, is_password=password)).strip()
+        return (await asyncio.to_thread(input, prompt_str)).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+async def _setup_credentials(console, prompt_session) -> None:
+    """Prompt for any missing API keys / Telegram credentials and persist to .env."""
+    needs_tavily = not os.getenv("TAVILY_API_KEY")
+    needs_telegram = not os.getenv("TELEGRAM_BOT_TOKEN")
+
+    if not needs_tavily and not needs_telegram:
+        return
+
+    console.print()
+    console.print(Panel(
+        "Some optional integrations aren't configured yet.\n"
+        "Press [bold]Enter[/bold] to skip anything you don't want to set up now.",
+        title="Setup",
+        border_style="cyan",
+    ))
+
+    try:
+        from dotenv import find_dotenv, set_key
+        env_path = find_dotenv() or ".env"
+    except ImportError:
+        env_path = None
+
+    def _save(key: str, value: str) -> None:
+        os.environ[key] = value
+        if env_path:
+            try:
+                from dotenv import set_key
+                set_key(env_path, key, value)
+            except Exception:
+                pass
+
+    if needs_tavily:
+        console.print("\n[bold]Web Search — Tavily[/bold]")
+        console.print("  Free API key at [cyan]https://tavily.com[/cyan]")
+        key = await _prompt_input(prompt_session, console, "  Tavily API key (Enter to skip): ")
+        if key:
+            _save("TAVILY_API_KEY", key)
+            console.print("  [green]✓ Saved[/green]")
+        else:
+            console.print("  [dim]Skipped[/dim]")
+
+    if needs_telegram:
+        console.print("\n[bold]Telegram Bot[/bold]")
+        console.print(
+            "  1. Message [cyan]@BotFather[/cyan] on Telegram → /newbot → copy the token\n"
+            "  2. Message [cyan]@userinfobot[/cyan] on Telegram → copy your numeric user ID"
+        )
+        token = await _prompt_input(
+            prompt_session, console,
+            "  Bot token (Enter to skip): ",
+            password=True,
+        )
+        if token:
+            _save("TELEGRAM_BOT_TOKEN", token)
+            owner_id = await _prompt_input(
+                prompt_session, console, "  Your Telegram user ID: "
+            )
+            if owner_id:
+                _save("TELEGRAM_OWNER_ID", owner_id)
+            console.print("  [green]✓ Saved[/green]")
+        else:
+            console.print("  [dim]Skipped[/dim]")
+
+    console.print()
+
+
 async def _stream_agent(agent, message: str, config: dict, console) -> str:
     """Send a message to the agent and stream the response. Returns full text."""
     full_response = ""
@@ -139,6 +219,9 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     Returns True if onboarding completed, False if skipped.
     """
+    # Collect any missing credentials before anything else
+    await _setup_credentials(console, prompt_session)
+
     config = {"configurable": {"thread_id": "onboarding"}}
 
     # Show the welcome banner
