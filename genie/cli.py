@@ -13,6 +13,7 @@ from rich.text import Text
 
 from genie import __version__
 from genie.agent import build_input, create_genie_agent
+from genie.agents import AgentManager, SELECTABLE_TOOLS
 from genie.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
@@ -73,6 +74,18 @@ class _AudioRouter:
             await self._update.message.reply_voice(voice=io.BytesIO(wav_bytes))
         else:
             await _play_audio(wav_bytes)
+
+
+def _make_agent_from_def(agent_def: dict, checkpointer, store, audio_router) -> object:
+    """Create a Genie agent from an agent definition dict."""
+    return create_genie_agent(
+        model_name=agent_def.get("model"),
+        checkpointer=checkpointer,
+        store=store,
+        on_audio=audio_router,
+        system_prompt_override=agent_def.get("system_prompt"),
+        tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
+    )
 
 
 def print_banner(model_name: str):
@@ -209,6 +222,31 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_onboard"] = True
         return True
 
+    if cmd == "/build-agent":
+        session_state["run_build_agent"] = True
+        return True
+
+    if cmd == "/pick-agent":
+        session_state["run_pick_agent"] = True
+        return True
+
+    if cmd == "/agents":
+        agent_manager: AgentManager | None = session_state.get("agent_manager")
+        if agent_manager is None:
+            console.print("[dim]Agent manager not available.[/dim]")
+            return True
+        active_id = agent_manager.get_active_id()
+        lines = []
+        for agent_def in agent_manager.all_agents():
+            marker = "*" if agent_def["id"] == active_id else " "
+            name = agent_def["name"]
+            if agent_def.get("built_in"):
+                name += " (built-in)"
+            model = agent_def.get("model") or OLLAMA_MODEL
+            lines.append(f"  {marker} {name:<28} {model}")
+        console.print(Panel("\n".join(lines), title="Agents", border_style="cyan"))
+        return True
+
     if cmd == "/help":
         help_text = (
             "[bold]Commands:[/bold]\n"
@@ -222,6 +260,9 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tasks         - Show current task list\n"
             "  /cron          - List scheduled cron jobs\n"
             "  /onboard       - Re-run the onboarding flow\n"
+            "  /agents        - List all agents, mark active\n"
+            "  /build-agent   - Create a new custom agent\n"
+            "  /pick-agent    - Switch to a different agent\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit Genie\n"
             "  /help          - Show this help message"
@@ -230,6 +271,113 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     return None
+
+
+async def _prompt_line(session: PromptSession, prompt_text: str) -> str:
+    """Prompt for a line of input, returning stripped text."""
+    try:
+        return (await session.prompt_async(prompt_text)).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+async def run_build_agent_wizard(
+    console: Console,
+    session: PromptSession,
+    agent_manager: AgentManager,
+) -> dict | None:
+    """Interactive wizard to create a new custom agent."""
+    console.print()
+    console.print(Panel("[bold]Create a new agent[/bold]", border_style="magenta"))
+
+    # Name
+    name = await _prompt_line(session, "Agent name: ")
+    if not name:
+        console.print("[yellow]Cancelled.[/yellow]")
+        return None
+
+    # Model
+    default_model = OLLAMA_MODEL
+    model_raw = await _prompt_line(session, f"Model [{default_model}]: ")
+    model = model_raw if model_raw else None  # None → use default at runtime
+
+    # Tool selection
+    console.print()
+    console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+    for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
+        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
+    console.print()
+
+    include_all_raw = await _prompt_line(session, "Include all tools? [Y/n]: ")
+    if include_all_raw.lower() in ("", "y", "yes"):
+        tools: list[str] | str = "all"
+    else:
+        selection_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
+        selected_tools: list[str] = []
+        for part in selection_raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                idx = int(part) - 1
+                if 0 <= idx < len(SELECTABLE_TOOLS):
+                    selected_tools.append(SELECTABLE_TOOLS[idx][0])
+        tools = selected_tools if selected_tools else "all"
+
+    # System prompt
+    console.print()
+    console.print("System prompt (Enter for default Genie prompt):")
+    prompt_raw = await _prompt_line(session, "> ")
+    system_prompt = prompt_raw if prompt_raw else None
+
+    # Save
+    agent_def = agent_manager.add(name, model, system_prompt, tools)
+    console.print()
+    console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/pick-agent[/cyan] to activate it.")
+    return agent_def
+
+
+async def run_pick_agent_wizard(
+    console: Console,
+    session: PromptSession,
+    agent_manager: AgentManager,
+) -> dict | None:
+    """Interactive wizard to pick the active agent. Returns chosen agent or None."""
+    agents = agent_manager.all_agents()
+    active_id = agent_manager.get_active_id()
+
+    console.print()
+    for i, agent_def in enumerate(agents, 1):
+        marker = "*" if agent_def["id"] == active_id else " "
+        name = agent_def["name"]
+        if agent_def.get("built_in"):
+            name += " (built-in)"
+        model = agent_def.get("model") or OLLAMA_MODEL
+        console.print(f"  {i}. {marker} [cyan]{name}[/cyan]  {model}")
+
+    console.print()
+    current_idx = next((i for i, a in enumerate(agents, 1) if a["id"] == active_id), 1)
+    selection_raw = await _prompt_line(session, f"Select [{current_idx}]: ")
+    if not selection_raw:
+        console.print("[dim]No change.[/dim]")
+        return None
+
+    if selection_raw.isdigit():
+        idx = int(selection_raw) - 1
+        if 0 <= idx < len(agents):
+            chosen = agents[idx]
+        else:
+            console.print("[yellow]Invalid selection.[/yellow]")
+            return None
+    else:
+        # Try name match
+        lower = selection_raw.lower()
+        chosen = next((a for a in agents if a["name"].lower() == lower), None)
+        if chosen is None:
+            console.print("[yellow]Agent not found.[/yellow]")
+            return None
+
+    chosen_name = chosen["name"]
+    console.print(f"[green]🧞 Switched to '[bold]{chosen_name}[/bold]'. Current thread continues.[/green]")
+    return chosen
 
 
 async def run_agent_stream(agent, user_input: str, config: dict) -> str:
@@ -288,7 +436,7 @@ async def run_agent_stream(agent, user_input: str, config: dict) -> str:
     return full_response
 
 
-async def _maybe_start_telegram(agent, model_name: str, audio_router: "_AudioRouter"):
+async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_router: "_AudioRouter", agent_manager: "AgentManager"):
     """Start Telegram bot alongside the CLI if token is configured.
 
     Returns ``(send_fn, stop_fn, telegram_queue)`` or ``(None, None, None)``.
@@ -299,7 +447,9 @@ async def _maybe_start_telegram(agent, model_name: str, audio_router: "_AudioRou
     try:
         from genie.telegram import run_telegram_alongside_cli
         telegram_queue: asyncio.Queue = asyncio.Queue()
-        send_fn, stop_fn = await run_telegram_alongside_cli(agent, model_name, telegram_queue, audio_router)
+        send_fn, stop_fn = await run_telegram_alongside_cli(
+            agent_holder, model_name, telegram_queue, audio_router, agent_manager
+        )
         return send_fn, stop_fn, telegram_queue
     except Exception as e:
         console.print(f"[yellow]Telegram: failed to start ({e})[/yellow]")
@@ -328,15 +478,23 @@ async def repl(
     if use_memory:
         store = create_memory_store()
 
+    # Load agent manager and active agent
+    agent_manager = AgentManager()
+    active_def = agent_manager.get_active()
+    effective_model = active_def.get("model") or model_name
+
     # Session state
     session_state = {
         "thread_id": thread_id or str(uuid.uuid4()),
-        "model_name": model_name,
+        "model_name": effective_model,
+        "agent_manager": agent_manager,
     }
 
     # Print welcome banner
-    print_banner(model_name)
+    print_banner(effective_model)
     console.print(f"[dim]Thread: {session_state['thread_id']}[/dim]")
+    if active_def["id"] != "default":
+        console.print(f"[dim]Agent: {active_def['name']}[/dim]")
     console.print()
 
     # Set up prompt with history
@@ -349,43 +507,50 @@ async def repl(
     if use_memory:
         async with create_checkpointer() as checkpointer:
             try:
-                agent = create_genie_agent(
-                    model_name=model_name,
-                    checkpointer=checkpointer,
-                    store=store,
-                    on_audio=audio_router,
-                )
+                agent = _make_agent_from_def(active_def, checkpointer, store, audio_router)
             except Exception as e:
                 console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
                 return
-            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name, audio_router)
+            agent_holder = {"agent": agent}
+            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
+                agent_holder, effective_model, audio_router, agent_manager
+            )
             if telegram_send:
                 console.print("[dim]Telegram: bot active[/dim]")
             try:
                 await _run_with_busy_work(
-                    session, agent, session_state, busy_work_minutes,
+                    session, agent_holder, session_state, busy_work_minutes,
                     use_memory=True, telegram_send=telegram_send,
                     telegram_queue=telegram_queue,
                     audio_router=audio_router,
+                    agent_manager=agent_manager,
+                    checkpointer=checkpointer,
+                    store=store,
                 )
             finally:
                 if telegram_stop:
                     await telegram_stop()
     else:
         try:
-            agent = create_genie_agent(model_name=model_name, on_audio=audio_router)
+            agent = _make_agent_from_def(active_def, None, None, audio_router)
         except Exception as e:
             console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
             return
-        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name, audio_router)
+        agent_holder = {"agent": agent}
+        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
+            agent_holder, effective_model, audio_router, agent_manager
+        )
         if telegram_send:
             console.print("[dim]Telegram: bot active[/dim]")
         try:
             await _run_with_busy_work(
-                session, agent, session_state, busy_work_minutes,
+                session, agent_holder, session_state, busy_work_minutes,
                 use_memory=False, telegram_send=telegram_send,
                 telegram_queue=telegram_queue,
                 audio_router=audio_router,
+                agent_manager=agent_manager,
+                checkpointer=None,
+                store=None,
             )
         finally:
             if telegram_stop:
@@ -394,13 +559,16 @@ async def repl(
 
 async def _run_with_busy_work(
     session: PromptSession,
-    agent,
+    agent_holder: dict,
     session_state: dict,
     busy_work_minutes: int | None,
     use_memory: bool = True,
     telegram_send=None,
     telegram_queue=None,
     audio_router=None,
+    agent_manager: "AgentManager | None" = None,
+    checkpointer=None,
+    store=None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
     from genie.busy_work import BusyWorkRunner
@@ -416,7 +584,7 @@ async def _run_with_busy_work(
                 await telegram_send(text)
 
         runner = BusyWorkRunner(
-            agent=agent,
+            agent=agent_holder["agent"],
             send_callback=merged_callback,
             interval_minutes=busy_work_minutes,
         )
@@ -426,10 +594,17 @@ async def _run_with_busy_work(
 
     # First-run onboarding — jump straight into the conversation
     if use_memory and not is_onboarded():
-        await run_onboarding(agent, console, prompt_session=session)
+        await run_onboarding(agent_holder["agent"], console, prompt_session=session)
 
     try:
-        await _repl_loop(session, agent, session_state, telegram_queue=telegram_queue, audio_router=audio_router)
+        await _repl_loop(
+            session, agent_holder, session_state,
+            telegram_queue=telegram_queue,
+            audio_router=audio_router,
+            agent_manager=agent_manager,
+            checkpointer=checkpointer,
+            store=store,
+        )
     finally:
         if runner:
             await runner.stop()
@@ -437,10 +612,13 @@ async def _run_with_busy_work(
 
 async def _repl_loop(
     session: PromptSession,
-    agent,
+    agent_holder: dict,
     session_state: dict,
     telegram_queue: asyncio.Queue | None = None,
     audio_router: "_AudioRouter | None" = None,
+    agent_manager: "AgentManager | None" = None,
+    checkpointer=None,
+    store=None,
 ):
     """Inner REPL loop.
 
@@ -511,7 +689,22 @@ async def _repl_loop(
                 break
             if result is True:
                 if session_state.pop("run_onboard", False):
-                    await run_onboarding(agent, console, prompt_session=session)
+                    await run_onboarding(agent_holder["agent"], console, prompt_session=session)
+
+                if session_state.pop("run_build_agent", False) and agent_manager is not None:
+                    await run_build_agent_wizard(console, session, agent_manager)
+
+                if session_state.pop("run_pick_agent", False) and agent_manager is not None:
+                    chosen = await run_pick_agent_wizard(console, session, agent_manager)
+                    if chosen is not None:
+                        try:
+                            new_agent = _make_agent_from_def(chosen, checkpointer, store, audio_router)
+                            agent_holder["agent"] = new_agent
+                            session_state["model_name"] = chosen.get("model") or OLLAMA_MODEL
+                            agent_manager.set_active(chosen["id"])
+                        except Exception as e:
+                            console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
+
                 continue
 
         if agent_config is None:
@@ -525,7 +718,7 @@ async def _repl_loop(
 
         try:
             console.print()
-            full_response = await run_agent_stream(agent, user_input, agent_config)
+            full_response = await run_agent_stream(agent_holder["agent"], user_input, agent_config)
             if response_future and not response_future.done():
                 response_future.set_result(full_response)
         except KeyboardInterrupt:

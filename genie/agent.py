@@ -92,6 +92,8 @@ def create_genie_agent(
     checkpointer=None,
     store=None,
     on_audio=None,
+    system_prompt_override: str | None = None,
+    tools_filter: list[str] | None = None,
 ):
     """Create the Genie agent.
 
@@ -99,13 +101,15 @@ def create_genie_agent(
         model_name: Ollama model to use. Defaults to config value.
         checkpointer: LangGraph checkpointer for conversation persistence.
         store: LangGraph memory store for long-term memory.
+        system_prompt_override: Replace the default SYSTEM_PROMPT when set.
+        tools_filter: Restrict custom tools to this list; None = all tools.
 
     Returns:
         Compiled LangGraph graph (the agent).
     """
     model_name = model_name or OLLAMA_MODEL
     model = get_model(model_name)
-    custom_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio)
+    custom_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio, tools_filter=tools_filter)
 
     # Ensure memory directory exists on disk
     ensure_memory_dir()
@@ -129,7 +133,7 @@ def create_genie_agent(
     agent = create_deep_agent(
         model=model,
         tools=custom_tools,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt_override or SYSTEM_PROMPT,
         checkpointer=checkpointer,
         store=store,
         backend=backend,

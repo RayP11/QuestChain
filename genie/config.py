@@ -138,5 +138,15 @@ def get_onboarded_marker_path() -> Path:
     return ensure_data_dir() / "onboarded"
 
 
+def get_agents_path() -> Path:
+    """Get the path to the agents JSON file."""
+    return ensure_data_dir() / "agents.json"
+
+
+def get_active_agent_path() -> Path:
+    """Get the path to the active agent ID file."""
+    return ensure_data_dir() / "active_agent"
+
+
 # --- Busy work settings ---
 DEFAULT_BUSY_WORK_MINUTES = 60

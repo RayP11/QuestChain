@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 
 from genie.agent import build_input
+from genie.agents import AgentManager, SELECTABLE_TOOLS
 from genie.config import (
     OLLAMA_MODEL,
     TELEGRAM_BOT_TOKEN,
@@ -107,6 +108,9 @@ _HELP_TEXT = (
     "/tasks — Show current task list\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
+    "/agents — List all agents\n"
+    "/pick_agent [name or number] — Switch agent\n"
+    "/build_agent — Create a new custom agent\n"
     "/help — Show this help message"
 )
 
@@ -278,6 +282,204 @@ async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(OPENING_QUESTION)
 
 
+async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /agents command — list all agents."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+    if agent_manager is None:
+        await update.message.reply_text("Agent manager not available.")
+        return
+
+    active_id = agent_manager.get_active_id()
+    lines = []
+    for i, agent_def in enumerate(agent_manager.all_agents(), 1):
+        marker = "*" if agent_def["id"] == active_id else " "
+        name = agent_def["name"]
+        if agent_def.get("built_in"):
+            name += " (built-in)"
+        model = agent_def.get("model") or OLLAMA_MODEL
+        lines.append(f"{i}. {marker} {name}  |  {model}")
+    await update.message.reply_text("\n".join(lines) if lines else "No agents found.")
+
+
+async def cmd_pick_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /pick_agent [name or number] — switch agent."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+    agent_holder: dict | None = context.bot_data.get("agent_holder")
+    if agent_manager is None or agent_holder is None:
+        await update.message.reply_text("Agent manager not available.")
+        return
+
+    args = context.args  # list of words after the command
+    agents = agent_manager.all_agents()
+    active_id = agent_manager.get_active_id()
+
+    if not args:
+        # List agents with numbers
+        lines = []
+        for i, agent_def in enumerate(agents, 1):
+            marker = "*" if agent_def["id"] == active_id else " "
+            name = agent_def["name"]
+            if agent_def.get("built_in"):
+                name += " (built-in)"
+            model = agent_def.get("model") or OLLAMA_MODEL
+            lines.append(f"{i}. {marker} {name}  |  {model}")
+        lines.append("\nUse /pick_agent <number or name> to switch.")
+        await update.message.reply_text("\n".join(lines))
+        return
+
+    selector = " ".join(args)
+    chosen = None
+    if selector.isdigit():
+        idx = int(selector) - 1
+        if 0 <= idx < len(agents):
+            chosen = agents[idx]
+    else:
+        lower = selector.lower()
+        chosen = next((a for a in agents if a["name"].lower() == lower), None)
+
+    if chosen is None:
+        await update.message.reply_text(f"Agent not found: '{selector}'. Use /agents to list.")
+        return
+
+    # Build and swap in the new agent
+    from genie.cli import _make_agent_from_def
+    checkpointer = context.bot_data.get("checkpointer")
+    store = context.bot_data.get("store")
+    audio_router = context.bot_data.get("audio_router")
+    try:
+        new_agent = _make_agent_from_def(chosen, checkpointer, store, audio_router)
+        agent_holder["agent"] = new_agent
+        context.bot_data["model_name"] = chosen.get("model") or OLLAMA_MODEL
+        agent_manager.set_active(chosen["id"])
+        await update.message.reply_text(
+            f"🧞 Switched to '{chosen['name']}'. Current thread continues."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Failed to switch agent: {e}")
+
+
+async def cmd_build_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /build_agent — start multi-turn wizard to create a new agent."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    # Initialize wizard state
+    context.chat_data["building_agent"] = {"step": "name", "data": {}}
+
+    tool_lines = "\n".join(
+        f"  {i}. {name} — {desc}"
+        for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
+    )
+    await update.message.reply_text(
+        "Let's create a new agent. You can send /cancel at any time.\n\n"
+        "Step 1/4 — What's the agent's name?"
+    )
+
+
+async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Process a wizard step for /build_agent. Returns True if message was consumed."""
+    state = context.chat_data.get("building_agent")
+    if state is None:
+        return False
+
+    text = (update.message.text or "").strip()
+
+    # Allow cancellation at any step
+    if text.lower() == "/cancel":
+        context.chat_data.pop("building_agent", None)
+        await update.message.reply_text("Agent creation cancelled.")
+        return True
+
+    step = state["step"]
+    data = state["data"]
+
+    if step == "name":
+        if not text:
+            await update.message.reply_text("Name cannot be empty. What's the agent's name?")
+            return True
+        data["name"] = text
+        state["step"] = "model"
+        await update.message.reply_text(
+            f"Step 2/4 — Which model? (send Enter/empty for default: {OLLAMA_MODEL})"
+        )
+
+    elif step == "model":
+        data["model"] = text if text else None
+        state["step"] = "tools"
+        tool_lines = "\n".join(
+            f"  {i}. {name} — {desc}"
+            for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
+        )
+        await update.message.reply_text(
+            f"Step 3/4 — Which tools? (filesystem/shell/planning always included)\n\n"
+            f"{tool_lines}\n\n"
+            f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
+        )
+
+    elif step == "tools":
+        if text.lower() in ("", "all"):
+            data["tools"] = "all"
+        else:
+            selected: list[str] = []
+            for part in text.split(","):
+                part = part.strip()
+                if part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(SELECTABLE_TOOLS):
+                        selected.append(SELECTABLE_TOOLS[idx][0])
+            data["tools"] = selected if selected else "all"
+        state["step"] = "prompt"
+        await update.message.reply_text(
+            "Step 4/4 — System prompt? (send empty to use the default Genie prompt)"
+        )
+
+    elif step == "prompt":
+        data["system_prompt"] = text if text else None
+        state["step"] = "confirm"
+
+        tools_display = data["tools"] if data["tools"] == "all" else ", ".join(data["tools"])
+        model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
+        prompt_display = data.get("system_prompt") or "(default Genie prompt)"
+        await update.message.reply_text(
+            f"Confirm new agent:\n\n"
+            f"Name: {data['name']}\n"
+            f"Model: {model_display}\n"
+            f"Tools: {tools_display}\n"
+            f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
+            f"Send 'yes' to create, anything else to cancel."
+        )
+
+    elif step == "confirm":
+        if text.lower() in ("yes", "y"):
+            agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+            if agent_manager is None:
+                await update.message.reply_text("Agent manager not available.")
+                context.chat_data.pop("building_agent", None)
+                return True
+            agent_def = agent_manager.add(
+                name=data["name"],
+                model=data.get("model"),
+                system_prompt=data.get("system_prompt"),
+                tools=data["tools"],
+            )
+            context.chat_data.pop("building_agent", None)
+            await update.message.reply_text(
+                f"✓ Agent '{data['name']}' created!\n"
+                f"Use /pick_agent to activate it."
+            )
+        else:
+            context.chat_data.pop("building_agent", None)
+            await update.message.reply_text("Agent creation cancelled.")
+
+    return True
+
+
 async def _keep_typing(chat, stop: asyncio.Event) -> None:
     """Send typing indicators to *chat* until *stop* is set."""
     while not stop.is_set():
@@ -339,7 +541,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user_text:
         return
 
-    agent = context.bot_data["agent"]
+    # Intercept wizard messages first
+    if await _handle_build_agent_wizard(update, context):
+        return
+
+    agent_holder = context.bot_data.get("agent_holder")
+    agent = agent_holder["agent"] if agent_holder else context.bot_data.get("agent")
     audio_router = context.bot_data.get("audio_router")
     chat_id = update.effective_chat.id
 
@@ -410,7 +617,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def run_telegram_alongside_cli(
-    agent, model_name: str, telegram_queue: asyncio.Queue, audio_router
+    agent_holder: dict,
+    model_name: str,
+    telegram_queue: asyncio.Queue,
+    audio_router,
+    agent_manager: "AgentManager | None" = None,
 ) -> tuple:
     """Start Telegram bot alongside the CLI REPL.
 
@@ -418,7 +629,7 @@ async def run_telegram_alongside_cli(
     ``TELEGRAM_BOT_TOKEN`` / ``TELEGRAM_OWNER_ID`` are not configured.
 
     The caller is responsible for calling ``stop_fn()`` on exit.  The bot
-    shares the already-created *agent* (and its checkpointer) with the CLI.
+    shares the already-created *agent_holder* (and its checkpointer) with the CLI.
     Incoming messages are queued onto *telegram_queue* for the REPL loop to
     process; responses are delivered back via per-message ``asyncio.Future``s.
     """
@@ -432,10 +643,13 @@ async def run_telegram_alongside_cli(
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    app.bot_data["agent"] = agent
+    app.bot_data["agent_holder"] = agent_holder
+    app.bot_data["agent"] = agent_holder["agent"]  # legacy fallback
     app.bot_data["model_name"] = model_name
     app.bot_data["audio_router"] = audio_router
     app.bot_data["telegram_queue"] = telegram_queue
+    if agent_manager is not None:
+        app.bot_data["agent_manager"] = agent_manager
 
     async def send_to_owner(text: str) -> None:
         """Send a message to the bot owner via Telegram."""
@@ -455,7 +669,7 @@ async def run_telegram_alongside_cli(
 
     from genie.scheduler import CronScheduler, set_scheduler
 
-    scheduler = CronScheduler(agent=agent, send_callback=send_to_owner)
+    scheduler = CronScheduler(agent=agent_holder["agent"], send_callback=send_to_owner)
     set_scheduler(scheduler)
 
     # Register handlers
@@ -471,6 +685,9 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
+    app.add_handler(CommandHandler("agents", cmd_agents))
+    app.add_handler(CommandHandler("pick_agent", cmd_pick_agent))
+    app.add_handler(CommandHandler("build_agent", cmd_build_agent))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await app.initialize()
@@ -485,6 +702,9 @@ async def run_telegram_alongside_cli(
         BotCommand("tasks", "Show current task list"),
         BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
+        BotCommand("agents", "List all agents"),
+        BotCommand("pick_agent", "Switch to a different agent"),
+        BotCommand("build_agent", "Create a new custom agent"),
         BotCommand("help", "Show all commands"),
     ])
     await app.start()
