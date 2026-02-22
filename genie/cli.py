@@ -18,7 +18,7 @@ from genie.config import (
     TAVILY_API_KEY,
     get_history_path,
 )
-from genie.onboarding import clear_onboarded, is_onboarded, run_onboarding
+from genie.onboarding import GENIE_ART, clear_onboarded, is_onboarded, run_onboarding
 from genie.memory.store import create_checkpointer, create_memory_store
 from genie.models import check_ollama_connection, list_available_models, wait_for_ollama
 
@@ -77,16 +77,19 @@ class _AudioRouter:
 def print_banner(model_name: str):
     """Display the Genie welcome banner."""
     banner = Text()
-    banner.append("GENIE", style="bold magenta")
-    banner.append(f" v{__version__}", style="dim")
+    for line in GENIE_ART.strip().splitlines():
+        banner.append(line + "\n", style="bold magenta")
     banner.append("\n")
+    banner.append(f"  v{__version__}", style="dim")
+    banner.append("  |  ", style="dim")
     banner.append(f"Model: {model_name}", style="cyan")
-    if TAVILY_API_KEY:
-        banner.append(" | Web search: enabled", style="green")
-    else:
-        banner.append(" | Web search: disabled (no TAVILY_API_KEY)", style="yellow")
     banner.append("\n")
-    banner.append("Type /help for commands, /quit to exit", style="dim")
+    if TAVILY_API_KEY:
+        banner.append("  Web search: enabled", style="green")
+    else:
+        banner.append("  Web search: disabled (no TAVILY_API_KEY)", style="yellow")
+    banner.append("\n")
+    banner.append("  Type /help for commands, /quit to exit", style="dim")
     console.print(Panel(banner, border_style="magenta"))
 
 
