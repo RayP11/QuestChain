@@ -13,7 +13,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 logger = logging.getLogger(__name__)
 
 # Max seconds a single busy work run may take before it is cancelled.
-BUSY_WORK_TIMEOUT = 600  # 10 minutes
+BUSY_WORK_TIMEOUT = 1800  # 30 minutes — local models can be slow
 
 BUSY_WORK_PROMPT = """\
 AUTONOMOUS MODE. Do useful work for the user right now.

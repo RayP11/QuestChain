@@ -167,7 +167,7 @@ class CronScheduler:
                         chunks.append(chunk.content)
 
         try:
-            await asyncio.wait_for(_stream(), timeout=600)
+            await asyncio.wait_for(_stream(), timeout=1800)  # 30 min — local models can be slow
         except asyncio.TimeoutError:
             logger.warning("Cron job '%s' timed out", job_name)
             try:
