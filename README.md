@@ -1,38 +1,145 @@
-# Genie
+<div align="center">
 
-A terminal-based AI agent powered by local LLMs via [Ollama](https://ollama.com) and [LangGraph Deep Agents](https://github.com/langchain-ai/deepagents).
+```
+ ██████╗ ███████╗███╗   ██╗██╗███████╗
+██╔════╝ ██╔════╝████╗  ██║██║██╔════╝
+██║  ███╗█████╗  ██╔██╗ ██║██║█████╗
+██║   ██║██╔══╝  ██║╚██╗██║██║██╔══╝
+╚██████╔╝███████╗██║ ╚████║██║███████╗
+ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚══════╝
+```
 
-Genie can search the web, read/write files, run shell commands, break down complex tasks with planning, and remember context across sessions — all running locally on your machine.
+### Your personal AI agent — fully local, fully private, fully capable.
+
+[![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Deep%20Agents-1C3C3C?logo=langchain&logoColor=white)](https://github.com/langchain-ai/deepagents)
+[![Runs Locally](https://img.shields.io/badge/Runs-100%25%20Locally-brightgreen?logo=homeassistant&logoColor=white)]()
+[![No Cloud](https://img.shields.io/badge/No%20Cloud-No%20Cost-success)]()
+
+</div>
+
+---
+
+## Why Genie?
+
+Most AI assistants send your conversations to the cloud, charge per token, and forget everything the moment you close the tab. **Genie is different.**
+
+Genie runs entirely on your own hardware using [Ollama](https://ollama.com). Your data never leaves your machine. There are no API bills, no rate limits, no terms-of-service watching your every message. It works offline. It's yours.
+
+And it's not a chatbot. Genie is a full **agentic loop** — it can search the web, read and write files, execute shell commands, schedule recurring tasks, send you Telegram messages, and work autonomously in the background while you focus on something else.
+
+> *"All the power of AI, none of the cloud bills."*
+
+---
+
+## Local vs. Cloud
+
+| | Genie | Cloud AI |
+|---|---|---|
+| **Your data** | Stays on your machine | Sent to third-party servers |
+| **Cost** | $0 after hardware | $/token or subscription |
+| **Works offline** | ✅ | ❌ |
+| **File & shell access** | Full, real filesystem | Sandboxed or unavailable |
+| **Memory** | Persistent across sessions | Usually resets every chat |
+| **Autonomous tasks** | Background busy work loop | Manual only |
+| **Remote access** | Built-in Telegram bot | Separate product |
+| **Model choice** | Any Ollama model | Locked to provider |
+
+---
+
+## What It Can Do
+
+- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily
+- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
+- 💻 **Shell Commands** — Run terminal commands and scripts directly
+- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
+- 🤖 **Sub-agents** — Delegate subtasks to focused child agents
+- 🖥️ **Code with Claude** — Delegate coding tasks to Claude Code with configurable complexity
+- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
+- 📱 **Telegram Bot** — Access Genie remotely from your phone
+- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
+- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
+- 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
+
+---
+
+## How It Works
+
+```
+                        ┌──────────────────────────┐
+       You type         │          Genie            │
+   ──────────────▶      │                           │
+   (CLI or Telegram)    │  ┌──────────────────────┐ │
+                        │  │  LangGraph           │ │
+                        │  │  Deep Agent Loop     │ │       ┌─────────────┐
+                        │  │                      │◀├──────▶│   Ollama    │
+                        │  │  plan → act → review │ │       │  (on-device)│
+                        │  └─────────┬────────────┘ │       └─────────────┘
+                        │            │               │
+                        │     ┌──────┴──────┐        │
+                        │     ▼             ▼        │
+                        │  ┌──────┐   ┌──────────┐  │
+                        │  │Tools │   │ Memory   │  │
+                        │  │      │   │          │  │
+                        │  │ • ls │   │ ABOUT.md │  │
+                        │  │ • sh │   │ AGENTS.md│  │
+                        │  │ • web│   │ SQLite   │  │
+                        │  └──────┘   └──────────┘  │
+                        └──────────────────────────┘
+```
+
+The agent runs a **plan → act → review** loop. It can call as many tools as it needs before giving you a final answer. Every conversation is checkpointed to SQLite so you can pick up exactly where you left off.
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
 - [Python 3.13+](https://python.org)
-- [Ollama](https://ollama.com) installed and running
-- A [Tavily API key](https://tavily.com) for web search (free tier available)
+- [Ollama](https://ollama.com) installed and running (`ollama serve`)
+- A [Tavily API key](https://tavily.com) for web search *(free tier available, optional)*
 
-### Setup
+### Install
 
 ```bash
-# Clone and enter the project
-cd Genie
+# Clone the repo
+git clone https://github.com/yourname/genie.git
+cd genie
 
-# Install dependencies
+# Install dependencies with uv
 uv sync
 
-# Copy and configure environment variables
+# Copy environment config
 cp .env.example .env
-# Edit .env and add your TAVILY_API_KEY
+# Open .env and add your TAVILY_API_KEY (optional — skip for offline-only use)
 
-# Pull a model (if you haven't already)
+# Pull a model
 ollama pull qwen3:8b
 
-# Run Genie
+# Launch
 python -m genie
 ```
 
-### Usage
+On first run, Genie will walk you through a short onboarding conversation and optionally set up Telegram. After that, it remembers who you are.
+
+### Pick a Model
+
+```bash
+# List all bundled presets
+python -m genie --list-models
+
+# Start with a specific model
+python -m genie -m qwen2.5:14b-instruct
+
+# Any Ollama model works, even if not in the preset list
+python -m genie -m llama3.2:3b
+```
+
+---
+
+## Usage
 
 ```bash
 # Start with default model (qwen3:8b)
@@ -41,106 +148,177 @@ python -m genie
 # Use a specific model
 python -m genie -m dolphin3:latest
 
-# List available model presets
-python -m genie --list-models
-
-# Resume a previous conversation
+# Resume a previous conversation by thread ID
 python -m genie -t <thread-id>
 
 # Run without persistent memory
 python -m genie --no-memory
+
+# Set the busy work interval (minutes)
+python -m genie --busy-work 30
+
+# Disable background busy work
+python -m genie --no-busy-work
 ```
 
-### REPL Commands
+---
 
-| Command   | Description                              |
-|-----------|------------------------------------------|
-| `/help`   | Show available commands                  |
-| `/new`    | Start a new conversation                 |
-| `/model`  | Show current model and available models  |
-| `/thread` | Show current thread ID                   |
-| `/clear`  | Clear the screen                         |
-| `/quit`   | Exit Genie                               |
+## Terminal Commands
 
-## Capabilities
+| Command | Description |
+|---|---|
+| `/help` | Show all available commands |
+| `/new` | Start a fresh conversation |
+| `/model` | Show current model and list available ones |
+| `/thread` | Show current conversation thread ID |
+| `/busy` | Show busy work scheduler status |
+| `/tools` | List all available agent tools |
+| `/instructions` | Show the agent's system prompt |
+| `/memory` | Show your saved user profile |
+| `/tasks` | Show the current workspace task list |
+| `/cron` | List scheduled cron jobs |
+| `/onboard` | Re-run the onboarding conversation |
+| `/clear` | Clear the screen |
+| **Ctrl+D** | Exit Genie |
 
-- **Web Search** — Search the web for current information via Tavily
-- **Web Browse** — Extract and read full content from web pages
-- **File Operations** — Read, write, edit, list, and search files
-- **Shell Commands** — Execute terminal commands
-- **Planning** — Break down complex tasks into steps with built-in todo tools
-- **Sub-agents** — Delegate subtasks to focused child agents
-- **Code with Claude** — Delegate coding tasks to Claude Code with configurable complexity and mode
-- **Cron Jobs** — Schedule recurring tasks on a cron schedule (Telegram mode only)
-- **Telegram Bot** — Run Genie as a Telegram bot for remote access
-- **Persistent Memory** — Saves notes and context to `workspace/memory/` across sessions
-- **Conversation History** — Resume previous conversations via SQLite checkpointing
+---
+
+## Telegram Setup
+
+Genie runs alongside the CLI as a Telegram bot, giving you remote access from your phone.
+
+1. Message [@BotFather](https://t.me/botfather) on Telegram → `/newbot` → copy the token
+2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric user ID
+3. Add to your `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_OWNER_ID=your_numeric_user_id
+```
+
+That's it. The bot starts automatically alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
+
+---
+
+## Busy Work
+
+Genie can work autonomously in the background on a timer. Drop tasks into `workspace/TASKS.md`:
+
+```markdown
+- [ ] Research the latest news on quantum computing and summarize key developments
+- [ ] Check if any of my Python packages have available updates
+- [ ] Draft a weekly status email based on my recent work
+```
+
+Genie picks up one task per tick, completes it using all its tools, marks it done, and sends you a summary — in the terminal and on Telegram if configured.
+
+```bash
+# Run with a 30-minute busy work interval
+python -m genie --busy-work 30
+```
+
+---
+
+## Configuration
+
+All settings via environment variables or a `.env` file in the project root:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_MODEL` | `qwen3:8b` | Default model to use |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_NUM_GPU` | *(auto)* | GPU layers to offload (`-1` = all) |
+| `OLLAMA_NUM_THREAD` | *(auto)* | CPU threads for inference |
+| `TAVILY_API_KEY` | — | Web search API key (free tier at tavily.com) |
+| `TELEGRAM_BOT_TOKEN` | — | Telegram bot token |
+| `TELEGRAM_OWNER_ID` | — | Your Telegram user ID (access control) |
+| `GENIE_DATA_DIR` | `~/.genie` | Checkpoints, history, cron jobs |
+| `GENIE_WORKSPACE_DIR` | Project root | Workspace and memory root |
+| `GENIE_RESPONSE_CACHE` | `false` | Cache identical LLM responses to SQLite |
+
+---
+
+## Model Presets
+
+Any Ollama model works. These are pre-tuned for the best agentic experience:
+
+| Model | VRAM | Notes |
+|---|---|---|
+| `qwen3:8b` | ~6 GB | **Default** — Fast, excellent tool calling |
+| `qwen2.5:7b-instruct` | ~6 GB | Top-tier tool calling |
+| `qwen2.5:14b-instruct` | ~10 GB | More capable |
+| `llama3.1:8b-instruct` | ~6 GB | Strong tool calling (BFCL 77-81%) |
+| `llama3.3:8b-instruct` | ~6 GB | Newer Llama, strong tool use |
+| `mistral:7b` | ~5 GB | Fast, low resource |
+| `mistral-nemo:12b` | ~8 GB | Stronger Mistral variant |
+| `dolphin3:latest` | ~6 GB | Uncensored, good for agents |
+| `deepseek-r1:7b` | ~6 GB | Strong reasoning |
+| `deepseek-r1:14b` | ~10 GB | Stronger reasoning |
+| `deepseek-coder-v2:16b` | ~12 GB | Best local code generation |
+
+```bash
+python -m genie --list-models   # see all presets with descriptions
+python -m genie -m <any-model>  # use any model installed in Ollama
+```
+
+---
 
 ## Project Structure
 
 ```
-Genie/
-├── pyproject.toml              # Dependencies and project config
-├── .env                        # API keys and settings (not committed)
+genie/
 ├── genie/
-│   ├── __main__.py             # Entry point (python -m genie)
-│   ├── cli.py                  # Terminal UI and REPL loop
-│   ├── agent.py                # Deep Agent wiring and system prompt
-│   ├── config.py               # Settings, model presets, paths
-│   ├── models.py               # ChatOllama setup and Ollama helpers
-│   ├── telegram.py             # Telegram bot integration
-│   ├── scheduler.py            # Cron job scheduler
+│   ├── __main__.py         Entry point
+│   ├── cli.py              Terminal UI and REPL loop
+│   ├── agent.py            LangGraph agent wiring and system prompt
+│   ├── config.py           Settings, model presets, paths
+│   ├── models.py           ChatOllama setup and helpers
+│   ├── telegram.py         Telegram bot adapter
+│   ├── scheduler.py        Cron job runner
+│   ├── busy_work.py        Background autonomous work loop
+│   ├── onboarding.py       First-run onboarding flow
 │   ├── tools/
-│   │   ├── web_search.py       # Tavily search tool
-│   │   ├── web_browse.py       # Tavily extract tool
-│   │   ├── claude_code.py      # Claude Code delegation tool
-│   │   └── cron.py             # Cron job management tools
+│   │   ├── web_search.py   Tavily search
+│   │   ├── web_browse.py   Tavily page extract
+│   │   ├── claude_code.py  Claude Code delegation
+│   │   ├── cron.py         Cron management tools
+│   │   └── speak.py        Kokoro TTS voice output
 │   └── memory/
-│       └── store.py            # SQLite checkpointer + memory store
-├── skills/
-│   ├── claude-code/            # Claude Code skill definition
-│   └── cron-jobs/              # Cron jobs skill definition
+│       └── store.py        SQLite checkpointer + memory store
+├── skills/                 Agent skill definitions
 └── workspace/
-    └── memory/                 # Agent's persistent notes and knowledge
+    ├── TASKS.md            Drop tasks here for busy work
+    └── memory/
+        ├── ABOUT.md        Your profile (written during onboarding)
+        └── AGENTS.md       Agent's own persistent notes
 ```
 
-## Configuration
-
-All settings are managed via environment variables (or `.env` file):
-
-| Variable              | Default                    | Description                  |
-|-----------------------|----------------------------|------------------------------|
-| `OLLAMA_MODEL`        | `qwen3:8b`                 | Default Ollama model         |
-| `OLLAMA_BASE_URL`     | `http://localhost:11434`   | Ollama server URL            |
-| `TAVILY_API_KEY`      | —                          | Tavily API key for web tools |
-| `TELEGRAM_BOT_TOKEN`  | —                          | Telegram bot token           |
-| `TELEGRAM_OWNER_ID`   | —                          | Telegram user ID for auth    |
-| `GENIE_DATA_DIR`      | `~/.genie`                 | Checkpoints and history      |
-| `GENIE_WORKSPACE_DIR` | Project root               | Workspace root directory     |
-
-## Model Presets
-
-| Model                  | Description                                         |
-|------------------------|-----------------------------------------------------|
-| `qwen3:8b`             | Qwen 3 8B — Fast, excellent tool calling (default)  |
-| `qwen2.5:7b-instruct`  | Qwen 2.5 7B Instruct — Top-tier tool calling        |
-| `qwen2.5:14b-instruct` | Qwen 2.5 14B Instruct — More capable, ~10GB VRAM    |
-| `llama3.1:8b-instruct` | Llama 3.1 8B Instruct — Best overall tool calling   |
-| `llama3.3:8b-instruct` | Llama 3.3 8B Instruct — Newer Llama, strong tool use|
-| `mistral:7b`           | Mistral 7B — Fast, low resource, good tool calling  |
-| `mistral-nemo:12b`     | Mistral Nemo 12B — Stronger Mistral variant         |
-| `dolphin3:latest`      | Dolphin 3 8B — Uncensored, good for agents          |
-| `deepseek-r1:7b`       | DeepSeek R1 7B — Strong reasoning                   |
-| `deepseek-r1:14b`      | DeepSeek R1 14B — Stronger reasoning, ~10GB VRAM    |
-| `deepseek-coder-v2:16b`| DeepSeek Coder V2 16B — Best local code generation  |
-
-Any Ollama model can be used via `python -m genie -m <model-name>`, even if not in the presets.
+---
 
 ## Built With
 
-- [LangGraph Deep Agents](https://github.com/langchain-ai/deepagents) — Agent harness with planning, filesystem, and sub-agents
-- [LangChain](https://langchain.com) — LLM framework
-- [Ollama](https://ollama.com) — Local LLM inference
-- [Tavily](https://tavily.com) — Web search and extract API
-- [Rich](https://github.com/Textualize/rich) — Terminal formatting
-- [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) — Interactive input
+<div align="center">
+
+[![LangGraph](https://img.shields.io/badge/LangGraph-Deep%20Agents-1C3C3C?logo=langchain&logoColor=white&style=for-the-badge)](https://github.com/langchain-ai/deepagents)
+[![Ollama](https://img.shields.io/badge/Ollama-Local%20Inference-black?logo=ollama&logoColor=white&style=for-the-badge)](https://ollama.com)
+[![Tavily](https://img.shields.io/badge/Tavily-Web%20Search-blue?style=for-the-badge)](https://tavily.com)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?logo=telegram&logoColor=white&style=for-the-badge)](https://core.telegram.org/bots)
+[![Rich](https://img.shields.io/badge/Rich-Terminal%20UI-purple?style=for-the-badge)](https://github.com/Textualize/rich)
+[![SQLite](https://img.shields.io/badge/SQLite-Persistence-003B57?logo=sqlite&logoColor=white&style=for-the-badge)](https://sqlite.org)
+
+</div>
+
+- **[LangGraph Deep Agents](https://github.com/langchain-ai/deepagents)** — Agentic loop with planning, filesystem, sub-agents, skills, and memory middleware
+- **[Ollama](https://ollama.com)** — Run any open-weight LLM locally with one command
+- **[Tavily](https://tavily.com)** — Web search and full-page extraction API
+- **[python-telegram-bot](https://python-telegram-bot.org)** — Telegram bot SDK
+- **[APScheduler](https://apscheduler.readthedocs.io)** — Async cron job scheduling
+- **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)** — Fast local text-to-speech
+- **[Rich](https://github.com/Textualize/rich)** — Beautiful terminal output
+- **[prompt-toolkit](https://python-prompt-toolkit.readthedocs.io)** — Interactive terminal input with history
+
+---
+
+<div align="center">
+<sub>No cloud. No cost. No compromise.</sub>
+</div>
