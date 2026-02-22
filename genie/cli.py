@@ -1,6 +1,7 @@
 """Genie terminal UI and REPL loop."""
 
 import asyncio
+import random
 import uuid
 
 from prompt_toolkit import PromptSession
@@ -18,7 +19,7 @@ from genie.config import (
     TAVILY_API_KEY,
     get_history_path,
 )
-from genie.onboarding import GENIE_ART, clear_onboarded, is_onboarded, run_onboarding
+from genie.onboarding import GENIE_ART, TAGLINES, clear_onboarded, is_onboarded, run_onboarding
 from genie.memory.store import create_checkpointer, create_memory_store
 from genie.models import check_ollama_connection, list_available_models, wait_for_ollama
 
@@ -80,6 +81,9 @@ def print_banner(model_name: str):
     for line in GENIE_ART.strip().splitlines():
         banner.append(line + "\n", style="bold magenta")
     banner.append("\n")
+    banner.append("  🧞 ", style="bold")
+    banner.append(random.choice(TAGLINES), style="italic cyan")
+    banner.append("\n\n")
     banner.append(f"  v{__version__}", style="dim")
     banner.append("  |  ", style="dim")
     banner.append(f"Model: {model_name}", style="cyan")
@@ -89,7 +93,7 @@ def print_banner(model_name: str):
     else:
         banner.append("  Web search: disabled (no TAVILY_API_KEY)", style="yellow")
     banner.append("\n")
-    banner.append("  Type /help for commands, /quit to exit", style="dim")
+    banner.append("  Type /help for commands, Ctrl+D to exit", style="dim")
     console.print(Panel(banner, border_style="magenta"))
 
 
@@ -470,9 +474,12 @@ async def _repl_loop(
             if prompt_task in done:
                 try:
                     user_input = prompt_task.result()
-                except (EOFError, KeyboardInterrupt):
+                except EOFError:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
+                except KeyboardInterrupt:
+                    console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
+                    continue
                 except Exception:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
@@ -484,9 +491,12 @@ async def _repl_loop(
         else:
             try:
                 user_input = await session.prompt_async("\n🧞 You > ")
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
+            except KeyboardInterrupt:
+                console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
+                continue
 
         user_input = user_input.strip()
         if not user_input:
