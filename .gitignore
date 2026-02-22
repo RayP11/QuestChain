@@ -7,6 +7,7 @@ dist/
 build/
 wheels/
 *.egg
+.pytest_cache/
 
 # Virtual environment
 .venv/
@@ -27,7 +28,7 @@ Thumbs.db
 
 # Genie data
 *.db
-workspace/memory/
+workspace/
 .claude/
 
 # Kokoro TTS model files

@@ -1,6 +1,7 @@
 """Genie busy work — periodically checks /workspace/BUSY_WORK.md."""
 
 import logging
+import uuid
 from typing import Awaitable, Callable
 
 from genie.agent import build_input
@@ -10,12 +11,22 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
 
-BUSY_WORK_PROMPT = (
-    "Read /workspace/BUSY_WORK.md and check if any items need your attention. "
-    "If everything is clear or the file doesn't exist, respond with exactly "
-    "NO_WORK and nothing else. Otherwise, act on the items that need "
-    "attention and report what you did."
-)
+BUSY_WORK_PROMPT = """\
+AUTONOMOUS MODE. Do useful work for the user right now.
+
+1. Run: ls /workspace/
+2. If /workspace/TASKS.md exists: read it, pick the FIRST incomplete task [ ], \
+complete it using all your tools. IMPORTANT: you MUST then edit TASKS.md and \
+change that task's [ ] to [x] — this is required, not optional. \
+Do exactly one task — no more.
+3. If no tasks: do something genuinely useful based on what you know about the \
+user from your memory.
+   Ideas: research a topic they care about, prepare something they'll need, \
+run a helpful automation.
+4. Use as many tool calls as needed to complete the one task. Don't stop early.
+5. When done: write one short paragraph summarizing exactly what you did.
+   If you truly found nothing to do: reply with only the word NO_WORK.\
+"""
 
 
 class BusyWorkRunner:
@@ -65,7 +76,7 @@ class BusyWorkRunner:
     async def _tick(self) -> None:
         """Single busy work tick: invoke agent and deliver if needed."""
         logger.debug("Busy work tick")
-        thread_id = "busy_work"
+        thread_id = f"busy_work_{uuid.uuid4().hex}"
         config = {"configurable": {"thread_id": thread_id}}
 
         try:
