@@ -125,7 +125,7 @@ async def _prompt_user(prompt_session, console) -> str | None:
 
     try:
         if prompt_session:
-            raw = await asyncio.to_thread(prompt_session.prompt, "\n🧞 You > ")
+            raw = await prompt_session.prompt_async("\n🧞 You > ")
         else:
             raw = await asyncio.to_thread(input, "\n🧞 You > ")
         return raw.strip()
@@ -168,8 +168,6 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
         user_input = await _prompt_user(prompt_session, console)
         if not user_input:
             return False
-        if not user_input:
-            continue
 
         console.print("\n[bold magenta]Genie[/bold magenta]")
         full_response = await _stream_agent(agent, user_input, config, console)

@@ -82,6 +82,25 @@ def check_ollama_connection(base_url: str | None = None) -> bool:
         return False
 
 
+async def wait_for_ollama(
+    base_url: str | None = None,
+    retries: int = 4,
+    delay: float = 2.0,
+) -> bool:
+    """Retry connecting to Ollama with a fixed delay between attempts.
+
+    Returns True as soon as the server responds, False if all retries fail.
+    """
+    import asyncio
+    base_url = base_url or OLLAMA_BASE_URL
+    for attempt in range(retries):
+        if check_ollama_connection(base_url):
+            return True
+        if attempt < retries - 1:
+            await asyncio.sleep(delay)
+    return False
+
+
 def list_available_models(base_url: str | None = None) -> list[str]:
     """List models available on the Ollama server."""
     base_url = base_url or OLLAMA_BASE_URL

@@ -1,6 +1,7 @@
 """Genie Telegram bot adapter."""
 
 import asyncio
+import json
 import logging
 import uuid
 
@@ -19,13 +20,30 @@ from genie.config import (
     OLLAMA_MODEL,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_OWNER_ID,
+    get_thread_ids_path,
 )
 from genie.onboarding import ONBOARDING_SYSTEM, OPENING_QUESTION, is_onboarded, mark_onboarded
 
 logger = logging.getLogger(__name__)
 
-# Map chat_id -> thread_id for conversation persistence
-_thread_ids: dict[int, str] = {}
+# Map chat_id -> thread_id for conversation persistence (loaded from disk)
+def _load_thread_ids() -> dict[int, str]:
+    path = get_thread_ids_path()
+    if path.exists():
+        try:
+            return {int(k): v for k, v in json.loads(path.read_text()).items()}
+        except Exception:
+            pass
+    return {}
+
+
+def _save_thread_ids() -> None:
+    path = get_thread_ids_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({str(k): v for k, v in _thread_ids.items()}))
+
+
+_thread_ids: dict[int, str] = _load_thread_ids()
 
 
 class _AudioSender:
@@ -47,9 +65,10 @@ class _AudioSender:
 
 
 def _get_thread_id(chat_id: int) -> str:
-    """Get or create a thread ID for a Telegram chat."""
+    """Get or create a persistent thread ID for a Telegram chat."""
     if chat_id not in _thread_ids:
         _thread_ids[chat_id] = str(uuid.uuid4())
+        _save_thread_ids()
     return _thread_ids[chat_id]
 
 
@@ -57,6 +76,7 @@ def _reset_thread(chat_id: int) -> str:
     """Reset the thread for a chat, returning the new thread ID."""
     new_id = str(uuid.uuid4())
     _thread_ids[chat_id] = new_id
+    _save_thread_ids()
     return new_id
 
 
@@ -182,22 +202,23 @@ async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(OPENING_QUESTION)
 
 
+async def _keep_typing(chat, stop: asyncio.Event) -> None:
+    """Send typing indicators to *chat* until *stop* is set."""
+    while not stop.is_set():
+        try:
+            await chat.send_action(ChatAction.TYPING)
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=4.0)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def _run_agent_collect(agent, user_text: str, config: dict, update: Update) -> str:
     """Run the agent, collect full response, and send it to the user."""
     stop_typing = asyncio.Event()
-
-    async def typing_loop():
-        while not stop_typing.is_set():
-            try:
-                await update.effective_chat.send_action(ChatAction.TYPING)
-            except Exception:
-                pass
-            try:
-                await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
-            except asyncio.TimeoutError:
-                pass
-
-    typing_task = asyncio.create_task(typing_loop())
+    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
 
     try:
         full_response = ""
@@ -289,19 +310,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Keep typing indicator alive while the REPL processes the message
     stop_typing = asyncio.Event()
-
-    async def typing_loop():
-        while not stop_typing.is_set():
-            try:
-                await update.effective_chat.send_action(ChatAction.TYPING)
-            except Exception:
-                pass
-            try:
-                await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
-            except asyncio.TimeoutError:
-                pass
-
-    typing_task = asyncio.create_task(typing_loop())
+    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
     try:
         full_response = await response_future
     except Exception as e:
@@ -335,6 +344,11 @@ async def run_telegram_alongside_cli(
     process; responses are delivered back via per-message ``asyncio.Future``s.
     """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_OWNER_ID:
+        if TELEGRAM_BOT_TOKEN and not TELEGRAM_OWNER_ID:
+            logger.warning(
+                "TELEGRAM_OWNER_ID is not set — all incoming messages will be "
+                "rejected. Set it to your Telegram user ID."
+            )
         return None, None
 
     audio_sender = _AudioSender()

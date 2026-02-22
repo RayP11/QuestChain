@@ -1,5 +1,6 @@
 """Genie cron job scheduler."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -151,10 +152,10 @@ class CronScheduler:
 
         logger.info("Executing cron job '%s' (id=%s)", job_name, job_id)
 
-        try:
-            config = {"configurable": {"thread_id": thread_id}}
-            full_response = ""
+        config = {"configurable": {"thread_id": thread_id}}
+        chunks: list[str] = []
 
+        async def _stream() -> None:
             async for event in self._agent.astream_events(
                 build_input(prompt),
                 config=config,
@@ -163,20 +164,27 @@ class CronScheduler:
                 if event["event"] == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
                     if hasattr(chunk, "content") and isinstance(chunk.content, str):
-                        full_response += chunk.content
+                        chunks.append(chunk.content)
 
-            if not full_response.strip():
-                full_response = "(No response generated)"
-
-            header = f"[Cron: {job_name}]\n\n"
-            await self._send_callback(header + full_response)
-
+        try:
+            await asyncio.wait_for(_stream(), timeout=600)
+        except asyncio.TimeoutError:
+            logger.warning("Cron job '%s' timed out", job_name)
+            try:
+                await self._send_callback(f"Cron job '{job_name}' timed out.")
+            except Exception:
+                logger.exception("Failed to send cron timeout message")
+            return
         except Exception as e:
             logger.exception("Cron job '%s' failed", job_name)
             try:
-                await self._send_callback(f"[Cron: {job_name}] Error: {e}")
+                await self._send_callback(f"Cron job '{job_name}' error: {e}")
             except Exception:
                 logger.exception("Failed to send cron error message")
+            return
+
+        full_response = "".join(chunks).strip() or "(No response generated)"
+        await self._send_callback(f"Cron: {job_name}\n\n{full_response}")
 
     def _load_jobs(self) -> None:
         """Load jobs from JSON file."""

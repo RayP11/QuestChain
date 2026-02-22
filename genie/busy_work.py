@@ -1,5 +1,6 @@
 """Genie busy work — periodically checks /workspace/BUSY_WORK.md."""
 
+import asyncio
 import logging
 import uuid
 from typing import Awaitable, Callable
@@ -10,6 +11,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
+
+# Max seconds a single busy work run may take before it is cancelled.
+BUSY_WORK_TIMEOUT = 600  # 10 minutes
 
 BUSY_WORK_PROMPT = """\
 AUTONOMOUS MODE. Do useful work for the user right now.
@@ -79,8 +83,9 @@ class BusyWorkRunner:
         thread_id = f"busy_work_{uuid.uuid4().hex}"
         config = {"configurable": {"thread_id": thread_id}}
 
-        try:
-            full_response = ""
+        chunks: list[str] = []
+
+        async def _stream() -> None:
             async for event in self._agent.astream_events(
                 build_input(BUSY_WORK_PROMPT),
                 config=config,
@@ -91,25 +96,34 @@ class BusyWorkRunner:
                     if hasattr(chunk, "content") and isinstance(
                         chunk.content, str
                     ):
-                        full_response += chunk.content
+                        chunks.append(chunk.content)
 
-            stripped = full_response.strip()
-
-            # Silently drop "all clear" responses
-            if "NO_WORK" in stripped and len(stripped) < 200:
-                logger.debug("No work — nothing to report")
-                return
-
-            if not stripped:
-                logger.debug("Busy work returned empty response — skipping")
-                return
-
-            header = "[Busy Work]\n\n"
-            await self._send_callback(header + full_response)
-
+        try:
+            await asyncio.wait_for(_stream(), timeout=BUSY_WORK_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("Busy work timed out after %ds", BUSY_WORK_TIMEOUT)
+            try:
+                await self._send_callback("Busy work timed out — the agent took too long.")
+            except Exception:
+                logger.exception("Failed to send busy work timeout message")
+            return
         except Exception as e:
             logger.exception("Busy work tick failed")
             try:
-                await self._send_callback(f"[Busy Work] Error: {e}")
+                await self._send_callback(f"Error: {e}")
             except Exception:
                 logger.exception("Failed to send busy work error message")
+            return
+
+        full_response = "".join(chunks).strip()
+
+        # Silently drop "all clear" responses
+        if "NO_WORK" in full_response and len(full_response) < 200:
+            logger.debug("No work — nothing to report")
+            return
+
+        if not full_response:
+            logger.debug("Busy work returned empty response — skipping")
+            return
+
+        await self._send_callback(full_response)

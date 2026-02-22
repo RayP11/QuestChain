@@ -128,6 +128,11 @@ def get_response_cache_path() -> Path:
     return ensure_data_dir() / "response_cache.db"
 
 
+def get_thread_ids_path() -> Path:
+    """Get the path to the Telegram thread IDs JSON file."""
+    return ensure_data_dir() / "telegram_threads.json"
+
+
 def get_onboarded_marker_path() -> Path:
     """Get the path to the onboarded marker file."""
     return ensure_data_dir() / "onboarded"

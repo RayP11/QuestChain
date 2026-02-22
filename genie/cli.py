@@ -20,7 +20,7 @@ from genie.config import (
 )
 from genie.onboarding import clear_onboarded, is_onboarded, run_onboarding
 from genie.memory.store import create_checkpointer, create_memory_store
-from genie.models import check_ollama_connection, list_available_models
+from genie.models import check_ollama_connection, list_available_models, wait_for_ollama
 
 console = Console()
 
@@ -213,13 +213,15 @@ async def repl(
     busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
 ):
     """Run the main REPL loop."""
-    # Check Ollama connection
+    # Check Ollama connection — retry for a few seconds in case it's still starting
     if not check_ollama_connection():
-        console.print(
-            "[bold red]Cannot connect to Ollama![/bold red]\n"
-            "Make sure Ollama is running: [cyan]ollama serve[/cyan]"
-        )
-        return
+        console.print("[dim]Waiting for Ollama…[/dim]")
+        if not await wait_for_ollama():
+            console.print(
+                "[bold red]Cannot connect to Ollama![/bold red]\n"
+                "Make sure Ollama is running: [cyan]ollama serve[/cyan]"
+            )
+            return
 
     # Set up persistence
     store = None
@@ -366,6 +368,9 @@ async def _repl_loop(
                 try:
                     user_input = prompt_task.result()
                 except (EOFError, KeyboardInterrupt):
+                    console.print("\n[dim]Goodbye![/dim]")
+                    break
+                except Exception:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
             else:
