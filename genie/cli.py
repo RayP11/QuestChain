@@ -109,6 +109,66 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             console.print("[yellow]Busy work:[/yellow] disabled")
         return True
 
+    if cmd == "/tools":
+        from genie.config import TAVILY_API_KEY
+        text = (
+            "[bold]Built-in tools[/bold] (filesystem, shell, planning, sub-agents):\n"
+            "  read_file, write_file, edit_file, ls, glob, grep\n"
+            "  execute, write_todos, read_todos, task\n"
+            "\n[bold]Custom tools:[/bold]\n"
+            "  claude_code — delegate coding tasks to Claude Code\n"
+            "  cron_add, cron_list, cron_remove — scheduled jobs (Telegram)\n"
+        )
+        if TAVILY_API_KEY:
+            text += "  web_search, web_browse — [green]enabled[/green]\n"
+        else:
+            text += "  web_search, web_browse — [yellow]disabled (no TAVILY_API_KEY)[/yellow]\n"
+        console.print(Panel(text, title="Tools", border_style="cyan"))
+        return True
+
+    if cmd == "/instructions":
+        from genie.agent import SYSTEM_PROMPT
+        console.print(Panel(SYSTEM_PROMPT, title="System Instructions", border_style="cyan"))
+        return True
+
+    if cmd == "/memory":
+        from genie.config import MEMORY_DIR
+        about = MEMORY_DIR / "ABOUT.md"
+        if about.exists():
+            console.print(Panel(about.read_text(), title="Memory — ABOUT.md", border_style="cyan"))
+        else:
+            console.print("[dim]No memory file yet. Run /onboard to create one.[/dim]")
+        return True
+
+    if cmd == "/tasks":
+        from genie.config import WORKSPACE_DIR
+        tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
+        if tasks.exists():
+            console.print(Panel(tasks.read_text(), title="Tasks", border_style="cyan"))
+        else:
+            console.print("[dim]No TASKS.md found in workspace.[/dim]")
+        return True
+
+    if cmd == "/cron":
+        import json
+        from genie.config import get_cron_jobs_path
+        jobs_path = get_cron_jobs_path()
+        jobs = []
+        if jobs_path.exists():
+            try:
+                jobs = json.loads(jobs_path.read_text())
+            except Exception:
+                pass
+        if jobs:
+            lines = []
+            for j in jobs:
+                status = "[green]on[/green]" if j.get("enabled", True) else "[dim]off[/dim]"
+                lines.append(f"  [{j['id']}] {j['name']} — {j['cron_expression']} ({status})")
+            console.print(Panel("\n".join(lines), title="Cron Jobs", border_style="cyan"))
+        else:
+            console.print("[dim]No cron jobs configured.[/dim]")
+        return True
+
     if cmd == "/onboard":
         clear_onboarded()
         session_state["run_onboard"] = True
@@ -117,14 +177,19 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     if cmd == "/help":
         help_text = (
             "[bold]Commands:[/bold]\n"
-            "  /new        - Start a new conversation\n"
-            "  /model      - Show current model and available models\n"
-            "  /thread     - Show current thread ID\n"
-            "  /busy       - Show busy work status\n"
-            "  /onboard    - Re-run the onboarding flow\n"
-            "  /clear      - Clear the screen\n"
-            "  /quit       - Exit Genie\n"
-            "  /help       - Show this help message"
+            "  /new           - Start a new conversation\n"
+            "  /model         - Show current model and available models\n"
+            "  /thread        - Show current thread ID\n"
+            "  /busy          - Show busy work status\n"
+            "  /tools         - List available tools\n"
+            "  /instructions  - Show agent system prompt\n"
+            "  /memory        - Show your saved user profile\n"
+            "  /tasks         - Show current task list\n"
+            "  /cron          - List scheduled cron jobs\n"
+            "  /onboard       - Re-run the onboarding flow\n"
+            "  /clear         - Clear the screen\n"
+            "  /quit          - Exit Genie\n"
+            "  /help          - Show this help message"
         )
         console.print(Panel(help_text, title="Help", border_style="blue"))
         return True

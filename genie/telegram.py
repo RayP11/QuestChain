@@ -113,6 +113,22 @@ async def _reject(update: Update) -> None:
     await update.message.reply_text("Sorry, this bot is private.")
 
 
+_HELP_TEXT = (
+    "Commands:\n"
+    "/new — Start a fresh conversation\n"
+    "/model — Show current model\n"
+    "/thread — Show current thread ID\n"
+    "/busy — Show busy work status\n"
+    "/tools — List available tools\n"
+    "/instructions — Show agent system prompt\n"
+    "/memory — Show your saved user profile\n"
+    "/tasks — Show current task list\n"
+    "/cron — List scheduled cron jobs\n"
+    "/onboard — Re-run the onboarding flow\n"
+    "/help — Show this help message"
+)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not _is_owner(update.effective_user.id):
@@ -121,13 +137,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Hey! I'm Genie, your personal AI agent.\n\n"
         "Just send me a message and I'll help out.\n\n"
-        "Commands:\n"
-        "/new — Start a fresh conversation\n"
-        "/model — Show current model\n"
-        "/thread — Show current thread ID\n"
-        "/busy — Show busy work status\n"
-        "/onboard — Re-run the onboarding flow\n"
-        "/help — Show all commands"
+        + _HELP_TEXT
     )
 
 
@@ -136,15 +146,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    await update.message.reply_text(
-        "Commands:\n"
-        "/new — Start a fresh conversation\n"
-        "/model — Show current model\n"
-        "/thread — Show current thread ID\n"
-        "/busy — Show busy work status\n"
-        "/onboard — Re-run the onboarding flow\n"
-        "/help — Show this help message"
-    )
+    await update.message.reply_text(_HELP_TEXT)
 
 
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -187,6 +189,98 @@ async def cmd_busy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     else:
         await update.message.reply_text("Busy work: disabled")
+
+
+async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tools command — list available tools."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from genie.config import TAVILY_API_KEY
+    text = (
+        "Built-in tools (filesystem, shell, planning, sub-agents):\n"
+        "  read_file, write_file, edit_file, ls, glob, grep\n"
+        "  execute, write_todos, read_todos, task\n\n"
+        "Custom tools:\n"
+        "  claude_code — delegate coding tasks to Claude Code\n"
+        "  cron_add, cron_list, cron_remove — scheduled jobs\n"
+    )
+    if TAVILY_API_KEY:
+        text += "  web_search, web_browse — enabled"
+    else:
+        text += "  web_search, web_browse — disabled (no TAVILY_API_KEY)"
+    await update.message.reply_text(text)
+
+
+async def cmd_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /instructions command — show system prompt."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from genie.agent import SYSTEM_PROMPT
+    chunks = _split_message(SYSTEM_PROMPT)
+    for chunk in chunks:
+        await update.message.reply_text(chunk)
+
+
+async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /memory command — show ABOUT.md."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from genie.config import MEMORY_DIR
+    about = MEMORY_DIR / "ABOUT.md"
+    if not about.exists():
+        await update.message.reply_text("No memory file yet. Use /onboard to create one.")
+        return
+    chunks = _split_message(about.read_text())
+    for chunk in chunks:
+        try:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await update.message.reply_text(chunk)
+
+
+async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tasks command — show TASKS.md."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from genie.config import WORKSPACE_DIR
+    tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
+    if not tasks.exists():
+        await update.message.reply_text("No TASKS.md found in workspace.")
+        return
+    chunks = _split_message(tasks.read_text())
+    for chunk in chunks:
+        try:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await update.message.reply_text(chunk)
+
+
+async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /cron command — list scheduled cron jobs."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    import json
+    from genie.config import get_cron_jobs_path
+    jobs_path = get_cron_jobs_path()
+    jobs = []
+    if jobs_path.exists():
+        try:
+            jobs = json.loads(jobs_path.read_text())
+        except Exception:
+            pass
+    if not jobs:
+        await update.message.reply_text("No cron jobs configured.")
+        return
+    lines = []
+    for j in jobs:
+        status = "on" if j.get("enabled", True) else "off"
+        lines.append(f"[{j['id']}] {j['name']} — {j['cron_expression']} ({status})")
+    await update.message.reply_text("\n".join(lines))
 
 
 async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -388,6 +482,11 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("thread", cmd_thread))
     app.add_handler(CommandHandler("busy", cmd_busy))
+    app.add_handler(CommandHandler("tools", cmd_tools))
+    app.add_handler(CommandHandler("instructions", cmd_instructions))
+    app.add_handler(CommandHandler("memory", cmd_memory))
+    app.add_handler(CommandHandler("tasks", cmd_tasks))
+    app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
@@ -397,6 +496,11 @@ async def run_telegram_alongside_cli(
         BotCommand("model", "Show current model"),
         BotCommand("thread", "Show current thread ID"),
         BotCommand("busy", "Show busy work status"),
+        BotCommand("tools", "List available tools"),
+        BotCommand("instructions", "Show agent system prompt"),
+        BotCommand("memory", "Show your saved user profile"),
+        BotCommand("tasks", "Show current task list"),
+        BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
         BotCommand("help", "Show all commands"),
     ])
