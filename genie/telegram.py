@@ -46,24 +46,6 @@ def _save_thread_ids() -> None:
 _thread_ids: dict[int, str] = _load_thread_ids()
 
 
-class _AudioSender:
-    """Callable that sends WAV audio as a Telegram voice message.
-
-    The `.update` attribute is set before each agent invocation so the
-    callback always targets the correct chat.
-    """
-
-    def __init__(self):
-        self.update: Update | None = None
-
-    async def __call__(self, wav_bytes: bytes) -> None:
-        if self.update is None:
-            logger.warning("AudioSender called but no update is set")
-            return
-        import io
-        await self.update.message.reply_voice(voice=io.BytesIO(wav_bytes))
-
-
 def _get_thread_id(chat_id: int) -> str:
     """Get or create a persistent thread ID for a Telegram chat."""
     if chat_id not in _thread_ids:
@@ -358,8 +340,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     agent = context.bot_data["agent"]
-    audio_sender: _AudioSender = context.bot_data["audio_sender"]
-    audio_sender.update = update
+    audio_router = context.bot_data.get("audio_router")
     chat_id = update.effective_chat.id
 
     # First-run onboarding: intercept the first message (direct path, not queued)
@@ -380,7 +361,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             message = user_text
 
+        if audio_router is not None:
+            audio_router.set_telegram(update)
         full_response = await _run_agent_collect(agent, message, config, update)
+        if audio_router is not None:
+            audio_router.set_cli()
         if "ONBOARDING_COMPLETE" in full_response:
             mark_onboarded()
             context.chat_data["onboarding_active"] = False
@@ -400,7 +385,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     loop = asyncio.get_event_loop()
     response_future: asyncio.Future = loop.create_future()
 
-    await telegram_queue.put((user_text, config, response_future))
+    await telegram_queue.put((user_text, config, response_future, update))
 
     # Keep typing indicator alive while the REPL processes the message
     stop_typing = asyncio.Event()
@@ -425,7 +410,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def run_telegram_alongside_cli(
-    agent, model_name: str, telegram_queue: asyncio.Queue
+    agent, model_name: str, telegram_queue: asyncio.Queue, audio_router
 ) -> tuple:
     """Start Telegram bot alongside the CLI REPL.
 
@@ -445,13 +430,11 @@ async def run_telegram_alongside_cli(
             )
         return None, None
 
-    audio_sender = _AudioSender()
-
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.bot_data["agent"] = agent
     app.bot_data["model_name"] = model_name
-    app.bot_data["audio_sender"] = audio_sender
+    app.bot_data["audio_router"] = audio_router
     app.bot_data["telegram_queue"] = telegram_queue
 
     async def send_to_owner(text: str) -> None:

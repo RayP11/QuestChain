@@ -46,6 +46,34 @@ async def _play_audio(wav_bytes: bytes) -> None:
     sd.wait()
 
 
+class _AudioRouter:
+    """Routes TTS audio to CLI speakers or a Telegram voice message.
+
+    Call set_telegram(update) before Telegram-originated agent invocations
+    and set_cli() before CLI-originated ones so the speak tool always reaches
+    the right destination.
+    """
+
+    def __init__(self):
+        self._source = "cli"
+        self._update = None
+
+    def set_telegram(self, update) -> None:
+        self._source = "telegram"
+        self._update = update
+
+    def set_cli(self) -> None:
+        self._source = "cli"
+        self._update = None
+
+    async def __call__(self, wav_bytes: bytes) -> None:
+        if self._source == "telegram" and self._update is not None:
+            import io
+            await self._update.message.reply_voice(voice=io.BytesIO(wav_bytes))
+        else:
+            await _play_audio(wav_bytes)
+
+
 def print_banner(model_name: str):
     """Display the Genie welcome banner."""
     banner = Text()
@@ -253,7 +281,7 @@ async def run_agent_stream(agent, user_input: str, config: dict) -> str:
     return full_response
 
 
-async def _maybe_start_telegram(agent, model_name: str):
+async def _maybe_start_telegram(agent, model_name: str, audio_router: "_AudioRouter"):
     """Start Telegram bot alongside the CLI if token is configured.
 
     Returns ``(send_fn, stop_fn, telegram_queue)`` or ``(None, None, None)``.
@@ -264,7 +292,7 @@ async def _maybe_start_telegram(agent, model_name: str):
     try:
         from genie.telegram import run_telegram_alongside_cli
         telegram_queue: asyncio.Queue = asyncio.Queue()
-        send_fn, stop_fn = await run_telegram_alongside_cli(agent, model_name, telegram_queue)
+        send_fn, stop_fn = await run_telegram_alongside_cli(agent, model_name, telegram_queue, audio_router)
         return send_fn, stop_fn, telegram_queue
     except Exception as e:
         console.print(f"[yellow]Telegram: failed to start ({e})[/yellow]")
@@ -308,6 +336,8 @@ async def repl(
     history_path = get_history_path()
     session = PromptSession(history=FileHistory(str(history_path)))
 
+    audio_router = _AudioRouter()
+
     # Create agent and run REPL (checkpointer needs async context manager)
     if use_memory:
         async with create_checkpointer() as checkpointer:
@@ -316,12 +346,12 @@ async def repl(
                     model_name=model_name,
                     checkpointer=checkpointer,
                     store=store,
-                    on_audio=_play_audio,
+                    on_audio=audio_router,
                 )
             except Exception as e:
                 console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
                 return
-            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name)
+            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name, audio_router)
             if telegram_send:
                 console.print("[dim]Telegram: bot active[/dim]")
             try:
@@ -329,17 +359,18 @@ async def repl(
                     session, agent, session_state, busy_work_minutes,
                     use_memory=True, telegram_send=telegram_send,
                     telegram_queue=telegram_queue,
+                    audio_router=audio_router,
                 )
             finally:
                 if telegram_stop:
                     await telegram_stop()
     else:
         try:
-            agent = create_genie_agent(model_name=model_name, on_audio=_play_audio)
+            agent = create_genie_agent(model_name=model_name, on_audio=audio_router)
         except Exception as e:
             console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
             return
-        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name)
+        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(agent, model_name, audio_router)
         if telegram_send:
             console.print("[dim]Telegram: bot active[/dim]")
         try:
@@ -347,6 +378,7 @@ async def repl(
                 session, agent, session_state, busy_work_minutes,
                 use_memory=False, telegram_send=telegram_send,
                 telegram_queue=telegram_queue,
+                audio_router=audio_router,
             )
         finally:
             if telegram_stop:
@@ -361,6 +393,7 @@ async def _run_with_busy_work(
     use_memory: bool = True,
     telegram_send=None,
     telegram_queue=None,
+    audio_router=None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
     from genie.busy_work import BusyWorkRunner
@@ -389,7 +422,7 @@ async def _run_with_busy_work(
         await run_onboarding(agent, console, prompt_session=session)
 
     try:
-        await _repl_loop(session, agent, session_state, telegram_queue=telegram_queue)
+        await _repl_loop(session, agent, session_state, telegram_queue=telegram_queue, audio_router=audio_router)
     finally:
         if runner:
             await runner.stop()
@@ -400,6 +433,7 @@ async def _repl_loop(
     agent,
     session_state: dict,
     telegram_queue: asyncio.Queue | None = None,
+    audio_router: "_AudioRouter | None" = None,
 ):
     """Inner REPL loop.
 
@@ -414,6 +448,7 @@ async def _repl_loop(
         source = "cli"
         response_future = None
         agent_config = None
+        telegram_update = None
 
         if telegram_queue is not None:
             prompt_task = asyncio.create_task(session.prompt_async("\n🧞 You > "))
@@ -439,7 +474,7 @@ async def _repl_loop(
                     console.print("\n[dim]Goodbye![/dim]")
                     break
             else:
-                user_text, agent_config, response_future = queue_task.result()
+                user_text, agent_config, response_future, telegram_update = queue_task.result()
                 user_input = user_text
                 source = "telegram"
                 console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
@@ -468,6 +503,12 @@ async def _repl_loop(
 
         if agent_config is None:
             agent_config = {"configurable": {"thread_id": session_state["thread_id"]}}
+
+        if audio_router is not None:
+            if source == "telegram" and telegram_update is not None:
+                audio_router.set_telegram(telegram_update)
+            else:
+                audio_router.set_cli()
 
         try:
             console.print()
