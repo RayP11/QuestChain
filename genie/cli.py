@@ -828,7 +828,7 @@ async def _repl_loop(
                 continue
 
         if agent_config is None:
-            agent_config = {"configurable": {"thread_id": session_state["thread_id"]}}
+            agent_config = {"configurable": {"thread_id": session_state["thread_id"]}, "recursion_limit": 200}
 
         if audio_router is not None:
             if source == "telegram" and telegram_update is not None:

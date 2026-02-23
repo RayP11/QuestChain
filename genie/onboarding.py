@@ -222,7 +222,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     # Collect any missing credentials before anything else
     await _setup_credentials(console, prompt_session)
 
-    config = {"configurable": {"thread_id": "onboarding"}}
+    config = {"configurable": {"thread_id": "onboarding"}, "recursion_limit": 200}
 
     # Show the welcome banner
     console.print()

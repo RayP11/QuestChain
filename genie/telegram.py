@@ -677,7 +677,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if onboarding_active:
         thread_id = "onboarding"
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
         await update.effective_chat.send_action(ChatAction.TYPING)
 
         if not context.chat_data.get("onboarding_intro_sent", False):
@@ -706,7 +706,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     thread_id = _get_thread_id(chat_id)
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
     loop = asyncio.get_event_loop()
     response_future: asyncio.Future = loop.create_future()
 

@@ -152,7 +152,7 @@ class CronScheduler:
 
         logger.info("Executing cron job '%s' (id=%s)", job_name, job_id)
 
-        config = {"configurable": {"thread_id": thread_id}}
+        config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
         chunks: list[str] = []
 
         async def _stream() -> None:
