@@ -37,12 +37,16 @@ class AgentManager:
 
     def all_agents(self) -> list[dict]:
         """Return built-in Genie agent followed by all user agents."""
-        return [BUILTIN_AGENT] + self._agents
+        saved_default = next((a for a in self._agents if a["id"] == "default"), None)
+        genie = saved_default if saved_default else BUILTIN_AGENT
+        user_agents = [a for a in self._agents if a["id"] != "default"]
+        return [genie] + user_agents
 
     def get(self, agent_id: str) -> dict | None:
         """Return an agent definition by ID, or None if not found."""
         if agent_id == "default":
-            return BUILTIN_AGENT
+            saved_default = next((a for a in self._agents if a["id"] == "default"), None)
+            return saved_default if saved_default else BUILTIN_AGENT
         return next((a for a in self._agents if a["id"] == agent_id), None)
 
     def add(self, name: str, model: str | None, system_prompt: str | None, tools: list[str] | str) -> dict:
@@ -58,6 +62,25 @@ class AgentManager:
         self._agents.append(agent_def)
         self._save()
         return agent_def
+
+    def update(self, agent_id: str, **kwargs) -> dict:
+        """Update fields of an agent. Built-in Genie can be edited but not deleted."""
+        if agent_id == "default":
+            saved_default = next((a for a in self._agents if a["id"] == "default"), None)
+            if saved_default is None:
+                saved_default = dict(BUILTIN_AGENT)
+                self._agents.insert(0, saved_default)
+            for key, value in kwargs.items():
+                saved_default[key] = value
+            self._save()
+            return saved_default
+        agent = next((a for a in self._agents if a["id"] == agent_id), None)
+        if agent is None:
+            raise ValueError(f"Agent '{agent_id}' not found.")
+        for key, value in kwargs.items():
+            agent[key] = value
+        self._save()
+        return agent
 
     def remove(self, agent_id: str) -> bool:
         """Remove a custom agent by ID. Raises ValueError for built-in agents."""

@@ -222,29 +222,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_onboard"] = True
         return True
 
-    if cmd == "/build-agent":
-        session_state["run_build_agent"] = True
-        return True
-
-    if cmd == "/pick-agent":
-        session_state["run_pick_agent"] = True
-        return True
-
     if cmd == "/agents":
-        agent_manager: AgentManager | None = session_state.get("agent_manager")
-        if agent_manager is None:
-            console.print("[dim]Agent manager not available.[/dim]")
-            return True
-        active_id = agent_manager.get_active_id()
-        lines = []
-        for agent_def in agent_manager.all_agents():
-            marker = "*" if agent_def["id"] == active_id else " "
-            name = agent_def["name"]
-            if agent_def.get("built_in"):
-                name += " (built-in)"
-            model = agent_def.get("model") or OLLAMA_MODEL
-            lines.append(f"  {marker} {name:<28} {model}")
-        console.print(Panel("\n".join(lines), title="Agents", border_style="cyan"))
+        session_state["run_agent_menu"] = True
         return True
 
     if cmd == "/help":
@@ -260,9 +239,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tasks         - Show current task list\n"
             "  /cron          - List scheduled cron jobs\n"
             "  /onboard       - Re-run the onboarding flow\n"
-            "  /agents        - List all agents, mark active\n"
-            "  /build-agent   - Create a new custom agent\n"
-            "  /pick-agent    - Switch to a different agent\n"
+            "  /agents        - Manage agents (list, switch, create)\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit Genie\n"
             "  /help          - Show this help message"
@@ -281,27 +258,160 @@ async def _prompt_line(session: PromptSession, prompt_text: str) -> str:
         return ""
 
 
-async def run_build_agent_wizard(
+async def _prompt_model_line(session: PromptSession, prompt_text: str) -> str:
+    """List installed Ollama models; last choice is custom text entry.
+
+    Returns the selected model name, or "" to keep the caller's default.
+    """
+    models = list_available_models()
+    if not models:
+        return await _prompt_line(session, prompt_text)
+
+    console.print()
+    for i, m in enumerate(models, 1):
+        console.print(f"  {i}. [cyan]{m}[/cyan]")
+    custom_idx = len(models) + 1
+    console.print(f"  {custom_idx}. [dim]Custom...[/dim]")
+    console.print()
+
+    raw = await _prompt_line(session, f"Pick [1-{custom_idx}], Enter=keep default: ")
+    if not raw:
+        return ""
+    if raw.isdigit():
+        idx = int(raw) - 1
+        if 0 <= idx < len(models):
+            return models[idx]
+        if idx == len(models):
+            return await _prompt_line(session, "Model name: ")
+    return raw  # typed a name directly
+
+
+async def run_agent_menu(
     console: Console,
     session: PromptSession,
     agent_manager: AgentManager,
 ) -> dict | None:
-    """Interactive wizard to create a new custom agent."""
+    """Show agent list, switch by number, or create a new one.
+
+    Returns the chosen agent dict to switch to, or None.
+    """
+    agents = agent_manager.all_agents()
+    active_id = agent_manager.get_active_id()
+
+    console.print()
+    console.print("[bold]🧞 Agents:[/bold]")
+    for i, agent_def in enumerate(agents, 1):
+        marker = "*" if agent_def["id"] == active_id else " "
+        name = agent_def["name"]
+        if agent_def.get("built_in"):
+            name += " (built-in)"
+        model = agent_def.get("model") or OLLAMA_MODEL
+        console.print(f"  {i}. {marker} [cyan]{name:<28}[/cyan]  {model}")
+    console.print()
+
+    selection_raw = await _prompt_line(
+        session, f"Pick [1-{len(agents)}], n=new, Enter=cancel: "
+    )
+    if not selection_raw:
+        console.print("[dim]Cancelled.[/dim]")
+        return None
+
+    stripped = selection_raw.strip()
+
+    if stripped.lower() == "n":
+        await _run_create_wizard(console, session, agent_manager)
+        return None
+
+    if stripped.isdigit():
+        idx = int(stripped) - 1
+        if 0 <= idx < len(agents):
+            return await _agent_action_menu(console, session, agent_manager, agents[idx], active_id)
+        else:
+            console.print("[yellow]Invalid selection.[/yellow]")
+            return None
+
+    console.print("[yellow]Invalid input.[/yellow]")
+    return None
+
+
+async def _agent_action_menu(
+    console: Console,
+    session: PromptSession,
+    agent_manager: AgentManager,
+    agent_def: dict,
+    active_id: str,
+) -> dict | None:
+    """Sub-menu shown after the user picks an agent: Switch / Edit / Delete."""
+    name = agent_def["name"]
+    model = agent_def.get("model") or OLLAMA_MODEL
+    is_active = agent_def["id"] == active_id
+    is_builtin = agent_def.get("built_in", False)
+
+    console.print()
+    suffix = "  [dim](active)[/dim]" if is_active else ""
+    console.print(f"[bold]{name}[/bold]  [dim]{model}[/dim]{suffix}")
+
+    options: list[tuple[str, str]] = []
+    if not is_active:
+        options.append(("Switch to this agent", "switch"))
+    options.append(("Edit", "edit"))
+    if not is_builtin:
+        options.append(("Delete", "delete"))
+
+    for i, (label, action) in enumerate(options, 1):
+        style = "red" if action == "delete" else "cyan"
+        console.print(f"  {i}. [{style}]{label}[/{style}]")
+    console.print()
+
+    raw = await _prompt_line(session, f"Pick [1-{len(options)}], Enter=cancel: ")
+    if not raw or not raw.isdigit():
+        console.print("[dim]Cancelled.[/dim]")
+        return None
+
+    choice = int(raw) - 1
+    if not (0 <= choice < len(options)):
+        console.print("[yellow]Invalid selection.[/yellow]")
+        return None
+
+    action = options[choice][1]
+
+    if action == "switch":
+        console.print(f"[green]🧞 Switched to '[bold]{name}[/bold]'. Current thread continues.[/green]")
+        return agent_def
+
+    if action == "edit":
+        await _run_edit_wizard(console, session, agent_manager, agent_def)
+        return None
+
+    if action == "delete":
+        confirm = await _prompt_line(session, f"Delete '{name}'? [y/N]: ")
+        if confirm.lower() in ("y", "yes"):
+            agent_manager.remove(agent_def["id"])
+            console.print(f"[red]✓ Agent '[bold]{name}[/bold]' deleted.[/red]")
+        else:
+            console.print("[dim]Cancelled.[/dim]")
+        return None
+
+    return None
+
+
+async def _run_create_wizard(
+    console: Console,
+    session: PromptSession,
+    agent_manager: AgentManager,
+) -> dict | None:
+    """Inline create wizard for a new agent."""
     console.print()
     console.print(Panel("[bold]Create a new agent[/bold]", border_style="magenta"))
 
-    # Name
     name = await _prompt_line(session, "Agent name: ")
     if not name:
         console.print("[yellow]Cancelled.[/yellow]")
         return None
 
-    # Model
-    default_model = OLLAMA_MODEL
-    model_raw = await _prompt_line(session, f"Model [{default_model}]: ")
-    model = model_raw if model_raw else None  # None → use default at runtime
+    model_raw = await _prompt_model_line(session, f"Model [{OLLAMA_MODEL}]: ")
+    model = model_raw if model_raw else None
 
-    # Tool selection
     console.print()
     console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
     for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
@@ -322,62 +432,75 @@ async def run_build_agent_wizard(
                     selected_tools.append(SELECTABLE_TOOLS[idx][0])
         tools = selected_tools if selected_tools else "all"
 
-    # System prompt
     console.print()
     console.print("System prompt (Enter for default Genie prompt):")
     prompt_raw = await _prompt_line(session, "> ")
     system_prompt = prompt_raw if prompt_raw else None
 
-    # Save
     agent_def = agent_manager.add(name, model, system_prompt, tools)
     console.print()
-    console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/pick-agent[/cyan] to activate it.")
+    console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/agents[/cyan] to activate it.")
     return agent_def
 
 
-async def run_pick_agent_wizard(
+async def _run_edit_wizard(
     console: Console,
     session: PromptSession,
     agent_manager: AgentManager,
-) -> dict | None:
-    """Interactive wizard to pick the active agent. Returns chosen agent or None."""
-    agents = agent_manager.all_agents()
-    active_id = agent_manager.get_active_id()
-
+    agent_def: dict,
+) -> None:
+    """Inline edit wizard for an existing agent. Enter keeps the current value."""
+    name = agent_def["name"]
     console.print()
-    for i, agent_def in enumerate(agents, 1):
-        marker = "*" if agent_def["id"] == active_id else " "
-        name = agent_def["name"]
-        if agent_def.get("built_in"):
-            name += " (built-in)"
-        model = agent_def.get("model") or OLLAMA_MODEL
-        console.print(f"  {i}. {marker} [cyan]{name}[/cyan]  {model}")
+    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="magenta"))
 
-    console.print()
-    current_idx = next((i for i, a in enumerate(agents, 1) if a["id"] == active_id), 1)
-    selection_raw = await _prompt_line(session, f"Select [{current_idx}]: ")
-    if not selection_raw:
-        console.print("[dim]No change.[/dim]")
-        return None
+    name_raw = await _prompt_line(session, f"Name [{name}]: ")
+    new_name = name_raw if name_raw else name
 
-    if selection_raw.isdigit():
-        idx = int(selection_raw) - 1
-        if 0 <= idx < len(agents):
-            chosen = agents[idx]
-        else:
-            console.print("[yellow]Invalid selection.[/yellow]")
-            return None
+    current_model_display = agent_def.get("model") or OLLAMA_MODEL
+    model_raw = await _prompt_model_line(session, f"Model [{current_model_display}]: ")
+    new_model = model_raw if model_raw else agent_def.get("model")
+
+    current_tools = agent_def.get("tools", "all")
+    if current_tools == "all":
+        current_tools_display = "all"
     else:
-        # Try name match
-        lower = selection_raw.lower()
-        chosen = next((a for a in agents if a["name"].lower() == lower), None)
-        if chosen is None:
-            console.print("[yellow]Agent not found.[/yellow]")
-            return None
+        current_tools_display = ", ".join(current_tools) if current_tools else "none"
 
-    chosen_name = chosen["name"]
-    console.print(f"[green]🧞 Switched to '[bold]{chosen_name}[/bold]'. Current thread continues.[/green]")
-    return chosen
+    console.print()
+    include_all_raw = await _prompt_line(
+        session, f"Include all tools? current=[{current_tools_display}] [Y/n]: "
+    )
+    if include_all_raw.lower() in ("", "y", "yes"):
+        new_tools: list[str] | str = "all"
+    else:
+        sel_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
+        if sel_raw:
+            selected_tools: list[str] = []
+            for part in sel_raw.split(","):
+                part = part.strip()
+                if part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(SELECTABLE_TOOLS):
+                        selected_tools.append(SELECTABLE_TOOLS[idx][0])
+            new_tools = selected_tools if selected_tools else current_tools
+        else:
+            new_tools = current_tools
+
+    console.print()
+    console.print("System prompt (Enter to keep current):")
+    prompt_raw = await _prompt_line(session, "> ")
+    new_system_prompt = prompt_raw if prompt_raw else agent_def.get("system_prompt")
+
+    agent_manager.update(
+        agent_def["id"],
+        name=new_name,
+        model=new_model,
+        tools=new_tools,
+        system_prompt=new_system_prompt,
+    )
+    console.print()
+    console.print(f"[green]✓ Agent '[bold]{new_name}[/bold]' updated.[/green]")
 
 
 async def run_agent_stream(agent, user_input: str, config: dict) -> str:
@@ -691,11 +814,8 @@ async def _repl_loop(
                 if session_state.pop("run_onboard", False):
                     await run_onboarding(agent_holder["agent"], console, prompt_session=session)
 
-                if session_state.pop("run_build_agent", False) and agent_manager is not None:
-                    await run_build_agent_wizard(console, session, agent_manager)
-
-                if session_state.pop("run_pick_agent", False) and agent_manager is not None:
-                    chosen = await run_pick_agent_wizard(console, session, agent_manager)
+                if session_state.pop("run_agent_menu", False) and agent_manager is not None:
+                    chosen = await run_agent_menu(console, session, agent_manager)
                     if chosen is not None:
                         try:
                             new_agent = _make_agent_from_def(chosen, checkpointer, store, audio_router)

@@ -5,10 +5,11 @@ import json
 import logging
 import uuid
 
-from telegram import BotCommand, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -108,9 +109,7 @@ _HELP_TEXT = (
     "/tasks — Show current task list\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
-    "/agents — List all agents\n"
-    "/pick_agent [name or number] — Switch agent\n"
-    "/build_agent — Create a new custom agent\n"
+    "/agents — Manage agents (list, switch, create, edit)\n"
     "/help — Show this help message"
 )
 
@@ -282,8 +281,8 @@ async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(OPENING_QUESTION)
 
 
-async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /agents command — list all agents."""
+async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /agent command — show agents inline keyboard."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
@@ -293,97 +292,130 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     active_id = agent_manager.get_active_id()
-    lines = []
-    for i, agent_def in enumerate(agent_manager.all_agents(), 1):
-        marker = "*" if agent_def["id"] == active_id else " "
+    keyboard = []
+    for agent_def in agent_manager.all_agents():
+        agent_id = agent_def["id"]
         name = agent_def["name"]
-        if agent_def.get("built_in"):
-            name += " (built-in)"
         model = agent_def.get("model") or OLLAMA_MODEL
-        lines.append(f"{i}. {marker} {name}  |  {model}")
-    await update.message.reply_text("\n".join(lines) if lines else "No agents found.")
+        is_active = agent_id == active_id
+        label = f"{'✓ ' if is_active else '  '}{name}  ({model})"
+        row = [InlineKeyboardButton(label, callback_data=f"agent:pick:{agent_id}")]
+        row.append(InlineKeyboardButton("✏️", callback_data=f"agent:edit:{agent_id}"))
+        if not agent_def.get("built_in"):
+            row.append(InlineKeyboardButton("🗑️", callback_data=f"agent:delete:{agent_id}"))
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("➕ New agent", callback_data="agent:build")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("🧞 Agents", reply_markup=reply_markup)
 
 
-async def cmd_pick_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /pick_agent [name or number] — switch agent."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
+async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle agent: inline keyboard callbacks."""
+    query = update.callback_query
+    if not _is_owner(query.from_user.id):
+        await query.answer("This bot is private.")
+        return
+
+    await query.answer()
+    data = query.data
 
     agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
-    agent_holder: dict | None = context.bot_data.get("agent_holder")
-    if agent_manager is None or agent_holder is None:
-        await update.message.reply_text("Agent manager not available.")
-        return
 
-    args = context.args  # list of words after the command
-    agents = agent_manager.all_agents()
-    active_id = agent_manager.get_active_id()
+    if data.startswith("agent:pick:"):
+        agent_id = data[len("agent:pick:"):]
+        if agent_manager is None:
+            await query.edit_message_text("Agent manager not available.")
+            return
+        active_id = agent_manager.get_active_id()
+        if agent_id == active_id:
+            return  # Already active — silently ignore
+        agent_def = agent_manager.get(agent_id)
+        if agent_def is None:
+            await query.edit_message_text(f"Agent not found: {agent_id}")
+            return
+        agent_holder: dict | None = context.bot_data.get("agent_holder")
+        checkpointer = context.bot_data.get("checkpointer")
+        store = context.bot_data.get("store")
+        audio_router = context.bot_data.get("audio_router")
+        from genie.cli import _make_agent_from_def
+        try:
+            new_agent = _make_agent_from_def(agent_def, checkpointer, store, audio_router)
+            agent_holder["agent"] = new_agent
+            context.bot_data["model_name"] = agent_def.get("model") or OLLAMA_MODEL
+            agent_manager.set_active(agent_id)
+            await query.edit_message_text(f"🧞 Switched to '{agent_def['name']}'.")
+        except Exception as e:
+            await query.edit_message_text(f"Failed to switch agent: {e}")
 
-    if not args:
-        # List agents with numbers
-        lines = []
-        for i, agent_def in enumerate(agents, 1):
-            marker = "*" if agent_def["id"] == active_id else " "
-            name = agent_def["name"]
-            if agent_def.get("built_in"):
-                name += " (built-in)"
-            model = agent_def.get("model") or OLLAMA_MODEL
-            lines.append(f"{i}. {marker} {name}  |  {model}")
-        lines.append("\nUse /pick_agent <number or name> to switch.")
-        await update.message.reply_text("\n".join(lines))
-        return
-
-    selector = " ".join(args)
-    chosen = None
-    if selector.isdigit():
-        idx = int(selector) - 1
-        if 0 <= idx < len(agents):
-            chosen = agents[idx]
-    else:
-        lower = selector.lower()
-        chosen = next((a for a in agents if a["name"].lower() == lower), None)
-
-    if chosen is None:
-        await update.message.reply_text(f"Agent not found: '{selector}'. Use /agents to list.")
-        return
-
-    # Build and swap in the new agent
-    from genie.cli import _make_agent_from_def
-    checkpointer = context.bot_data.get("checkpointer")
-    store = context.bot_data.get("store")
-    audio_router = context.bot_data.get("audio_router")
-    try:
-        new_agent = _make_agent_from_def(chosen, checkpointer, store, audio_router)
-        agent_holder["agent"] = new_agent
-        context.bot_data["model_name"] = chosen.get("model") or OLLAMA_MODEL
-        agent_manager.set_active(chosen["id"])
-        await update.message.reply_text(
-            f"🧞 Switched to '{chosen['name']}'. Current thread continues."
+    elif data == "agent:build":
+        context.chat_data["building_agent"] = {"step": "name", "data": {}}
+        await query.edit_message_text(
+            "Let's create a new agent. Send /cancel at any time.\n\n"
+            "Step 1/4 — What's the agent's name?"
         )
-    except Exception as e:
-        await update.message.reply_text(f"Failed to switch agent: {e}")
 
+    elif data.startswith("agent:edit:"):
+        agent_id = data[len("agent:edit:"):]
+        if agent_manager is None:
+            await query.edit_message_text("Agent manager not available.")
+            return
+        agent_def = agent_manager.get(agent_id)
+        if agent_def is None:
+            await query.edit_message_text(f"Agent not found: {agent_id}")
+            return
+        context.chat_data["building_agent"] = {
+            "step": "edit_name",
+            "data": {
+                "edit_id": agent_id,
+                "name": agent_def["name"],
+                "model": agent_def.get("model"),
+                "tools": agent_def.get("tools", "all"),
+                "system_prompt": agent_def.get("system_prompt"),
+            },
+        }
+        await query.edit_message_text(
+            f"Editing '{agent_def['name']}'. Send '-' to keep the current value.\n\n"
+            f"Step 1/4 — New name? (current: {agent_def['name']})"
+        )
 
-async def cmd_build_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /build_agent — start multi-turn wizard to create a new agent."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
+    elif data.startswith("agent:delete:"):
+        agent_id = data[len("agent:delete:"):]
+        if agent_manager is None:
+            await query.edit_message_text("Agent manager not available.")
+            return
+        agent_def = agent_manager.get(agent_id)
+        if agent_def is None:
+            await query.edit_message_text(f"Agent not found: {agent_id}")
+            return
+        keyboard = [[
+            InlineKeyboardButton("Yes, delete", callback_data=f"agent:delete_confirm:{agent_id}"),
+            InlineKeyboardButton("Cancel", callback_data="agent:delete_cancel"),
+        ]]
+        await query.edit_message_text(
+            f"Delete '{agent_def['name']}'?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
 
-    # Initialize wizard state
-    context.chat_data["building_agent"] = {"step": "name", "data": {}}
+    elif data.startswith("agent:delete_confirm:"):
+        agent_id = data[len("agent:delete_confirm:"):]
+        if agent_manager is None:
+            await query.edit_message_text("Agent manager not available.")
+            return
+        agent_def = agent_manager.get(agent_id)
+        name = agent_def["name"] if agent_def else agent_id
+        try:
+            agent_manager.remove(agent_id)
+            await query.edit_message_text(f"✓ '{name}' deleted.")
+        except ValueError as e:
+            await query.edit_message_text(str(e))
 
-    tool_lines = "\n".join(
-        f"  {i}. {name} — {desc}"
-        for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
-    )
-    await update.message.reply_text(
-        "Let's create a new agent. You can send /cancel at any time.\n\n"
-        "Step 1/4 — What's the agent's name?"
-    )
+    elif data == "agent:delete_cancel":
+        await query.edit_message_text("Cancelled.")
 
 
 async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Process a wizard step for /build_agent. Returns True if message was consumed."""
+    """Process wizard steps for agent creation/editing. Returns True if message was consumed."""
     state = context.chat_data.get("building_agent")
     if state is None:
         return False
@@ -393,11 +425,13 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     # Allow cancellation at any step
     if text.lower() == "/cancel":
         context.chat_data.pop("building_agent", None)
-        await update.message.reply_text("Agent creation cancelled.")
+        await update.message.reply_text("Cancelled.")
         return True
 
     step = state["step"]
     data = state["data"]
+
+    # ── Create flow ──────────────────────────────────────────────────────────
 
     if step == "name":
         if not text:
@@ -406,7 +440,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         data["name"] = text
         state["step"] = "model"
         await update.message.reply_text(
-            f"Step 2/4 — Which model? (send Enter/empty for default: {OLLAMA_MODEL})"
+            f"Step 2/4 — Which model? (send empty for default: {OLLAMA_MODEL})"
         )
 
     elif step == "model":
@@ -442,7 +476,6 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     elif step == "prompt":
         data["system_prompt"] = text if text else None
         state["step"] = "confirm"
-
         tools_display = data["tools"] if data["tools"] == "all" else ", ".join(data["tools"])
         model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
         prompt_display = data.get("system_prompt") or "(default Genie prompt)"
@@ -462,7 +495,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 await update.message.reply_text("Agent manager not available.")
                 context.chat_data.pop("building_agent", None)
                 return True
-            agent_def = agent_manager.add(
+            agent_manager.add(
                 name=data["name"],
                 model=data.get("model"),
                 system_prompt=data.get("system_prompt"),
@@ -470,12 +503,97 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             )
             context.chat_data.pop("building_agent", None)
             await update.message.reply_text(
-                f"✓ Agent '{data['name']}' created!\n"
-                f"Use /pick_agent to activate it."
+                f"✓ Agent '{data['name']}' created!\nUse /agents to activate it."
             )
         else:
             context.chat_data.pop("building_agent", None)
             await update.message.reply_text("Agent creation cancelled.")
+
+    # ── Edit flow ────────────────────────────────────────────────────────────
+
+    elif step == "edit_name":
+        if text and text != "-":
+            data["name"] = text
+        state["step"] = "edit_model"
+        current_model = data.get("model") or OLLAMA_MODEL
+        await update.message.reply_text(
+            f"Step 2/4 — New model? (current: {current_model}, send '-' to keep)"
+        )
+
+    elif step == "edit_model":
+        if text and text != "-":
+            data["model"] = text
+        state["step"] = "edit_tools"
+        current_tools = data.get("tools", "all")
+        tools_display = current_tools if current_tools == "all" else ", ".join(current_tools)
+        tool_lines = "\n".join(
+            f"  {i}. {name} — {desc}"
+            for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
+        )
+        await update.message.reply_text(
+            f"Step 3/4 — Tools? (current: {tools_display})\n\n"
+            f"{tool_lines}\n\n"
+            f"Send comma-separated numbers, 'all', or '-' to keep current."
+        )
+
+    elif step == "edit_tools":
+        if text and text != "-":
+            if text.lower() == "all":
+                data["tools"] = "all"
+            else:
+                selected_edit: list[str] = []
+                for part in text.split(","):
+                    part = part.strip()
+                    if part.isdigit():
+                        idx = int(part) - 1
+                        if 0 <= idx < len(SELECTABLE_TOOLS):
+                            selected_edit.append(SELECTABLE_TOOLS[idx][0])
+                if selected_edit:
+                    data["tools"] = selected_edit
+        state["step"] = "edit_prompt"
+        current_prompt = data.get("system_prompt") or "(default)"
+        await update.message.reply_text(
+            f"Step 4/4 — System prompt?\n"
+            f"Current: {current_prompt[:100]}{'…' if len(current_prompt) > 100 else ''}\n\n"
+            f"Send new prompt, or '-' to keep current."
+        )
+
+    elif step == "edit_prompt":
+        if text and text != "-":
+            data["system_prompt"] = text
+        state["step"] = "edit_confirm"
+        current_tools = data.get("tools", "all")
+        tools_display = current_tools if current_tools == "all" else ", ".join(current_tools)
+        model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
+        prompt_display = data.get("system_prompt") or "(default Genie prompt)"
+        await update.message.reply_text(
+            f"Confirm updated agent:\n\n"
+            f"Name: {data['name']}\n"
+            f"Model: {model_display}\n"
+            f"Tools: {tools_display}\n"
+            f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
+            f"Send 'yes' to save, anything else to cancel."
+        )
+
+    elif step == "edit_confirm":
+        if text.lower() in ("yes", "y"):
+            agent_manager_edit: AgentManager | None = context.bot_data.get("agent_manager")
+            if agent_manager_edit is None:
+                await update.message.reply_text("Agent manager not available.")
+                context.chat_data.pop("building_agent", None)
+                return True
+            agent_manager_edit.update(
+                data["edit_id"],
+                name=data["name"],
+                model=data.get("model"),
+                tools=data.get("tools", "all"),
+                system_prompt=data.get("system_prompt"),
+            )
+            context.chat_data.pop("building_agent", None)
+            await update.message.reply_text(f"✓ Agent '{data['name']}' updated!")
+        else:
+            context.chat_data.pop("building_agent", None)
+            await update.message.reply_text("Edit cancelled.")
 
     return True
 
@@ -685,9 +803,8 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
-    app.add_handler(CommandHandler("agents", cmd_agents))
-    app.add_handler(CommandHandler("pick_agent", cmd_pick_agent))
-    app.add_handler(CommandHandler("build_agent", cmd_build_agent))
+    app.add_handler(CommandHandler("agents", cmd_agent))
+    app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await app.initialize()
@@ -702,9 +819,7 @@ async def run_telegram_alongside_cli(
         BotCommand("tasks", "Show current task list"),
         BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
-        BotCommand("agents", "List all agents"),
-        BotCommand("pick_agent", "Switch to a different agent"),
-        BotCommand("build_agent", "Create a new custom agent"),
+        BotCommand("agents", "Manage agents — list, switch, create, edit"),
         BotCommand("help", "Show all commands"),
     ])
     await app.start()
