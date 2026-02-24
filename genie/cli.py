@@ -478,6 +478,11 @@ async def _run_edit_wizard(
         current_tools_display = ", ".join(current_tools) if current_tools else "none"
 
     console.print()
+    console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+    for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
+        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
+    console.print()
+
     include_all_raw = await _prompt_line(
         session, f"Include all tools? current=[{current_tools_display}] [Y/n]: "
     )
