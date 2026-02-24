@@ -4,7 +4,13 @@ from langchain_core.tools import tool
 
 
 @tool
-def cron_add(name: str, cron_expression: str, prompt: str, timezone: str = "UTC") -> str:
+def cron_add(
+    name: str,
+    cron_expression: str,
+    prompt: str,
+    timezone: str = "UTC",
+    agent_id: str | None = None,
+) -> str:
     """Schedule a recurring cron job that will run the given prompt on a schedule.
 
     The cron_expression uses standard 5-field format: minute hour day month weekday.
@@ -19,6 +25,9 @@ def cron_add(name: str, cron_expression: str, prompt: str, timezone: str = "UTC"
         cron_expression: 5-field cron schedule (minute hour day month weekday).
         prompt: The prompt/instruction to execute when the job fires.
         timezone: IANA timezone name (default: UTC). Examples: America/New_York, Europe/London.
+        agent_id: Optional ID of a custom agent to run this job with. If omitted or
+            not found, the default Genie agent is used. Agent IDs can be found via
+            the /agents command.
     """
     from genie.scheduler import get_scheduler
 
@@ -33,12 +42,14 @@ def cron_add(name: str, cron_expression: str, prompt: str, timezone: str = "UTC"
             cron_expression=cron_expression,
             prompt=prompt,
             timezone_str=timezone,
+            agent_id=agent_id,
         )
+        agent_line = f"\n  Agent: {job['agent_id']}" if job.get("agent_id") else ""
         return (
             f"Cron job created successfully.\n"
             f"  ID: {job['id']}\n"
             f"  Name: {job['name']}\n"
-            f"  Schedule: {job['cron_expression']} ({job['timezone']})\n"
+            f"  Schedule: {job['cron_expression']} ({job['timezone']}){agent_line}\n"
             f"  Prompt: {job['prompt']}"
         )
     except ValueError as e:
@@ -64,10 +75,11 @@ def cron_list() -> str:
     lines = [f"Scheduled cron jobs ({len(jobs)}):"]
     for j in jobs:
         status = "enabled" if j.get("enabled", True) else "disabled"
+        agent_line = f"\n    Agent: {j['agent_id']}" if j.get("agent_id") else ""
         lines.append(
             f"\n  [{j['id']}] {j['name']}\n"
             f"    Schedule: {j['cron_expression']} ({j.get('timezone', 'UTC')})\n"
-            f"    Prompt: {j['prompt']}\n"
+            f"    Prompt: {j['prompt']}{agent_line}\n"
             f"    Status: {status}"
         )
     return "\n".join(lines)

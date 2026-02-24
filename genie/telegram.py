@@ -787,7 +787,11 @@ async def run_telegram_alongside_cli(
 
     from genie.scheduler import CronScheduler, set_scheduler
 
-    scheduler = CronScheduler(agent=agent_holder["agent"], send_callback=send_to_owner)
+    scheduler = CronScheduler(
+        agent=agent_holder["agent"],
+        send_callback=send_to_owner,
+        agent_manager=agent_manager,
+    )
     set_scheduler(scheduler)
 
     # Register handlers

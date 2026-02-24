@@ -47,12 +47,20 @@ class CronScheduler:
         agent,
         send_callback: Callable[[str], Awaitable[None]],
         jobs_path: Path | None = None,
+        agent_manager=None,
+        checkpointer=None,
+        store=None,
+        audio_router=None,
     ):
         self._agent = agent
         self._send_callback = send_callback
         self._jobs_path = jobs_path or get_cron_jobs_path()
         self._scheduler = AsyncIOScheduler()
         self._jobs: list[dict[str, Any]] = []
+        self._agent_manager = agent_manager
+        self._checkpointer = checkpointer
+        self._store = store
+        self._audio_router = audio_router
 
     async def start(self) -> None:
         """Load persisted jobs, register with APScheduler, start."""
@@ -76,6 +84,7 @@ class CronScheduler:
         cron_expression: str,
         prompt: str,
         timezone_str: str = "UTC",
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new cron job, persist it, register with APScheduler.
 
@@ -102,6 +111,7 @@ class CronScheduler:
             "prompt": prompt,
             "enabled": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            **({"agent_id": agent_id} if agent_id else {}),
         }
         self._jobs.append(job)
         self._save_jobs()
@@ -143,6 +153,24 @@ class CronScheduler:
             replace_existing=True,
         )
 
+    def _get_agent_for_job(self, job: dict):
+        """Return the agent to use for a job, falling back to the default."""
+        agent_id = job.get("agent_id")
+        if agent_id and self._agent_manager:
+            agent_def = self._agent_manager.get(agent_id)
+            if agent_def:
+                try:
+                    from genie.cli import _make_agent_from_def
+                    return _make_agent_from_def(
+                        agent_def, self._checkpointer, self._store, self._audio_router
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Could not build agent '%s' for cron job '%s': %s — using default",
+                        agent_id, job["name"], e,
+                    )
+        return self._agent
+
     async def _execute_job(self, job: dict) -> None:
         """Fire when a cron job triggers. Invoke agent, send response."""
         job_id = job["id"]
@@ -152,11 +180,12 @@ class CronScheduler:
 
         logger.info("Executing cron job '%s' (id=%s)", job_name, job_id)
 
+        agent = self._get_agent_for_job(job)
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
         chunks: list[str] = []
 
         async def _stream() -> None:
-            async for event in self._agent.astream_events(
+            async for event in agent.astream_events(
                 build_input(prompt),
                 config=config,
                 version="v2",
