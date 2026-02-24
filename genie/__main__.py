@@ -11,6 +11,13 @@ def parse_args():
         description="Genie - A terminal-based AI agent powered by local Ollama models",
     )
     parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["start"],
+        default="start",
+        help="Command to run (default: start)",
+    )
+    parser.add_argument(
         "-m", "--model",
         default=OLLAMA_MODEL,
         help=f"Ollama model to use (default: {OLLAMA_MODEL})",

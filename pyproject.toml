@@ -22,13 +22,16 @@ dependencies = [
 ]
 
 [project.scripts]
-genie = "genie.cli:main"
+genie = "genie.__main__:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+
+[tool.setuptools.packages.find]
+include = ["genie*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
