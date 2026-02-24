@@ -247,6 +247,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_agent_menu"] = True
         return True
 
+    if cmd == "/history":
+        session_state["run_history"] = True
+        return True
+
     if cmd == "/help":
         help_text = (
             "[bold]Commands:[/bold]\n"
@@ -263,6 +267,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tavily        - Set up Tavily web search API key\n"
             "  /telegram      - Set up Telegram bot credentials\n"
             "  /agents        - Manage agents (list, switch, create)\n"
+            "  /history       - Show past conversations with timestamps\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit Genie\n"
             "  /help          - Show this help message"
@@ -535,6 +540,59 @@ async def _run_edit_wizard(
     )
     console.print()
     console.print(f"[green]✓ Agent '[bold]{new_name}[/bold]' updated.[/green]")
+
+
+async def show_history(session: PromptSession, session_state: dict) -> None:
+    """Display past conversations and optionally switch to one."""
+    from rich.table import Table
+    from genie.memory.store import get_thread_history
+
+    rows = get_thread_history()
+    if not rows:
+        console.print("[dim]No past conversations found.[/dim]")
+        return
+
+    current_tid = session_state.get("thread_id", "")
+    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 1))
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Thread", width=10)
+    table.add_column("Last Active", width=18)
+    table.add_column("First Message")
+
+    for i, entry in enumerate(rows, 1):
+        tid = entry["thread_id"]
+        tid_short = tid[:8]
+        last_active = entry["last_active"]
+        if last_active:
+            local_dt = last_active.astimezone()
+            ts_str = local_dt.strftime("%b %d  %I:%M %p")
+        else:
+            ts_str = "—"
+        first_msg = entry["first_message"] or "—"
+        if len(first_msg) > 58:
+            first_msg = first_msg[:55] + "…"
+        first_msg = first_msg.replace("[", "\\[")
+        is_current = tid == current_tid
+        tid_display = f"[bold green]{tid_short} *[/bold green]" if is_current else tid_short
+        table.add_row(str(i), tid_display, ts_str, first_msg)
+
+    console.print(Panel(table, title="Conversation History", border_style="cyan"))
+
+    raw = await _prompt_line(session, f"Switch to [1-{len(rows)}], Enter=cancel: ")
+    if not raw:
+        console.print("[dim]Cancelled.[/dim]")
+        return
+    if raw.isdigit():
+        idx = int(raw) - 1
+        if 0 <= idx < len(rows):
+            chosen = rows[idx]
+            session_state["thread_id"] = chosen["thread_id"]
+            preview = (chosen["first_message"] or "")[:50].replace("[", "\\[")
+            console.print(f"[green]Switched to thread[/green] [dim]{chosen['thread_id']}[/dim]")
+            if preview:
+                console.print(f"[dim]{preview}[/dim]")
+            return
+    console.print("[yellow]Invalid selection.[/yellow]")
 
 
 async def run_agent_stream(agent, user_input: str, config: dict) -> str:
@@ -855,6 +913,9 @@ async def _repl_loop(
                 if session_state.pop("run_setup_telegram", False):
                     from genie.onboarding import run_setup_telegram
                     await run_setup_telegram(console, session)
+
+                if session_state.pop("run_history", False):
+                    await show_history(session, session_state)
 
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)
