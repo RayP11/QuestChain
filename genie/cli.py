@@ -222,6 +222,14 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_onboard"] = True
         return True
 
+    if cmd == "/tavily":
+        session_state["run_setup_tavily"] = True
+        return True
+
+    if cmd == "/telegram":
+        session_state["run_setup_telegram"] = True
+        return True
+
     if cmd == "/agents":
         session_state["run_agent_menu"] = True
         return True
@@ -239,6 +247,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tasks         - Show current task list\n"
             "  /cron          - List scheduled cron jobs\n"
             "  /onboard       - Re-run the onboarding flow\n"
+            "  /tavily        - Set up Tavily web search API key\n"
+            "  /telegram      - Set up Telegram bot credentials\n"
             "  /agents        - Manage agents (list, switch, create)\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit Genie\n"
@@ -813,6 +823,14 @@ async def _repl_loop(
             if result is True:
                 if session_state.pop("run_onboard", False):
                     await run_onboarding(agent_holder["agent"], console, prompt_session=session)
+
+                if session_state.pop("run_setup_tavily", False):
+                    from genie.onboarding import run_setup_tavily
+                    await run_setup_tavily(console, session)
+
+                if session_state.pop("run_setup_telegram", False):
+                    from genie.onboarding import run_setup_telegram
+                    await run_setup_telegram(console, session)
 
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)

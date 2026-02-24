@@ -5,8 +5,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env from current directory or project root
+# Load from project .env first, then from ~/.genie/.env as fallback
 load_dotenv()
+_genie_env = Path(os.getenv("GENIE_DATA_DIR", str(Path.home() / ".genie"))) / ".env"
+load_dotenv(_genie_env)  # override=False (default) won't clobber already-set vars
 
 # --- Ollama settings ---
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

@@ -118,7 +118,7 @@ genie start
 
 On first run, Genie walks you through a short onboarding conversation and optionally sets up Telegram. After that, it remembers who you are.
 
-> **Web search (optional):** Get a free [Tavily API key](https://tavily.com) and add it to `~/.genie/.env` as `TAVILY_API_KEY=...` to enable web search and browsing.
+> **Web search (optional):** Run `/tavily` inside Genie to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
 
 ---
 
@@ -164,6 +164,8 @@ genie start --list-models
 | `/tasks` | Show the current workspace task list |
 | `/cron` | List scheduled cron jobs |
 | `/onboard` | Re-run the onboarding conversation |
+| `/tavily` | Set up Tavily web search API key |
+| `/telegram` | Set up Telegram bot credentials |
 | `/clear` | Clear the screen |
 | **Ctrl+D** | Exit Genie |
 
@@ -173,16 +175,13 @@ genie start --list-models
 
 Genie runs alongside the CLI as a Telegram bot, giving you remote access from your phone.
 
+Run `/telegram` inside Genie and it walks you through the setup:
+
 1. Message [@BotFather](https://t.me/botfather) on Telegram → `/newbot` → copy the token
 2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric user ID
-3. Add to your `.env`:
+3. Paste both into the `/telegram` wizard — credentials are saved automatically
 
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_OWNER_ID=your_numeric_user_id
-```
-
-That's it. The bot starts automatically alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
+Restart Genie and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
 
 ---
 

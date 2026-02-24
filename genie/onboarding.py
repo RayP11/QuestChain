@@ -3,12 +3,13 @@
 import asyncio
 import os
 import random
+from pathlib import Path
 
 from rich.panel import Panel
 from rich.text import Text
 
 from genie.agent import build_input
-from genie.config import get_onboarded_marker_path
+from genie.config import GENIE_DATA_DIR, get_onboarded_marker_path
 
 GENIE_ART = (
     " ██████╗ ███████╗███╗   ██╗██╗███████╗\n"
@@ -99,6 +100,23 @@ def clear_onboarded() -> None:
         path.unlink()
 
 
+def _get_env_path() -> Path:
+    """Return the canonical ~/.genie/.env path for persisting credentials."""
+    path = GENIE_DATA_DIR / ".env"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_env_key(key: str, value: str) -> None:
+    """Write a key=value to os.environ and to ~/.genie/.env."""
+    os.environ[key] = value
+    try:
+        from dotenv import set_key
+        set_key(str(_get_env_path()), key, value)
+    except Exception:
+        pass
+
+
 async def _prompt_input(
     prompt_session, console, prompt_str: str, password: bool = False
 ) -> str:
@@ -111,69 +129,78 @@ async def _prompt_input(
         return ""
 
 
-async def _setup_credentials(console, prompt_session) -> None:
-    """Prompt for any missing API keys / Telegram credentials and persist to .env."""
+async def run_setup_tavily(console, prompt_session) -> bool:
+    """Interactive wizard to configure the Tavily web search API key.
+
+    Saves to ~/.genie/.env.  Returns True if a key was saved.
+    """
+    current = os.getenv("TAVILY_API_KEY", "")
+    console.print()
+    console.print(Panel(
+        "[bold]Web Search — Tavily[/bold]\n\n"
+        "Get a free API key at [cyan]https://tavily.com[/cyan]\n"
+        + (f"Current key: [dim]{current[:8]}…[/dim]" if current else "Not configured yet."),
+        border_style="cyan",
+        title="Tavily Setup",
+    ))
+    key = await _prompt_input(prompt_session, console, "  API key (Enter to skip): ")
+    if key:
+        _save_env_key("TAVILY_API_KEY", key)
+        console.print("  [green]✓ Saved to ~/.genie/.env — restart Genie to enable web search.[/green]")
+        return True
+    console.print("  [dim]Skipped.[/dim]")
+    return False
+
+
+async def run_setup_telegram(console, prompt_session) -> bool:
+    """Interactive wizard to configure Telegram bot credentials.
+
+    Saves to ~/.genie/.env.  Returns True if credentials were saved.
+    """
+    current_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    current_owner = os.getenv("TELEGRAM_OWNER_ID", "")
+    console.print()
+    console.print(Panel(
+        "[bold]Telegram Bot[/bold]\n\n"
+        "1. Message [cyan]@BotFather[/cyan] on Telegram → /newbot → copy the token\n"
+        "2. Message [cyan]@userinfobot[/cyan] on Telegram → copy your numeric user ID\n\n"
+        + (f"Current token: [dim]{current_token[:8]}…[/dim]" if current_token else "Not configured yet."),
+        border_style="cyan",
+        title="Telegram Setup",
+    ))
+    token = await _prompt_input(
+        prompt_session, console, "  Bot token (Enter to skip): ", password=True
+    )
+    if not token:
+        console.print("  [dim]Skipped.[/dim]")
+        return False
+    _save_env_key("TELEGRAM_BOT_TOKEN", token)
+    owner_id = await _prompt_input(prompt_session, console, "  Your Telegram user ID: ")
+    if owner_id:
+        _save_env_key("TELEGRAM_OWNER_ID", owner_id)
+    console.print("  [green]✓ Saved to ~/.genie/.env — restart Genie to activate the bot.[/green]")
+    return True
+
+
+async def _run_integration_setup(console, prompt_session) -> None:
+    """Offer Tavily and Telegram setup as optional post-onboarding steps."""
     needs_tavily = not os.getenv("TAVILY_API_KEY")
     needs_telegram = not os.getenv("TELEGRAM_BOT_TOKEN")
-
     if not needs_tavily and not needs_telegram:
         return
 
     console.print()
     console.print(Panel(
-        "Some optional integrations aren't configured yet.\n"
-        "Press [bold]Enter[/bold] to skip anything you don't want to set up now.",
-        title="Setup",
+        "One more thing — a couple of optional integrations can make Genie more powerful.\n"
+        "Press [bold]Enter[/bold] to skip any you don't want to set up right now.\n"
+        "You can always run [cyan]/tavily[/cyan] or [cyan]/telegram[/cyan] later.",
+        title="Optional Setup",
         border_style="cyan",
     ))
-
-    try:
-        from dotenv import find_dotenv, set_key
-        env_path = find_dotenv() or ".env"
-    except ImportError:
-        env_path = None
-
-    def _save(key: str, value: str) -> None:
-        os.environ[key] = value
-        if env_path:
-            try:
-                from dotenv import set_key
-                set_key(env_path, key, value)
-            except Exception:
-                pass
-
     if needs_tavily:
-        console.print("\n[bold]Web Search — Tavily[/bold]")
-        console.print("  Free API key at [cyan]https://tavily.com[/cyan]")
-        key = await _prompt_input(prompt_session, console, "  Tavily API key (Enter to skip): ")
-        if key:
-            _save("TAVILY_API_KEY", key)
-            console.print("  [green]✓ Saved[/green]")
-        else:
-            console.print("  [dim]Skipped[/dim]")
-
+        await run_setup_tavily(console, prompt_session)
     if needs_telegram:
-        console.print("\n[bold]Telegram Bot[/bold]")
-        console.print(
-            "  1. Message [cyan]@BotFather[/cyan] on Telegram → /newbot → copy the token\n"
-            "  2. Message [cyan]@userinfobot[/cyan] on Telegram → copy your numeric user ID"
-        )
-        token = await _prompt_input(
-            prompt_session, console,
-            "  Bot token (Enter to skip): ",
-            password=True,
-        )
-        if token:
-            _save("TELEGRAM_BOT_TOKEN", token)
-            owner_id = await _prompt_input(
-                prompt_session, console, "  Your Telegram user ID: "
-            )
-            if owner_id:
-                _save("TELEGRAM_OWNER_ID", owner_id)
-            console.print("  [green]✓ Saved[/green]")
-        else:
-            console.print("  [dim]Skipped[/dim]")
-
+        await run_setup_telegram(console, prompt_session)
     console.print()
 
 
@@ -219,9 +246,6 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     Returns True if onboarding completed, False if skipped.
     """
-    # Collect any missing credentials before anything else
-    await _setup_credentials(console, prompt_session)
-
     config = {"configurable": {"thread_id": "onboarding"}, "recursion_limit": 200}
 
     # Show the welcome banner
@@ -244,6 +268,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     if "ONBOARDING_COMPLETE" in full_response:
         mark_onboarded()
+        await _run_integration_setup(console, prompt_session)
         return True
 
     # Conversation loop for follow-up questions
@@ -257,4 +282,5 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
         if "ONBOARDING_COMPLETE" in full_response:
             mark_onboarded()
+            await _run_integration_setup(console, prompt_session)
             return True
