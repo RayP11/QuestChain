@@ -90,12 +90,7 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
 # ── Genie ────────────────────────────────────────────────────────────────────
 
 Step "Installing Genie..."
-$SourceDir = $PSScriptRoot
-if (-not (Test-Path "$SourceDir\pyproject.toml")) {
-    Fatal "pyproject.toml not found. Run install.ps1 from the Genie source directory."
-}
-
-uv tool install "$SourceDir" --reinstall
+uv tool install "git+https://github.com/RayP11/genie" --reinstall
 if ($LASTEXITCODE -ne 0) { Fatal "uv tool install failed." }
 Refresh-Path
 OK "Genie installed"

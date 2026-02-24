@@ -93,72 +93,58 @@ The agent runs a **plan → act → review** loop. It can call as many tools as 
 
 ---
 
-## Quick Start
+## Install
 
-### Prerequisites
+Open **PowerShell** and run:
 
-- [Python 3.13+](https://python.org)
-- [Ollama](https://ollama.com) installed and running (`ollama serve`)
-- A [Tavily API key](https://tavily.com) for web search *(free tier available, optional)*
-
-### Install
-
-```bash
-# Clone the repo
-git clone https://github.com/yourname/genie.git
-cd genie
-
-# Install dependencies with uv
-uv sync
-
-# Copy environment config
-cp .env.example .env
-# Open .env and add your TAVILY_API_KEY (optional — skip for offline-only use)
-
-# Pull a model
-ollama pull qwen3:8b
-
-# Launch
-python -m genie
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/genie/main/install.ps1 | iex"
 ```
 
-On first run, Genie will walk you through a short onboarding conversation and optionally set up Telegram. After that, it remembers who you are.
+That's it. The installer handles everything automatically:
+- **Ollama** — local LLM runtime
+- **Python 3.13** — if not already installed
+- **uv** — fast Python package manager
+- **Genie** — installed and added to PATH
+- **qwen3:8b** — default model pulled and ready
 
-### Pick a Model
+Takes ~5–10 minutes depending on your internet speed (the model download is the slow part).
 
-```bash
-# List all bundled presets
-python -m genie --list-models
+Then run:
 
-# Start with a specific model
-python -m genie -m qwen2.5:14b-instruct
-
-# Any Ollama model works, even if not in the preset list
-python -m genie -m llama3.2:3b
 ```
+genie start
+```
+
+On first run, Genie walks you through a short onboarding conversation and optionally sets up Telegram. After that, it remembers who you are.
+
+> **Web search (optional):** Get a free [Tavily API key](https://tavily.com) and add it to `~/.genie/.env` as `TAVILY_API_KEY=...` to enable web search and browsing.
 
 ---
 
 ## Usage
 
 ```bash
-# Start with default model (qwen3:8b)
-python -m genie
+# Start Genie
+genie start
 
 # Use a specific model
-python -m genie -m dolphin3:latest
+genie start -m qwen2.5:14b-instruct
 
 # Resume a previous conversation by thread ID
-python -m genie -t <thread-id>
+genie start -t <thread-id>
 
 # Run without persistent memory
-python -m genie --no-memory
+genie start --no-memory
 
 # Set the busy work interval (minutes)
-python -m genie --busy-work 30
+genie start --busy-work 30
 
 # Disable background busy work
-python -m genie --no-busy-work
+genie start --no-busy-work
+
+# List available model presets
+genie start --list-models
 ```
 
 ---
