@@ -28,6 +28,13 @@ from genie.onboarding import ONBOARDING_SYSTEM, OPENING_QUESTION, is_onboarded, 
 
 logger = logging.getLogger(__name__)
 
+# Silence the full traceback that python-telegram-bot logs when the polling
+# loop hits a NetworkError (e.g. offline, DNS failure).  The bot retries
+# automatically; we show a single dim line in the CLI instead.
+logging.getLogger("telegram.ext._utils.networkloop").setLevel(logging.CRITICAL)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # Map chat_id -> thread_id for conversation persistence (loaded from disk)
 def _load_thread_ids() -> dict[int, str]:
     path = get_thread_ids_path()
@@ -810,6 +817,16 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("agents", cmd_agent))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        from telegram.error import NetworkError, TimedOut
+        err = context.error
+        if isinstance(err, (NetworkError, TimedOut)):
+            logger.debug("Telegram network error (will retry): %s", err)
+        else:
+            logger.error("Telegram error", exc_info=err)
+
+    app.add_error_handler(_error_handler)
 
     await app.initialize()
     await app.bot.set_my_commands([
