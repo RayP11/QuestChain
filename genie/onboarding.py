@@ -3,10 +3,15 @@
 import asyncio
 import os
 import random
+import shutil
 from pathlib import Path
 
+from prompt_toolkit.styles import Style
 from rich.panel import Panel
 from rich.text import Text
+
+_INPUT_STYLE = Style.from_dict({"bottom-toolbar": "fg:ansibrightblack noreverse"})
+_SEP = "─"
 
 from genie.agent import build_input
 from genie.config import GENIE_DATA_DIR, get_onboarded_marker_path
@@ -228,13 +233,16 @@ async def _stream_agent(agent, message: str, config: dict, console) -> str:
 
 async def _prompt_user(prompt_session, console) -> str | None:
     """Prompt for user input. Returns stripped text, or None on interrupt."""
-    import asyncio
-
+    width = shutil.get_terminal_size().columns
+    sep = _SEP * width
+    console.print(sep, style="dim")
     try:
         if prompt_session:
-            raw = await prompt_session.prompt_async("\n🧞 You > ")
+            raw = await prompt_session.prompt_async(
+                "❯ ", bottom_toolbar=sep, style=_INPUT_STYLE
+            )
         else:
-            raw = await asyncio.to_thread(input, "\n🧞 You > ")
+            raw = await asyncio.to_thread(input, "❯ ")
         return raw.strip()
     except (EOFError, KeyboardInterrupt):
         console.print("\n[dim]Onboarding skipped.[/dim]")

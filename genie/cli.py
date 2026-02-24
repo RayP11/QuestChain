@@ -2,14 +2,19 @@
 
 import asyncio
 import random
+import shutil
 import uuid
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+
+_INPUT_STYLE = Style.from_dict({"bottom-toolbar": "fg:ansibrightblack noreverse"})
+_SEP = "─"
 
 from genie import __version__
 from genie.agent import build_input, create_genie_agent
@@ -25,6 +30,14 @@ from genie.memory.store import create_checkpointer, create_memory_store
 from genie.models import check_ollama_connection, list_available_models, wait_for_ollama
 
 console = Console()
+
+
+async def _user_prompt(session: PromptSession) -> str:
+    """Render the framed input box and return the user's raw input."""
+    width = shutil.get_terminal_size().columns
+    sep = _SEP * width
+    console.print(sep, style="dim")
+    return await session.prompt_async("❯ ", bottom_toolbar=sep, style=_INPUT_STYLE)
 
 
 async def _play_audio(wav_bytes: bytes) -> None:
@@ -774,7 +787,7 @@ async def _repl_loop(
         telegram_update = None
 
         if telegram_queue is not None:
-            prompt_task = asyncio.create_task(session.prompt_async("\n🧞 You > "))
+            prompt_task = asyncio.create_task(_user_prompt(session))
             queue_task = asyncio.create_task(telegram_queue.get())
             done, pending = await asyncio.wait(
                 [prompt_task, queue_task],
@@ -806,7 +819,7 @@ async def _repl_loop(
                 console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
         else:
             try:
-                user_input = await session.prompt_async("\n🧞 You > ")
+                user_input = await _user_prompt(session)
             except EOFError:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
