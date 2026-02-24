@@ -7,13 +7,11 @@ import uuid
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-_INPUT_STYLE = Style.from_dict({"bottom-toolbar": "fg:ansibrightblack noreverse"})
 _SEP = "─"
 
 from genie import __version__
@@ -37,7 +35,9 @@ async def _user_prompt(session: PromptSession) -> str:
     width = shutil.get_terminal_size().columns
     sep = _SEP * width
     console.print(sep, style="dim")
-    return await session.prompt_async("❯ ", bottom_toolbar=sep, style=_INPUT_STYLE)
+    result = await session.prompt_async("❯ ")
+    console.print(sep, style="dim")
+    return result
 
 
 async def _play_audio(wav_bytes: bytes) -> None:

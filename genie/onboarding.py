@@ -6,11 +6,9 @@ import random
 import shutil
 from pathlib import Path
 
-from prompt_toolkit.styles import Style
 from rich.panel import Panel
 from rich.text import Text
 
-_INPUT_STYLE = Style.from_dict({"bottom-toolbar": "fg:ansibrightblack noreverse"})
 _SEP = "─"
 
 from genie.agent import build_input
@@ -238,11 +236,10 @@ async def _prompt_user(prompt_session, console) -> str | None:
     console.print(sep, style="dim")
     try:
         if prompt_session:
-            raw = await prompt_session.prompt_async(
-                "❯ ", bottom_toolbar=sep, style=_INPUT_STYLE
-            )
+            raw = await prompt_session.prompt_async("❯ ")
         else:
             raw = await asyncio.to_thread(input, "❯ ")
+        console.print(sep, style="dim")
         return raw.strip()
     except (EOFError, KeyboardInterrupt):
         console.print("\n[dim]Onboarding skipped.[/dim]")
