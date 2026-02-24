@@ -18,7 +18,7 @@ _SEP = "─"
 
 from genie import __version__
 from genie.agent import build_input, create_genie_agent
-from genie.agents import AgentManager, SELECTABLE_TOOLS
+from genie.agents import AgentManager, BUILTIN_AGENT, SELECTABLE_TOOLS
 from genie.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
@@ -882,9 +882,30 @@ async def _repl_loop(
             if response_future and not response_future.done():
                 response_future.set_result("")
         except Exception as e:
-            console.print(f"\n[bold red]Error:[/bold red] {e}")
-            if response_future and not response_future.done():
-                response_future.set_exception(e)
+            if "does not support tools" in str(e):
+                bad_model = session_state.get("model_name", OLLAMA_MODEL)
+                console.print(
+                    f"\n[yellow]⚠ '{bad_model}' doesn't support tool calling.[/yellow]\n"
+                    f"  Switching to [cyan]{OLLAMA_MODEL}[/cyan] and retrying…"
+                )
+                try:
+                    fallback = _make_agent_from_def(BUILTIN_AGENT, checkpointer, store, audio_router)
+                    agent_holder["agent"] = fallback
+                    session_state["model_name"] = OLLAMA_MODEL
+                    if agent_manager:
+                        agent_manager.set_active("default")
+                    console.print()
+                    full_response = await run_agent_stream(fallback, user_input, agent_config)
+                    if response_future and not response_future.done():
+                        response_future.set_result(full_response)
+                except Exception as retry_err:
+                    console.print(f"\n[bold red]Error:[/bold red] {retry_err}")
+                    if response_future and not response_future.done():
+                        response_future.set_exception(retry_err)
+            else:
+                console.print(f"\n[bold red]Error:[/bold red] {e}")
+                if response_future and not response_future.done():
+                    response_future.set_exception(e)
 
 
 def main(
