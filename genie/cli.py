@@ -404,6 +404,10 @@ async def _agent_action_menu(
 
     if action == "edit":
         await _run_edit_wizard(console, session, agent_manager, agent_def)
+        # If the edited agent is currently active, return the updated def so
+        # the caller rebuilds agent_holder["agent"] with the new settings.
+        if is_active:
+            return agent_manager.get(agent_def["id"])
         return None
 
     if action == "delete":
@@ -416,6 +420,21 @@ async def _agent_action_menu(
         return None
 
     return None
+
+
+def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
+    """Parse comma-separated tool indices from raw input.
+
+    Returns a list of tool names, or *fallback* if nothing valid was parsed.
+    """
+    selected: list[str] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            idx = int(part) - 1
+            if 0 <= idx < len(SELECTABLE_TOOLS):
+                selected.append(SELECTABLE_TOOLS[idx][0])
+    return selected if selected else fallback
 
 
 async def _run_create_wizard(
@@ -441,19 +460,14 @@ async def _run_create_wizard(
         console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
     console.print()
 
-    include_all_raw = await _prompt_line(session, "Include all tools? [Y/n]: ")
+    include_all_raw = await _prompt_line(session, "Include all tools? [Y/n or numbers]: ")
     if include_all_raw.lower() in ("", "y", "yes"):
         tools: list[str] | str = "all"
-    else:
+    elif include_all_raw.lower() in ("n", "no"):
         selection_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-        selected_tools: list[str] = []
-        for part in selection_raw.split(","):
-            part = part.strip()
-            if part.isdigit():
-                idx = int(part) - 1
-                if 0 <= idx < len(SELECTABLE_TOOLS):
-                    selected_tools.append(SELECTABLE_TOOLS[idx][0])
-        tools = selected_tools if selected_tools else "all"
+        tools = _parse_tool_selection(selection_raw, "all")
+    else:
+        tools = _parse_tool_selection(include_all_raw, "all")
 
     console.print()
     console.print("System prompt (Enter for default Genie prompt):")
@@ -497,23 +511,15 @@ async def _run_edit_wizard(
     console.print()
 
     include_all_raw = await _prompt_line(
-        session, f"Include all tools? current=[{current_tools_display}] [Y/n]: "
+        session, f"Include all tools? current=[{current_tools_display}] [Y/n or numbers]: "
     )
     if include_all_raw.lower() in ("", "y", "yes"):
         new_tools: list[str] | str = "all"
-    else:
+    elif include_all_raw.lower() in ("n", "no"):
         sel_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-        if sel_raw:
-            selected_tools: list[str] = []
-            for part in sel_raw.split(","):
-                part = part.strip()
-                if part.isdigit():
-                    idx = int(part) - 1
-                    if 0 <= idx < len(SELECTABLE_TOOLS):
-                        selected_tools.append(SELECTABLE_TOOLS[idx][0])
-            new_tools = selected_tools if selected_tools else current_tools
-        else:
-            new_tools = current_tools
+        new_tools = _parse_tool_selection(sel_raw, current_tools) if sel_raw else current_tools
+    else:
+        new_tools = _parse_tool_selection(include_all_raw, current_tools)
 
     console.print()
     console.print("System prompt (Enter to keep current):")
