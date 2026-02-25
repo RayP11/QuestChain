@@ -116,11 +116,16 @@ def _get_env_path() -> Path:
 def _save_env_key(key: str, value: str) -> None:
     """Write a key=value to os.environ and to ~/.questchain/.env."""
     os.environ[key] = value
+    env_path = _get_env_path()
     try:
         from dotenv import set_key
-        set_key(str(_get_env_path()), key, value)
+        set_key(str(env_path), key, value)
     except Exception:
-        pass
+        # Fallback: write directly as KEY="value" lines
+        existing = env_path.read_text() if env_path.exists() else ""
+        lines = [l for l in existing.splitlines() if not l.startswith(f"{key}=")]
+        lines.append(f'{key}="{value}"')
+        env_path.write_text("\n".join(lines) + "\n")
 
 
 async def _prompt_input(
@@ -175,7 +180,7 @@ async def run_setup_telegram(console, prompt_session) -> bool:
         title="Telegram Setup",
     ))
     token = await _prompt_input(
-        prompt_session, console, "  Bot token (Enter to skip): ", password=True
+        prompt_session, console, "  Bot token (Enter to skip): "
     )
     if not token:
         console.print("  [dim]Skipped.[/dim]")
@@ -254,6 +259,17 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     Returns True if onboarding completed, False if skipped.
     """
+    from questchain.config import MEMORY_DIR, ensure_memory_dir
+
+    # Ensure workspace memory files exist so the agent can read/write them
+    ensure_memory_dir()
+    agents_md = MEMORY_DIR / "AGENTS.md"
+    about_md = MEMORY_DIR / "ABOUT.md"
+    if not agents_md.exists():
+        agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n")
+    if not about_md.exists():
+        about_md.write_text("")
+
     config = {"configurable": {"thread_id": "onboarding"}, "recursion_limit": 200}
 
     # Show the welcome banner
