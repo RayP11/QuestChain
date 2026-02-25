@@ -4,6 +4,7 @@ import asyncio
 import os
 import random
 import shutil
+import uuid
 from pathlib import Path
 
 from rich.panel import Panel
@@ -255,13 +256,15 @@ async def _prompt_user(prompt_session, console) -> str | None:
 
 
 async def run_onboarding(agent, console, prompt_session=None) -> bool:
-    """Run the interactive onboarding conversation.
+    """Run the interactive onboarding flow.
 
+    Asks a fixed set of hardcoded questions, then sends the collected
+    answers to the agent in a single call to write the user profile.
     Returns True if onboarding completed, False if skipped.
     """
     from questchain.config import MEMORY_DIR, ensure_memory_dir
 
-    # Ensure workspace memory files exist so the agent can read/write them
+    # Ensure workspace memory files exist before the agent tries to read them
     ensure_memory_dir()
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
@@ -270,51 +273,60 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     if not about_md.exists():
         about_md.write_text("")
 
-    config = {"configurable": {"thread_id": "onboarding"}, "recursion_limit": 200}
-
-    # Show the welcome banner
+    # ── Welcome banner ────────────────────────────────────────────────────────
     console.print()
     console.print(_build_welcome_panel())
 
-    # Hardcoded first question — no AI latency, instant personality
-    console.print("\n[bold green]QuestChain[/bold green]")
-    console.print(OPENING_QUESTION)
-
-    # Get the user's intro
-    user_input = await _prompt_user(prompt_session, console)
-    if not user_input:
-        return False
-
-    # Ask the user what they'd like to call the agent
+    # ── Step 1: Agent name ────────────────────────────────────────────────────
     console.print("\n[bold green]QuestChain[/bold green]")
     console.print("What would you like to call me? (Press Enter to keep 'QuestChain')")
     name_input = await _prompt_user(prompt_session, console)
+    if name_input is None:
+        return False
     agent_name = "QuestChain"
     if name_input:
         from questchain.agents import AgentManager
         AgentManager().update("default", name=name_input)
         agent_name = name_input
 
-    # Send user's intro + system context to the agent for follow-up
-    first_message = f"[System: {ONBOARDING_SYSTEM}]\n\nUser's introduction: {user_input}"
-    console.print(f"\n[bold green]{agent_name}[/bold green]")
-    full_response = await _stream_agent(agent, first_message, config, console)
+    # ── Steps 2-6: Hardcoded questions ───────────────────────────────────────
+    QUESTIONS = [
+        ("name",   f"What's your name, and how should I address you?"),
+        ("work",   f"What will we mainly be working on together?"),
+        ("comms",  f"How do you prefer to communicate? (e.g. concise, detailed, casual, formal)"),
+        ("tools",  f"Any tools, languages, or frameworks I should know about?"),
+        ("extra",  f"Anything else you'd like me to know? (Press Enter to skip)"),
+    ]
 
-    if "ONBOARDING_COMPLETE" in full_response:
-        mark_onboarded()
-        await _run_integration_setup(console, prompt_session)
-        return True
-
-    # Conversation loop for follow-up questions
-    while True:
-        user_input = await _prompt_user(prompt_session, console)
-        if not user_input:
-            return False
-
+    answers: dict[str, str] = {}
+    for key, question in QUESTIONS:
         console.print(f"\n[bold green]{agent_name}[/bold green]")
-        full_response = await _stream_agent(agent, user_input, config, console)
+        console.print(question)
+        answer = await _prompt_user(prompt_session, console)
+        if answer is None:
+            return False
+        answers[key] = answer or "(not provided)"
 
-        if "ONBOARDING_COMPLETE" in full_response:
-            mark_onboarded()
-            await _run_integration_setup(console, prompt_session)
-            return True
+    # ── Single AI call to write the profile ───────────────────────────────────
+    profile_prompt = f"""\
+Write a user profile to `/workspace/memory/ABOUT.md` using the information below.
+Use clear markdown sections (Name, Communication Style, Work Areas, Tools, Notes).
+Be thorough — this file is loaded into your context every conversation.
+
+Preferred agent name: {agent_name}
+User name / address: {answers['name']}
+Main work areas: {answers['work']}
+Communication style: {answers['comms']}
+Tools / languages / frameworks: {answers['tools']}
+Additional notes: {answers['extra']}
+
+After writing the file respond with exactly: ONBOARDING_COMPLETE"""
+
+    config = {"configurable": {"thread_id": f"onboarding-{uuid.uuid4()}"}, "recursion_limit": 50}
+    console.print(f"\n[bold green]{agent_name}[/bold green]")
+    console.print("[dim]Writing your profile…[/dim]")
+    full_response = await _stream_agent(agent, profile_prompt, config, console)
+
+    mark_onboarded()
+    await _run_integration_setup(console, prompt_session)
+    return True

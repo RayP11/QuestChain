@@ -50,7 +50,7 @@ MODEL_PRESETS = {
     # the :fp16 tag; for lower VRAM use :q4_0 or :q3_K_M (e.g. "qwen3:8b-q4_0").
     "qwen3:8b": {
         "description": "Qwen 3 8B — Fast, excellent tool calling (default)",
-        "num_ctx": 32768, "num_predict": 4096, "temperature": 0.7,
+        "num_ctx": 8192, "num_predict": 4096, "temperature": 0.7,
     },
     "qwen2.5:7b-instruct": {
         "description": "Qwen 2.5 7B Instruct — Top-tier tool calling",
