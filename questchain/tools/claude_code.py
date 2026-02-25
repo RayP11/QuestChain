@@ -1,4 +1,4 @@
-"""Claude Code tool for Genie — delegates coding tasks to Claude Code CLI."""
+"""Claude Code tool for QuestChain — delegates coding tasks to Claude Code CLI."""
 
 import asyncio
 import json
@@ -7,7 +7,7 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from genie.config import WORKSPACE_DIR
+from questchain.config import WORKSPACE_DIR
 
 # Complexity → model + timeout mapping
 _COMPLEXITY_CONFIG = {
@@ -29,7 +29,7 @@ _MODE_CONFIG = {
 }
 
 _APPEND_SYSTEM = (
-    "You are working inside the Genie project at {cwd}. "
+    "You are working inside the QuestChain project at {cwd}. "
     "This is a Python project using uv, LangGraph Deep Agents, and Ollama."
 )
 

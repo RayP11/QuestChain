@@ -3,8 +3,8 @@
 import httpx
 from langchain_ollama import ChatOllama
 
-from genie.config import (
-    GENIE_RESPONSE_CACHE,
+from questchain.config import (
+    QUESTCHAIN_RESPONSE_CACHE,
     MODEL_PRESETS,
     OLLAMA_BASE_URL,
     OLLAMA_NUM_GPU,
@@ -18,9 +18,9 @@ _cache_initialized = False
 def _maybe_init_cache() -> None:
     """Set up LangChain's global LLM response cache on first call (if enabled)."""
     global _cache_initialized
-    if _cache_initialized or not GENIE_RESPONSE_CACHE:
+    if _cache_initialized or not QUESTCHAIN_RESPONSE_CACHE:
         return
-    from genie.cache import setup_llm_cache
+    from questchain.cache import setup_llm_cache
     setup_llm_cache(get_response_cache_path())
     _cache_initialized = True
 
@@ -29,7 +29,7 @@ def get_model(model_name: str, base_url: str | None = None) -> ChatOllama:
     """Create a ChatOllama instance for the given model.
 
     Reads GPU/thread settings from config (OLLAMA_NUM_GPU, OLLAMA_NUM_THREAD).
-    Also initializes the LLM response cache the first time if GENIE_RESPONSE_CACHE=true.
+    Also initializes the LLM response cache the first time if QUESTCHAIN_RESPONSE_CACHE=true.
 
     Args:
         model_name: Ollama model name (e.g. 'qwen2.5:7b')

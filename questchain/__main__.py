@@ -1,14 +1,14 @@
-"""Entry point for `python -m genie`."""
+"""Entry point for `python -m questchain`."""
 
 import argparse
 
-from genie.config import DEFAULT_BUSY_WORK_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
+from questchain.config import DEFAULT_BUSY_WORK_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        prog="genie",
-        description="Genie - A terminal-based AI agent powered by local Ollama models",
+        prog="questchain",
+        description="QuestChain - A terminal-based AI agent powered by local Ollama models",
     )
     parser.add_argument(
         "command",
@@ -64,7 +64,7 @@ def main():
 
     busy_work_minutes = None if args.no_busy_work else args.busy_work
 
-    from genie.cli import main as cli_main
+    from questchain.cli import main as cli_main
 
     cli_main(
         model_name=args.model,

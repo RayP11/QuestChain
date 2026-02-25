@@ -1,11 +1,11 @@
-"""Response caching utilities for Genie.
+"""Response caching utilities for QuestChain.
 
 Two caching layers are provided:
 
 1. **LLM response cache** (``setup_llm_cache``): Uses LangChain's SQLiteCache to
    persist LLM responses keyed by prompt + model.  Identical prompts are served
    from disk instead of re-invoking Ollama.  Enabled by setting
-   ``GENIE_RESPONSE_CACHE=true`` in your .env file.
+   ``QUESTCHAIN_RESPONSE_CACHE=true`` in your .env file.
 
 2. **Tool result cache** (``tool_cache``): A lightweight in-process TTL decorator
    for wrapping sync or async tool functions.  Cache lives in memory for the
@@ -14,7 +14,7 @@ Two caching layers are provided:
 
 Usage example (tool cache)::
 
-    from genie.cache import tool_cache
+    from questchain.cache import tool_cache
 
     @tool_cache(ttl_seconds=120)
     async def fetch_page(url: str) -> str:

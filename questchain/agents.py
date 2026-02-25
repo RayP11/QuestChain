@@ -1,10 +1,10 @@
-"""Genie agent management — custom named agents with their own model/tools/prompt."""
+"""QuestChain agent management — custom named agents with their own model/tools/prompt."""
 
 import json
 import secrets
 from datetime import datetime, timezone
 
-from genie.config import get_active_agent_path, get_agents_path
+from questchain.config import get_active_agent_path, get_agents_path
 
 SELECTABLE_TOOLS = [
     ("web_search",  "Web search via Tavily"),
@@ -16,7 +16,7 @@ SELECTABLE_TOOLS = [
 
 BUILTIN_AGENT = {
     "id": "default",
-    "name": "Genie",
+    "name": "QuestChain",
     "built_in": True,
     "model": None,
     "system_prompt": None,
@@ -25,7 +25,7 @@ BUILTIN_AGENT = {
 
 
 class AgentManager:
-    """Manage custom named agents stored in ~/.genie/agents.json."""
+    """Manage custom named agents stored in ~/.questchain/agents.json."""
 
     def __init__(self):
         self._agents: list[dict] = []
@@ -36,11 +36,11 @@ class AgentManager:
     # ------------------------------------------------------------------
 
     def all_agents(self) -> list[dict]:
-        """Return built-in Genie agent followed by all user agents."""
+        """Return built-in QuestChain agent followed by all user agents."""
         saved_default = next((a for a in self._agents if a["id"] == "default"), None)
-        genie = saved_default if saved_default else BUILTIN_AGENT
+        default_agent = saved_default if saved_default else BUILTIN_AGENT
         user_agents = [a for a in self._agents if a["id"] != "default"]
-        return [genie] + user_agents
+        return [default_agent] + user_agents
 
     def get(self, agent_id: str) -> dict | None:
         """Return an agent definition by ID, or None if not found."""
@@ -64,7 +64,7 @@ class AgentManager:
         return agent_def
 
     def update(self, agent_id: str, **kwargs) -> dict:
-        """Update fields of an agent. Built-in Genie can be edited but not deleted."""
+        """Update fields of an agent. Built-in QuestChain can be edited but not deleted."""
         if agent_id == "default":
             saved_default = next((a for a in self._agents if a["id"] == "default"), None)
             if saved_default is None:
@@ -85,7 +85,7 @@ class AgentManager:
     def remove(self, agent_id: str) -> bool:
         """Remove a custom agent by ID. Raises ValueError for built-in agents."""
         if agent_id == "default":
-            raise ValueError("Cannot delete the built-in Genie agent.")
+            raise ValueError("Cannot delete the built-in QuestChain agent.")
         original_len = len(self._agents)
         self._agents = [a for a in self._agents if a["id"] != agent_id]
         if len(self._agents) == original_len:

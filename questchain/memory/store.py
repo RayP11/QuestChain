@@ -1,4 +1,4 @@
-"""Persistent memory and checkpointing for Genie."""
+"""Persistent memory and checkpointing for QuestChain."""
 
 import sqlite3
 from datetime import datetime, timezone
@@ -8,7 +8,7 @@ import msgpack
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.store.memory import InMemoryStore
 
-from genie.config import get_db_path
+from questchain.config import get_db_path
 
 _INTERNAL_PREFIXES = ("busy_work", "onboarding", "cron:")
 
@@ -110,7 +110,7 @@ def create_checkpointer(db_path: Path | None = None) -> AsyncSqliteSaver:
     """Create a SQLite checkpointer for conversation persistence.
 
     Args:
-        db_path: Path to the SQLite database. Defaults to ~/.genie/checkpoints.db.
+        db_path: Path to the SQLite database. Defaults to ~/.questchain/checkpoints.db.
 
     Returns:
         Configured AsyncSqliteSaver instance.

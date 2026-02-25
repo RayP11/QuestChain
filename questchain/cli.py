@@ -1,4 +1,4 @@
-"""Genie terminal UI and REPL loop."""
+"""QuestChain terminal UI and REPL loop."""
 
 import asyncio
 import random
@@ -14,18 +14,18 @@ from rich.text import Text
 
 _SEP = "─"
 
-from genie import __version__
-from genie.agent import build_input, create_genie_agent
-from genie.agents import AgentManager, BUILTIN_AGENT, SELECTABLE_TOOLS
-from genie.config import (
+from questchain import __version__
+from questchain.agent import build_input, create_questchain_agent
+from questchain.agents import AgentManager, BUILTIN_AGENT, SELECTABLE_TOOLS
+from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
     TAVILY_API_KEY,
     get_history_path,
 )
-from genie.onboarding import GENIE_ART, TAGLINES, clear_onboarded, is_onboarded, run_onboarding
-from genie.memory.store import create_checkpointer, create_memory_store
-from genie.models import check_ollama_connection, list_available_models, wait_for_ollama
+from questchain.onboarding import QUESTCHAIN_ART, TAGLINES, clear_onboarded, is_onboarded, run_onboarding
+from questchain.memory.store import create_checkpointer, create_memory_store
+from questchain.models import check_ollama_connection, list_available_models, wait_for_ollama
 
 console = Console()
 
@@ -90,8 +90,8 @@ class _AudioRouter:
 
 
 def _make_agent_from_def(agent_def: dict, checkpointer, store, audio_router) -> object:
-    """Create a Genie agent from an agent definition dict."""
-    return create_genie_agent(
+    """Create a QuestChain agent from an agent definition dict."""
+    return create_questchain_agent(
         model_name=agent_def.get("model"),
         checkpointer=checkpointer,
         store=store,
@@ -102,12 +102,12 @@ def _make_agent_from_def(agent_def: dict, checkpointer, store, audio_router) -> 
 
 
 def print_banner(model_name: str):
-    """Display the Genie welcome banner."""
+    """Display the QuestChain welcome banner."""
     banner = Text()
-    for line in GENIE_ART.strip().splitlines():
-        banner.append(line + "\n", style="bold magenta")
+    for line in QUESTCHAIN_ART.strip().splitlines():
+        banner.append(line + "\n", style="bold green")
     banner.append("\n")
-    banner.append("  🧞 ", style="bold")
+    banner.append("  🔗 ", style="bold")
     banner.append(random.choice(TAGLINES), style="italic cyan")
     banner.append("\n\n")
     banner.append(f"  v{__version__}", style="dim")
@@ -120,7 +120,7 @@ def print_banner(model_name: str):
         banner.append("  Web search: disabled (no TAVILY_API_KEY)", style="yellow")
     banner.append("\n")
     banner.append("  Type /help for commands, Ctrl+D to exit", style="dim")
-    console.print(Panel(banner, border_style="magenta"))
+    console.print(Panel(banner, border_style="green"))
 
 
 def print_tool_call(tool_name: str, tool_input: dict):
@@ -171,7 +171,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     if cmd == "/tools":
-        from genie.config import TAVILY_API_KEY
+        from questchain.config import TAVILY_API_KEY
         text = (
             "[bold]Built-in tools[/bold] (filesystem, shell, planning, sub-agents):\n"
             "  read_file, write_file, edit_file, ls, glob, grep\n"
@@ -188,12 +188,12 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     if cmd == "/instructions":
-        from genie.agent import SYSTEM_PROMPT
+        from questchain.agent import SYSTEM_PROMPT
         console.print(Panel(SYSTEM_PROMPT, title="System Instructions", border_style="cyan"))
         return True
 
     if cmd == "/memory":
-        from genie.config import MEMORY_DIR
+        from questchain.config import MEMORY_DIR
         about = MEMORY_DIR / "ABOUT.md"
         if about.exists():
             console.print(Panel(about.read_text(), title="Memory — ABOUT.md", border_style="cyan"))
@@ -202,7 +202,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     if cmd == "/tasks":
-        from genie.config import WORKSPACE_DIR
+        from questchain.config import WORKSPACE_DIR
         tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
         if tasks.exists():
             console.print(Panel(tasks.read_text(), title="Tasks", border_style="cyan"))
@@ -212,7 +212,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
 
     if cmd == "/cron":
         import json
-        from genie.config import get_cron_jobs_path
+        from questchain.config import get_cron_jobs_path
         jobs_path = get_cron_jobs_path()
         jobs = []
         if jobs_path.exists():
@@ -269,7 +269,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /agents        - Manage agents (list, switch, create)\n"
             "  /history       - Show past conversations with timestamps\n"
             "  /clear         - Clear the screen\n"
-            "  /quit          - Exit Genie\n"
+            "  /quit          - Exit QuestChain\n"
             "  /help          - Show this help message"
         )
         console.print(Panel(help_text, title="Help", border_style="blue"))
@@ -327,7 +327,7 @@ async def run_agent_menu(
     active_id = agent_manager.get_active_id()
 
     console.print()
-    console.print("[bold]🧞 Agents:[/bold]")
+    console.print("[bold]🔗 Agents:[/bold]")
     for i, agent_def in enumerate(agents, 1):
         marker = "*" if agent_def["id"] == active_id else " "
         name = agent_def["name"]
@@ -404,7 +404,7 @@ async def _agent_action_menu(
     action = options[choice][1]
 
     if action == "switch":
-        console.print(f"[green]🧞 Switched to '[bold]{name}[/bold]'. Current thread continues.[/green]")
+        console.print(f"[green]🔗 Switched to '[bold]{name}[/bold]'. Current thread continues.[/green]")
         return agent_def
 
     if action == "edit":
@@ -449,7 +449,7 @@ async def _run_create_wizard(
 ) -> dict | None:
     """Inline create wizard for a new agent."""
     console.print()
-    console.print(Panel("[bold]Create a new agent[/bold]", border_style="magenta"))
+    console.print(Panel("[bold]Create a new agent[/bold]", border_style="green"))
 
     name = await _prompt_line(session, "Agent name: ")
     if not name:
@@ -475,7 +475,7 @@ async def _run_create_wizard(
         tools = _parse_tool_selection(include_all_raw, "all")
 
     console.print()
-    console.print("System prompt (Enter for default Genie prompt):")
+    console.print("System prompt (Enter for default QuestChain prompt):")
     prompt_raw = await _prompt_line(session, "> ")
     system_prompt = prompt_raw if prompt_raw else None
 
@@ -494,7 +494,7 @@ async def _run_edit_wizard(
     """Inline edit wizard for an existing agent. Enter keeps the current value."""
     name = agent_def["name"]
     console.print()
-    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="magenta"))
+    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="green"))
 
     name_raw = await _prompt_line(session, f"Name [{name}]: ")
     new_name = name_raw if name_raw else name
@@ -545,7 +545,7 @@ async def _run_edit_wizard(
 async def show_history(session: PromptSession, session_state: dict) -> None:
     """Display past conversations and optionally switch to one."""
     from rich.table import Table
-    from genie.memory.store import get_thread_history
+    from questchain.memory.store import get_thread_history
 
     rows = get_thread_history()
     if not rows:
@@ -617,7 +617,7 @@ async def run_agent_stream(agent, user_input: str, config: dict) -> str:
         if not past_spinner:
             past_spinner = True
             live.stop()
-            console.print("[bold magenta]Genie[/bold magenta]")
+            console.print("[bold green]QuestChain[/bold green]")
 
     async for event in agent.astream_events(
         build_input(user_input),
@@ -656,11 +656,11 @@ async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_route
 
     Returns ``(send_fn, stop_fn, telegram_queue)`` or ``(None, None, None)``.
     """
-    from genie.config import TELEGRAM_BOT_TOKEN
+    from questchain.config import TELEGRAM_BOT_TOKEN
     if not TELEGRAM_BOT_TOKEN:
         return None, None, None
     try:
-        from genie.telegram import run_telegram_alongside_cli
+        from questchain.telegram import run_telegram_alongside_cli
         telegram_queue: asyncio.Queue = asyncio.Queue()
         send_fn, stop_fn = await run_telegram_alongside_cli(
             agent_holder, model_name, telegram_queue, audio_router, agent_manager
@@ -786,14 +786,14 @@ async def _run_with_busy_work(
     store=None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
-    from genie.busy_work import BusyWorkRunner
+    from questchain.busy_work import BusyWorkRunner
 
     runner: BusyWorkRunner | None = None
 
     if busy_work_minutes is not None:
         async def merged_callback(text: str) -> None:
             console.print()
-            console.print(Panel(text, title="Busy Work", border_style="magenta"))
+            console.print(Panel(text, title="Busy Work", border_style="green"))
             console.print()
             if telegram_send:
                 await telegram_send(text)
@@ -907,11 +907,11 @@ async def _repl_loop(
                     await run_onboarding(agent_holder["agent"], console, prompt_session=session)
 
                 if session_state.pop("run_setup_tavily", False):
-                    from genie.onboarding import run_setup_tavily
+                    from questchain.onboarding import run_setup_tavily
                     await run_setup_tavily(console, session)
 
                 if session_state.pop("run_setup_telegram", False):
-                    from genie.onboarding import run_setup_telegram
+                    from questchain.onboarding import run_setup_telegram
                     await run_setup_telegram(console, session)
 
                 if session_state.pop("run_history", False):
@@ -981,6 +981,6 @@ def main(
     use_memory: bool = True,
     busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
 ):
-    """Entry point for the Genie CLI."""
+    """Entry point for the QuestChain CLI."""
     model_name = model_name or OLLAMA_MODEL
     asyncio.run(repl(model_name, thread_id, use_memory, busy_work_minutes))

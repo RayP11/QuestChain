@@ -1,13 +1,13 @@
-"""Core Genie agent built on Deep Agents."""
+"""Core QuestChain agent built on Deep Agents."""
 
 from datetime import datetime
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 
-from genie.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensure_memory_dir
-from genie.models import get_model
-from genie.tools import get_custom_tools
+from questchain.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensure_memory_dir
+from questchain.models import get_model
+from questchain.tools import get_custom_tools
 
 
 def build_input(content: str) -> dict:
@@ -25,7 +25,7 @@ def build_input(content: str) -> dict:
     }
 
 SYSTEM_PROMPT = """\
-You are Genie, a capable AI assistant running locally via Ollama.
+You are QuestChain, a capable AI assistant running locally via Ollama.
 
 ## Agent Loop
 You are in an agent loop. You can call tools multiple times. After each tool \
@@ -87,7 +87,7 @@ complexity="medium", mode="code".
 """
 
 
-def create_genie_agent(
+def create_questchain_agent(
     model_name: str | None = None,
     checkpointer=None,
     store=None,
@@ -95,7 +95,7 @@ def create_genie_agent(
     system_prompt_override: str | None = None,
     tools_filter: list[str] | None = None,
 ):
-    """Create the Genie agent.
+    """Create the QuestChain agent.
 
     Args:
         model_name: Ollama model to use. Defaults to config value.

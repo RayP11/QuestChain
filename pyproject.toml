@@ -1,5 +1,5 @@
 [project]
-name = "genie"
+name = "questchain"
 version = "0.1.0"
 description = "A terminal-based AI agent powered by local Ollama models and LangGraph Deep Agents"
 readme = "README.md"
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-genie = "genie.__main__:main"
+questchain = "questchain.__main__:main"
 
 [project.optional-dependencies]
 dev = [
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["genie*"]
+include = ["questchain*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

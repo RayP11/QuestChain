@@ -21,13 +21,13 @@
 
 ---
 
-## Why Genie?
+## Why QuestChain?
 
-Most AI assistants send your conversations to the cloud, charge per token, and forget everything the moment you close the tab. **Genie is different.**
+Most AI assistants send your conversations to the cloud, charge per token, and forget everything the moment you close the tab. **QuestChain is different.**
 
-Genie runs entirely on your own hardware using [Ollama](https://ollama.com). Your data never leaves your machine. There are no API bills, no rate limits, no terms-of-service watching your every message. It works offline. It's yours.
+QuestChain runs entirely on your own hardware using [Ollama](https://ollama.com). Your data never leaves your machine. There are no API bills, no rate limits, no terms-of-service watching your every message. It works offline. It's yours.
 
-And it's not a chatbot. Genie is a full **agentic loop** — it can search the web, read and write files, execute shell commands, schedule recurring tasks, send you Telegram messages, and work autonomously in the background while you focus on something else.
+And it's not a chatbot. QuestChain is a full **agentic loop** — it can search the web, read and write files, execute shell commands, schedule recurring tasks, send you Telegram messages, and work autonomously in the background while you focus on something else.
 
 > *"All the power of AI, none of the cloud bills."*
 
@@ -35,7 +35,7 @@ And it's not a chatbot. Genie is a full **agentic loop** — it can search the w
 
 ## Local vs. Cloud
 
-| | Genie | Cloud AI |
+| | QuestChain | Cloud AI |
 |---|---|---|
 | **Your data** | Stays on your machine | Sent to third-party servers |
 | **Cost** | $0 after hardware | $/token or subscription |
@@ -57,7 +57,7 @@ And it's not a chatbot. Genie is a full **agentic loop** — it can search the w
 - 🤖 **Sub-agents** — Delegate subtasks to focused child agents
 - 🖥️ **Code with Claude** — Delegate coding tasks to Claude Code with configurable complexity
 - ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
-- 📱 **Telegram Bot** — Access Genie remotely from your phone
+- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
 - 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
 - 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
@@ -68,7 +68,7 @@ And it's not a chatbot. Genie is a full **agentic loop** — it can search the w
 
 ```
                         ┌──────────────────────────┐
-       You type         │          Genie            │
+       You type         │          QuestChain            │
    ──────────────▶      │                           │
    (CLI or Telegram)    │  ┌──────────────────────┐ │
                         │  │  LangGraph           │ │
@@ -98,14 +98,14 @@ The agent runs a **plan → act → review** loop. It can call as many tools as 
 Open **PowerShell** and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/genie/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/questchain/main/install.ps1 | iex"
 ```
 
 That's it. The installer handles everything automatically:
 - **Ollama** — local LLM runtime
 - **Python 3.13** — if not already installed
 - **uv** — fast Python package manager
-- **Genie** — installed and added to PATH
+- **QuestChain** — installed and added to PATH
 - **qwen3:8b** — default model pulled and ready
 
 Takes ~5–10 minutes depending on your internet speed (the model download is the slow part).
@@ -113,38 +113,38 @@ Takes ~5–10 minutes depending on your internet speed (the model download is th
 Then run:
 
 ```
-genie start
+questchain start
 ```
 
-On first run, Genie walks you through a short onboarding conversation and optionally sets up Telegram. After that, it remembers who you are.
+On first run, QuestChain walks you through a short onboarding conversation and optionally sets up Telegram. After that, it remembers who you are.
 
-> **Web search (optional):** Run `/tavily` inside Genie to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
+> **Web search (optional):** Run `/tavily` inside QuestChain to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
 
 ---
 
 ## Usage
 
 ```bash
-# Start Genie
-genie start
+# Start QuestChain
+questchain start
 
 # Use a specific model
-genie start -m qwen2.5:14b-instruct
+questchain start -m qwen2.5:14b-instruct
 
 # Resume a previous conversation by thread ID
-genie start -t <thread-id>
+questchain start -t <thread-id>
 
 # Run without persistent memory
-genie start --no-memory
+questchain start --no-memory
 
 # Set the busy work interval (minutes)
-genie start --busy-work 30
+questchain start --busy-work 30
 
 # Disable background busy work
-genie start --no-busy-work
+questchain start --no-busy-work
 
 # List available model presets
-genie start --list-models
+questchain start --list-models
 ```
 
 ---
@@ -167,27 +167,27 @@ genie start --list-models
 | `/tavily` | Set up Tavily web search API key |
 | `/telegram` | Set up Telegram bot credentials |
 | `/clear` | Clear the screen |
-| **Ctrl+D** | Exit Genie |
+| **Ctrl+D** | Exit QuestChain |
 
 ---
 
 ## Telegram Setup
 
-Genie runs alongside the CLI as a Telegram bot, giving you remote access from your phone.
+QuestChain runs alongside the CLI as a Telegram bot, giving you remote access from your phone.
 
-Run `/telegram` inside Genie and it walks you through the setup:
+Run `/telegram` inside QuestChain and it walks you through the setup:
 
 1. Message [@BotFather](https://t.me/botfather) on Telegram → `/newbot` → copy the token
 2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric user ID
 3. Paste both into the `/telegram` wizard — credentials are saved automatically
 
-Restart Genie and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
+Restart QuestChain and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
 
 ---
 
 ## Busy Work
 
-Genie can work autonomously in the background on a timer. Drop tasks into `workspace/TASKS.md`:
+QuestChain can work autonomously in the background on a timer. Drop tasks into `workspace/TASKS.md`:
 
 ```markdown
 - [ ] Research the latest news on quantum computing and summarize key developments
@@ -195,11 +195,11 @@ Genie can work autonomously in the background on a timer. Drop tasks into `works
 - [ ] Draft a weekly status email based on my recent work
 ```
 
-Genie picks up one task per tick, completes it using all its tools, marks it done, and sends you a summary — in the terminal and on Telegram if configured.
+QuestChain picks up one task per tick, completes it using all its tools, marks it done, and sends you a summary — in the terminal and on Telegram if configured.
 
 ```bash
 # Run with a 30-minute busy work interval
-python -m genie --busy-work 30
+python -m questchain --busy-work 30
 ```
 
 ---
@@ -217,8 +217,8 @@ All settings via environment variables or a `.env` file in the project root:
 | `TAVILY_API_KEY` | — | Web search API key (free tier at tavily.com) |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token |
 | `TELEGRAM_OWNER_ID` | — | Your Telegram user ID (access control) |
-| `GENIE_DATA_DIR` | `~/.genie` | Checkpoints, history, cron jobs |
-| `GENIE_WORKSPACE_DIR` | Project root | Workspace and memory root |
+| `QUESTCHAIN_DATA_DIR` | `~/.questchain` | Checkpoints, history, cron jobs |
+| `QUESTCHAIN_WORKSPACE_DIR` | Project root | Workspace and memory root |
 | `GENIE_RESPONSE_CACHE` | `false` | Cache identical LLM responses to SQLite |
 
 ---
@@ -242,8 +242,8 @@ Any Ollama model works. These are pre-tuned for the best agentic experience:
 | `deepseek-coder-v2:16b` | ~12 GB | Best local code generation |
 
 ```bash
-python -m genie --list-models   # see all presets with descriptions
-python -m genie -m <any-model>  # use any model installed in Ollama
+python -m questchain --list-models   # see all presets with descriptions
+python -m questchain -m <any-model>  # use any model installed in Ollama
 ```
 
 ---
@@ -251,8 +251,8 @@ python -m genie -m <any-model>  # use any model installed in Ollama
 ## Project Structure
 
 ```
-genie/
-├── genie/
+questchain/
+├── questchain/
 │   ├── __main__.py         Entry point
 │   ├── cli.py              Terminal UI and REPL loop
 │   ├── agent.py            LangGraph agent wiring and system prompt

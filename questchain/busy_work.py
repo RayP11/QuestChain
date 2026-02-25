@@ -1,11 +1,11 @@
-"""Genie busy work — periodically checks /workspace/BUSY_WORK.md."""
+"""QuestChain busy work — periodically checks /workspace/BUSY_WORK.md."""
 
 import asyncio
 import logging
 import uuid
 from typing import Awaitable, Callable
 
-from genie.agent import build_input
+from questchain.agent import build_input
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger

@@ -1,4 +1,4 @@
-"""Tavily web browsing (extract) tool for Genie."""
+"""Tavily web browsing (extract) tool for QuestChain."""
 
 import os
 

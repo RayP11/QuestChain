@@ -1,4 +1,4 @@
-"""Cron job management tools for Genie."""
+"""Cron job management tools for QuestChain."""
 
 from langchain_core.tools import tool
 
@@ -26,10 +26,10 @@ def cron_add(
         prompt: The prompt/instruction to execute when the job fires.
         timezone: IANA timezone name (default: UTC). Examples: America/New_York, Europe/London.
         agent_id: Optional ID of a custom agent to run this job with. If omitted or
-            not found, the default Genie agent is used. Agent IDs can be found via
+            not found, the default QuestChain agent is used. Agent IDs can be found via
             the /agents command.
     """
-    from genie.scheduler import get_scheduler
+    from questchain.scheduler import get_scheduler
 
     try:
         scheduler = get_scheduler()
@@ -61,7 +61,7 @@ def cron_add(
 @tool
 def cron_list() -> str:
     """List all scheduled cron jobs with their IDs, schedules, and prompts."""
-    from genie.scheduler import get_scheduler
+    from questchain.scheduler import get_scheduler
 
     try:
         scheduler = get_scheduler()
@@ -92,7 +92,7 @@ def cron_remove(job_id: str) -> str:
     Args:
         job_id: The ID of the cron job to remove (shown by cron_list).
     """
-    from genie.scheduler import get_scheduler
+    from questchain.scheduler import get_scheduler
 
     try:
         scheduler = get_scheduler()

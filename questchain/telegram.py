@@ -1,4 +1,4 @@
-"""Genie Telegram bot adapter."""
+"""QuestChain Telegram bot adapter."""
 
 import asyncio
 import json
@@ -16,15 +16,15 @@ from telegram.ext import (
     filters,
 )
 
-from genie.agent import build_input
-from genie.agents import AgentManager, SELECTABLE_TOOLS
-from genie.config import (
+from questchain.agent import build_input
+from questchain.agents import AgentManager, SELECTABLE_TOOLS
+from questchain.config import (
     OLLAMA_MODEL,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_OWNER_ID,
     get_thread_ids_path,
 )
-from genie.onboarding import ONBOARDING_SYSTEM, OPENING_QUESTION, is_onboarded, mark_onboarded
+from questchain.onboarding import ONBOARDING_SYSTEM, OPENING_QUESTION, is_onboarded, mark_onboarded
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return await _reject(update)
 
     await update.message.reply_text(
-        "Hey! I'm Genie, your personal AI agent.\n\n"
+        "Hey! I'm QuestChain, your personal AI agent.\n\n"
         "Just send me a message and I'll help out.\n\n"
         + _HELP_TEXT
     )
@@ -188,7 +188,7 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from genie.config import TAVILY_API_KEY
+    from questchain.config import TAVILY_API_KEY
     text = (
         "Built-in tools (filesystem, shell, planning, sub-agents):\n"
         "  read_file, write_file, edit_file, ls, glob, grep\n"
@@ -209,7 +209,7 @@ async def cmd_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from genie.agent import SYSTEM_PROMPT
+    from questchain.agent import SYSTEM_PROMPT
     chunks = _split_message(SYSTEM_PROMPT)
     for chunk in chunks:
         await update.message.reply_text(chunk)
@@ -220,7 +220,7 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from genie.config import MEMORY_DIR
+    from questchain.config import MEMORY_DIR
     about = MEMORY_DIR / "ABOUT.md"
     if not about.exists():
         await update.message.reply_text("No memory file yet. Use /onboard to create one.")
@@ -238,7 +238,7 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from genie.config import WORKSPACE_DIR
+    from questchain.config import WORKSPACE_DIR
     tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
     if not tasks.exists():
         await update.message.reply_text("No TASKS.md found in workspace.")
@@ -257,7 +257,7 @@ async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return await _reject(update)
 
     import json
-    from genie.config import get_cron_jobs_path
+    from questchain.config import get_cron_jobs_path
     jobs_path = get_cron_jobs_path()
     jobs = []
     if jobs_path.exists():
@@ -280,7 +280,7 @@ async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from genie.onboarding import clear_onboarded
+    from questchain.onboarding import clear_onboarded
     clear_onboarded()
     # Set active so the next message goes to the AI as the user's intro
     context.chat_data["onboarding_active"] = True
@@ -314,7 +314,7 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard.append([InlineKeyboardButton("➕ New agent", callback_data="agent:build")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🧞 Agents", reply_markup=reply_markup)
+    await update.message.reply_text("🔗 Agents", reply_markup=reply_markup)
 
 
 async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -345,13 +345,13 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         checkpointer = context.bot_data.get("checkpointer")
         store = context.bot_data.get("store")
         audio_router = context.bot_data.get("audio_router")
-        from genie.cli import _make_agent_from_def
+        from questchain.cli import _make_agent_from_def
         try:
             new_agent = _make_agent_from_def(agent_def, checkpointer, store, audio_router)
             agent_holder["agent"] = new_agent
             context.bot_data["model_name"] = agent_def.get("model") or OLLAMA_MODEL
             agent_manager.set_active(agent_id)
-            await query.edit_message_text(f"🧞 Switched to '{agent_def['name']}'.")
+            await query.edit_message_text(f"🔗 Switched to '{agent_def['name']}'.")
         except Exception as e:
             await query.edit_message_text(f"Failed to switch agent: {e}")
 
@@ -477,7 +477,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             data["tools"] = selected if selected else "all"
         state["step"] = "prompt"
         await update.message.reply_text(
-            "Step 4/4 — System prompt? (send empty to use the default Genie prompt)"
+            "Step 4/4 — System prompt? (send empty to use the default QuestChain prompt)"
         )
 
     elif step == "prompt":
@@ -485,7 +485,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         state["step"] = "confirm"
         tools_display = data["tools"] if data["tools"] == "all" else ", ".join(data["tools"])
         model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
-        prompt_display = data.get("system_prompt") or "(default Genie prompt)"
+        prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
         await update.message.reply_text(
             f"Confirm new agent:\n\n"
             f"Name: {data['name']}\n"
@@ -572,7 +572,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         current_tools = data.get("tools", "all")
         tools_display = current_tools if current_tools == "all" else ", ".join(current_tools)
         model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
-        prompt_display = data.get("system_prompt") or "(default Genie prompt)"
+        prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
         await update.message.reply_text(
             f"Confirm updated agent:\n\n"
             f"Name: {data['name']}\n"
@@ -658,7 +658,7 @@ async def _run_agent_collect(agent, user_text: str, config: dict, update: Update
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming text messages — invoke the Genie agent."""
+    """Handle incoming text messages — invoke the QuestChain agent."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
@@ -792,7 +792,7 @@ async def run_telegram_alongside_cli(
                     text=chunk,
                 )
 
-    from genie.scheduler import CronScheduler, set_scheduler
+    from questchain.scheduler import CronScheduler, set_scheduler
 
     scheduler = CronScheduler(
         agent=agent_holder["agent"],

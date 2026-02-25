@@ -1,4 +1,4 @@
-"""First-run onboarding flow for Genie."""
+"""First-run onboarding flow for QuestChain."""
 
 import asyncio
 import os
@@ -11,16 +11,22 @@ from rich.text import Text
 
 _SEP = "─"
 
-from genie.agent import build_input
-from genie.config import GENIE_DATA_DIR, get_onboarded_marker_path
+from questchain.agent import build_input
+from questchain.config import QUESTCHAIN_DATA_DIR, get_onboarded_marker_path
 
-GENIE_ART = (
-    " ██████╗ ███████╗███╗   ██╗██╗███████╗\n"
-    "██╔════╝ ██╔════╝████╗  ██║██║██╔════╝\n"
-    "██║  ███╗█████╗  ██╔██╗ ██║██║█████╗\n"
-    "██║   ██║██╔══╝  ██║╚██╗██║██║██╔══╝\n"
-    "╚██████╔╝███████╗██║ ╚████║██║███████╗\n"
-    " ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚══════╝"
+QUESTCHAIN_ART = (
+    "  ██████╗ ██╗   ██╗███████╗███████╗████████╗\n"
+    " ██╔═══██╗██║   ██║██╔════╝██╔════╝╚══██╔══╝\n"
+    " ██║   ██║██║   ██║█████╗  ███████╗   ██║\n"
+    " ██║▄▄ ██║██║   ██║██╔══╝  ╚════██║   ██║\n"
+    " ╚██████╔╝╚██████╔╝███████╗███████║   ██║\n"
+    "  ╚══▀▀═╝  ╚═════╝ ╚══════╝╚══════╝   ╚═╝\n"
+    "  ██████╗██╗  ██╗ █████╗ ██╗███╗   ██╗\n"
+    " ██╔════╝██║  ██║██╔══██╗██║████╗  ██║\n"
+    " ██║     ███████║███████║██║██╔██╗ ██║\n"
+    " ██║     ██╔══██║██╔══██║██║██║╚██╗██║\n"
+    " ╚██████╗██║  ██║██║  ██║██║██║ ╚████║\n"
+    "  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"
 )
 
 TAGLINES = [
@@ -43,7 +49,7 @@ OPENING_QUESTION = (
 )
 
 ONBOARDING_SYSTEM = """\
-You are onboarding a new user for Genie. The user just introduced themselves \
+You are onboarding a new user for QuestChain. The user just introduced themselves \
 in response to an opening question. Continue the conversation naturally to \
 learn more about them.
 
@@ -71,17 +77,14 @@ Important:
 
 
 def _build_welcome_panel() -> Panel:
-    """Build the first-run welcome panel with ASCII art and a random tagline."""
+    """Build the first-run welcome panel with a tagline and onboarding prompt."""
     content = Text()
-    for line in GENIE_ART.strip().splitlines():
-        content.append(line + "\n", style="bold magenta")
-    content.append("\n")
-    content.append("  🧞 ", style="bold")
+    content.append("  🔗 ", style="bold")
     content.append(random.choice(TAGLINES), style="italic cyan")
     content.append("\n\n")
     content.append("  Let's get to know each other — answer a few quick questions\n", style="dim")
     content.append("  and I'll remember your preferences for next time.", style="dim")
-    return Panel(content, border_style="magenta", title="[bold magenta] Welcome [/bold magenta]", subtitle="[dim]Ctrl+C to skip[/dim]")
+    return Panel(content, border_style="green", title="[bold green] Welcome [/bold green]", subtitle="[dim]Ctrl+C to skip[/dim]")
 
 
 def is_onboarded() -> bool:
@@ -104,14 +107,14 @@ def clear_onboarded() -> None:
 
 
 def _get_env_path() -> Path:
-    """Return the canonical ~/.genie/.env path for persisting credentials."""
-    path = GENIE_DATA_DIR / ".env"
+    """Return the canonical ~/.questchain/.env path for persisting credentials."""
+    path = QUESTCHAIN_DATA_DIR / ".env"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _save_env_key(key: str, value: str) -> None:
-    """Write a key=value to os.environ and to ~/.genie/.env."""
+    """Write a key=value to os.environ and to ~/.questchain/.env."""
     os.environ[key] = value
     try:
         from dotenv import set_key
@@ -135,7 +138,7 @@ async def _prompt_input(
 async def run_setup_tavily(console, prompt_session) -> bool:
     """Interactive wizard to configure the Tavily web search API key.
 
-    Saves to ~/.genie/.env.  Returns True if a key was saved.
+    Saves to ~/.questchain/.env.  Returns True if a key was saved.
     """
     current = os.getenv("TAVILY_API_KEY", "")
     console.print()
@@ -149,7 +152,7 @@ async def run_setup_tavily(console, prompt_session) -> bool:
     key = await _prompt_input(prompt_session, console, "  API key (Enter to skip): ")
     if key:
         _save_env_key("TAVILY_API_KEY", key)
-        console.print("  [green]✓ Saved to ~/.genie/.env — restart Genie to enable web search.[/green]")
+        console.print("  [green]✓ Saved to ~/.questchain/.env — restart QuestChain to enable web search.[/green]")
         return True
     console.print("  [dim]Skipped.[/dim]")
     return False
@@ -158,7 +161,7 @@ async def run_setup_tavily(console, prompt_session) -> bool:
 async def run_setup_telegram(console, prompt_session) -> bool:
     """Interactive wizard to configure Telegram bot credentials.
 
-    Saves to ~/.genie/.env.  Returns True if credentials were saved.
+    Saves to ~/.questchain/.env.  Returns True if credentials were saved.
     """
     current_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     current_owner = os.getenv("TELEGRAM_OWNER_ID", "")
@@ -181,7 +184,7 @@ async def run_setup_telegram(console, prompt_session) -> bool:
     owner_id = await _prompt_input(prompt_session, console, "  Your Telegram user ID: ")
     if owner_id:
         _save_env_key("TELEGRAM_OWNER_ID", owner_id)
-    console.print("  [green]✓ Saved to ~/.genie/.env — restart Genie to activate the bot.[/green]")
+    console.print("  [green]✓ Saved to ~/.questchain/.env — restart QuestChain to activate the bot.[/green]")
     return True
 
 
@@ -194,7 +197,7 @@ async def _run_integration_setup(console, prompt_session) -> None:
 
     console.print()
     console.print(Panel(
-        "One more thing — a couple of optional integrations can make Genie more powerful.\n"
+        "One more thing — a couple of optional integrations can make QuestChain more powerful.\n"
         "Press [bold]Enter[/bold] to skip any you don't want to set up right now.\n"
         "You can always run [cyan]/tavily[/cyan] or [cyan]/telegram[/cyan] later.",
         title="Optional Setup",
@@ -258,7 +261,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     console.print(_build_welcome_panel())
 
     # Hardcoded first question — no AI latency, instant personality
-    console.print("\n[bold magenta]Genie[/bold magenta]")
+    console.print("\n[bold green]QuestChain[/bold green]")
     console.print(OPENING_QUESTION)
 
     # Get the user's intro
@@ -268,7 +271,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     # Send user's intro + system context to the agent for follow-up
     first_message = f"[System: {ONBOARDING_SYSTEM}]\n\nUser's introduction: {user_input}"
-    console.print("\n[bold magenta]Genie[/bold magenta]")
+    console.print("\n[bold green]QuestChain[/bold green]")
     full_response = await _stream_agent(agent, first_message, config, console)
 
     if "ONBOARDING_COMPLETE" in full_response:
@@ -282,7 +285,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
         if not user_input:
             return False
 
-        console.print("\n[bold magenta]Genie[/bold magenta]")
+        console.print("\n[bold green]QuestChain[/bold green]")
         full_response = await _stream_agent(agent, user_input, config, console)
 
         if "ONBOARDING_COMPLETE" in full_response:

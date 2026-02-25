@@ -1,12 +1,12 @@
-"""Genie custom tools."""
+"""QuestChain custom tools."""
 
 from collections.abc import Awaitable, Callable
 
-from genie.tools.claude_code import create_claude_code_tool
-from genie.tools.cron import create_cron_tools
-from genie.tools.web_search import create_search_tool
-from genie.tools.web_browse import create_browse_tool
-from genie.tools.speak import create_speak_tool
+from questchain.tools.claude_code import create_claude_code_tool
+from questchain.tools.cron import create_cron_tools
+from questchain.tools.web_search import create_search_tool
+from questchain.tools.web_browse import create_browse_tool
+from questchain.tools.speak import create_speak_tool
 
 
 def get_custom_tools(
@@ -14,7 +14,7 @@ def get_custom_tools(
     on_audio: Callable[[bytes], Awaitable[None]] | None = None,
     tools_filter: list[str] | None = None,
 ):
-    """Return custom tools for the Genie agent.
+    """Return custom tools for the QuestChain agent.
 
     Args:
         api_key: Tavily API key; omit to skip web tools.

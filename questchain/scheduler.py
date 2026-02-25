@@ -1,4 +1,4 @@
-"""Genie cron job scheduler."""
+"""QuestChain cron job scheduler."""
 
 import asyncio
 import json
@@ -11,8 +11,8 @@ from typing import Any, Callable, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from genie.agent import build_input
-from genie.config import get_cron_jobs_path
+from questchain.agent import build_input
+from questchain.config import get_cron_jobs_path
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def set_scheduler(scheduler: "CronScheduler | None") -> None:
 
 
 class CronScheduler:
-    """Manages persistent cron jobs for the Genie agent."""
+    """Manages persistent cron jobs for the QuestChain agent."""
 
     def __init__(
         self,
@@ -160,7 +160,7 @@ class CronScheduler:
             agent_def = self._agent_manager.get(agent_id)
             if agent_def:
                 try:
-                    from genie.cli import _make_agent_from_def
+                    from questchain.cli import _make_agent_from_def
                     return _make_agent_from_def(
                         agent_def, self._checkpointer, self._store, self._audio_router
                     )

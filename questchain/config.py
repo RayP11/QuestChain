@@ -1,14 +1,14 @@
-"""Genie configuration management."""
+"""QuestChain configuration management."""
 
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load from project .env first, then from ~/.genie/.env as fallback
+# Load from project .env first, then from ~/.questchain/.env as fallback
 load_dotenv()
-_genie_env = Path(os.getenv("GENIE_DATA_DIR", str(Path.home() / ".genie"))) / ".env"
-load_dotenv(_genie_env)  # override=False (default) won't clobber already-set vars
+_questchain_env = Path(os.getenv("QUESTCHAIN_DATA_DIR", str(Path.home() / ".questchain"))) / ".env"
+load_dotenv(_questchain_env)  # override=False (default) won't clobber already-set vars
 
 # --- Ollama settings ---
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -26,8 +26,8 @@ OLLAMA_NUM_THREAD: int | None = int(_num_thread_env) if _num_thread_env else Non
 # --- Response cache settings ---
 # When enabled, identical LLM prompts are served from a SQLite cache instead
 # of re-invoking Ollama. Useful when the same question is asked repeatedly.
-# Set GENIE_RESPONSE_CACHE=true in your .env to enable.
-GENIE_RESPONSE_CACHE = os.getenv("GENIE_RESPONSE_CACHE", "false").lower() in ("1", "true", "yes")
+# Set QUESTCHAIN_RESPONSE_CACHE=true in your .env to enable.
+QUESTCHAIN_RESPONSE_CACHE = os.getenv("QUESTCHAIN_RESPONSE_CACHE", "false").lower() in ("1", "true", "yes")
 
 # --- Tavily settings ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
@@ -37,10 +37,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID") or "0")
 
 # --- Data directory ---
-GENIE_DATA_DIR = Path(os.getenv("GENIE_DATA_DIR", Path.home() / ".genie"))
+QUESTCHAIN_DATA_DIR = Path(os.getenv("QUESTCHAIN_DATA_DIR", Path.home() / ".questchain"))
 
 # --- Workspace memory directory (agent-accessible notes/knowledge) ---
-WORKSPACE_DIR = Path(os.getenv("GENIE_WORKSPACE_DIR", Path(__file__).resolve().parent.parent))
+WORKSPACE_DIR = Path(os.getenv("QUESTCHAIN_WORKSPACE_DIR", Path(__file__).resolve().parent.parent))
 MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 
 # --- Model presets ---
@@ -99,9 +99,9 @@ MODEL_PRESETS = {
 
 
 def ensure_data_dir() -> Path:
-    """Create the Genie data directory if it doesn't exist."""
-    GENIE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return GENIE_DATA_DIR
+    """Create the QuestChain data directory if it doesn't exist."""
+    QUESTCHAIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return QUESTCHAIN_DATA_DIR
 
 
 def ensure_memory_dir() -> Path:
