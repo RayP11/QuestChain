@@ -30,16 +30,16 @@ QUESTCHAIN_ART = (
 )
 
 TAGLINES = [
-    "Your wish is my command — but first, let's get acquainted.",
-    "Three wishes? Please. I've got unlimited tool calls.",
-    "Freshly summoned and ready to work.",
-    "No lamp required — just a terminal and a dream.",
-    "I live in your shell now. Let's make it cozy.",
+    "What's the quest today?",
     "Locally powered, globally capable.",
-    "Think of me as your co-pilot, but I actually read the docs.",
-    "I promise not to turn you into a frog. Probably.",
     "All the power of AI, none of the cloud bills.",
-    "I've been waiting in that lamp for ages. What did I miss?",
+    "Your data stays home. Your answers don't.",
+    "Every task is a quest. Let's complete it.",
+    "No cloud. No rate limits. No nonsense.",
+    "Your machine. Your model. Your rules.",
+    "One prompt away from getting it done.",
+    "The agent that actually runs on your hardware.",
+    "Think of me as your co-pilot, but I actually read the docs.",
 ]
 
 OPENING_QUESTION = (
