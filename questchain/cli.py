@@ -595,7 +595,7 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
     console.print("[yellow]Invalid selection.[/yellow]")
 
 
-async def run_agent_stream(agent, user_input: str, config: dict) -> str:
+async def run_agent_stream(agent, user_input: str, config: dict, agent_name: str = "QuestChain") -> str:
     """Stream agent response to the console, returning the full text."""
     from rich.live import Live
     from rich.spinner import Spinner
@@ -617,7 +617,7 @@ async def run_agent_stream(agent, user_input: str, config: dict) -> str:
         if not past_spinner:
             past_spinner = True
             live.stop()
-            console.print("[bold green]QuestChain[/bold green]")
+            console.print(f"[bold green]{agent_name}[/bold green]")
 
     async for event in agent.astream_events(
         build_input(user_input),
@@ -939,9 +939,10 @@ async def _repl_loop(
             else:
                 audio_router.set_cli()
 
+        active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
         try:
             console.print()
-            full_response = await run_agent_stream(agent_holder["agent"], user_input, agent_config)
+            full_response = await run_agent_stream(agent_holder["agent"], user_input, agent_config, agent_name=active_name)
             if response_future and not response_future.done():
                 response_future.set_result(full_response)
         except KeyboardInterrupt:
@@ -962,7 +963,7 @@ async def _repl_loop(
                     if agent_manager:
                         agent_manager.set_active("default")
                     console.print()
-                    full_response = await run_agent_stream(fallback, user_input, agent_config)
+                    full_response = await run_agent_stream(fallback, user_input, agent_config, agent_name="QuestChain")
                     if response_future and not response_future.done():
                         response_future.set_result(full_response)
                 except Exception as retry_err:

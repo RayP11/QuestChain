@@ -269,9 +269,19 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     if not user_input:
         return False
 
+    # Ask the user what they'd like to call the agent
+    console.print("\n[bold green]QuestChain[/bold green]")
+    console.print("What would you like to call me? (Press Enter to keep 'QuestChain')")
+    name_input = await _prompt_user(prompt_session, console)
+    agent_name = "QuestChain"
+    if name_input:
+        from questchain.agents import AgentManager
+        AgentManager().update("default", name=name_input)
+        agent_name = name_input
+
     # Send user's intro + system context to the agent for follow-up
     first_message = f"[System: {ONBOARDING_SYSTEM}]\n\nUser's introduction: {user_input}"
-    console.print("\n[bold green]QuestChain[/bold green]")
+    console.print(f"\n[bold green]{agent_name}[/bold green]")
     full_response = await _stream_agent(agent, first_message, config, console)
 
     if "ONBOARDING_COMPLETE" in full_response:
@@ -285,7 +295,7 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
         if not user_input:
             return False
 
-        console.print("\n[bold green]QuestChain[/bold green]")
+        console.print(f"\n[bold green]{agent_name}[/bold green]")
         full_response = await _stream_agent(agent, user_input, config, console)
 
         if "ONBOARDING_COMPLETE" in full_response:
