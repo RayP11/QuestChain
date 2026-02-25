@@ -4,7 +4,6 @@ import asyncio
 import os
 import random
 import shutil
-import uuid
 from pathlib import Path
 
 from rich.panel import Panel
@@ -12,7 +11,6 @@ from rich.text import Text
 
 _SEP = "─"
 
-from questchain.agent import build_input
 from questchain.config import QUESTCHAIN_DATA_DIR, get_onboarded_marker_path
 
 QUESTCHAIN_ART = (
@@ -216,27 +214,6 @@ async def _run_integration_setup(console, prompt_session) -> None:
     console.print()
 
 
-async def _stream_agent(agent, message: str, config: dict, console) -> str:
-    """Send a message to the agent and stream the response. Returns full text."""
-    full_response = ""
-    async for event in agent.astream_events(
-        build_input(message),
-        config=config,
-        version="v2",
-    ):
-        kind = event["event"]
-        if kind == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if hasattr(chunk, "content") and isinstance(chunk.content, str):
-                full_response += chunk.content
-                console.print(chunk.content, end="")
-        elif kind == "on_tool_start":
-            tool_name = event.get("name", "unknown")
-            console.print()
-            console.print(f"  [dim]> Using tool:[/dim] [cyan]{tool_name}[/cyan]")
-    console.print()
-    return full_response
-
 
 async def _prompt_user(prompt_session, console) -> str | None:
     """Prompt for user input. Returns stripped text, or None on interrupt."""
@@ -307,10 +284,18 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
             return False
         answers[key] = answer or "(not provided)"
 
-    # ── Single AI call to write the profile ───────────────────────────────────
+    # ── Direct model call to format the profile (bypasses agent middleware) ───
+    # We call the LLM directly so summarization/tool middleware can't interfere.
+    # The model generates the markdown; we write the file ourselves.
+    import re
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from questchain.models import get_model
+    from questchain.config import OLLAMA_MODEL
+
     profile_prompt = f"""\
-Write a user profile to `/workspace/memory/ABOUT.md` using the information below.
-Use clear markdown sections (Name, Communication Style, Work Areas, Tools, Notes).
+Write a user profile in clean markdown using the information below.
+Use these exact sections: # User Profile, ## Name, ## Agent Name, \
+## Communication Style, ## Work Areas, ## Tools & Frameworks, ## Notes.
 Be thorough — this file is loaded into your context every conversation.
 
 Preferred agent name: {agent_name}
@@ -320,12 +305,19 @@ Communication style: {answers['comms']}
 Tools / languages / frameworks: {answers['tools']}
 Additional notes: {answers['extra']}
 
-After writing the file respond with exactly: ONBOARDING_COMPLETE"""
+Output ONLY the markdown. No extra commentary."""
 
-    config = {"configurable": {"thread_id": f"onboarding-{uuid.uuid4()}"}, "recursion_limit": 50}
     console.print(f"\n[bold green]{agent_name}[/bold green]")
     console.print("[dim]Writing your profile…[/dim]")
-    full_response = await _stream_agent(agent, profile_prompt, config, console)
+
+    model = get_model(OLLAMA_MODEL)
+    response = await model.ainvoke([
+        SystemMessage(content="You write clean, structured markdown user profiles."),
+        HumanMessage(content=profile_prompt),
+    ])
+    profile_text = re.sub(r"<think>.*?</think>", "", response.content, flags=re.DOTALL).strip()
+    about_md.write_text(profile_text + "\n")
+    console.print("[dim]Profile saved.[/dim]")
 
     mark_onboarded()
     await _run_integration_setup(console, prompt_session)
