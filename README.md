@@ -104,7 +104,7 @@ The agent runs a **plan → act → review** loop. It can call as many tools as 
 Open **PowerShell** and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/genie/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
 ```
 
 That's it. The installer handles everything automatically:
