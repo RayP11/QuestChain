@@ -1,12 +1,18 @@
 <div align="center">
 
 ```
- ██████╗ ███████╗███╗   ██╗██╗███████╗
-██╔════╝ ██╔════╝████╗  ██║██║██╔════╝
-██║  ███╗█████╗  ██╔██╗ ██║██║█████╗
-██║   ██║██╔══╝  ██║╚██╗██║██║██╔══╝
-╚██████╔╝███████╗██║ ╚████║██║███████╗
- ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚══════╝
+  ██████╗ ██╗   ██╗███████╗███████╗████████╗
+ ██╔═══██╗██║   ██║██╔════╝██╔════╝╚══██╔══╝
+ ██║   ██║██║   ██║█████╗  ███████╗   ██║
+ ██║▄▄ ██║██║   ██║██╔══╝  ╚════██║   ██║
+ ╚██████╔╝╚██████╔╝███████╗███████║   ██║
+  ╚══▀▀═╝  ╚═════╝ ╚══════╝╚══════╝   ╚═╝
+  ██████╗██╗  ██╗ █████╗ ██╗███╗   ██╗
+ ██╔════╝██║  ██║██╔══██╗██║████╗  ██║
+ ██║     ███████║███████║██║██╔██╗ ██║
+ ██║     ██╔══██║██╔══██║██║██║╚██╗██║
+ ╚██████╗██║  ██║██║  ██║██║██║ ╚████║
+  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 ```
 
 ### Your personal AI agent — fully local, fully private, fully capable.
@@ -67,26 +73,26 @@ And it's not a chatbot. QuestChain is a full **agentic loop** — it can search 
 ## How It Works
 
 ```
-                        ┌──────────────────────────┐
-       You type         │          QuestChain            │
-   ──────────────▶      │                           │
-   (CLI or Telegram)    │  ┌──────────────────────┐ │
-                        │  │  LangGraph           │ │
-                        │  │  Deep Agent Loop     │ │       ┌─────────────┐
-                        │  │                      │◀├──────▶│   Ollama    │
-                        │  │  plan → act → review │ │       │  (on-device)│
-                        │  └─────────┬────────────┘ │       └─────────────┘
-                        │            │               │
-                        │     ┌──────┴──────┐        │
-                        │     ▼             ▼        │
-                        │  ┌──────┐   ┌──────────┐  │
-                        │  │Tools │   │ Memory   │  │
-                        │  │      │   │          │  │
-                        │  │ • ls │   │ ABOUT.md │  │
-                        │  │ • sh │   │ AGENTS.md│  │
-                        │  │ • web│   │ SQLite   │  │
-                        │  └──────┘   └──────────┘  │
-                        └──────────────────────────┘
+                     ┌──────────────────────────────┐
+      You type       │          QuestChain           │
+  ────────────────▶  │                               │
+  (CLI or Telegram)  │  ┌────────────────────────┐  │
+                     │  │  LangGraph             │  │
+                     │  │  Deep Agent Loop       │  │    ┌─────────────┐
+                     │  │                        │◀─┼───▶│   Ollama    │
+                     │  │  plan → act → review   │  │    │  (on-device)│
+                     │  └──────────┬─────────────┘  │    └─────────────┘
+                     │             │                 │
+                     │      ┌──────┴──────┐          │
+                     │      ▼             ▼          │
+                     │  ┌──────┐   ┌──────────┐     │
+                     │  │Tools │   │ Memory   │     │
+                     │  │      │   │          │     │
+                     │  │ • ls │   │ ABOUT.md │     │
+                     │  │ • sh │   │ AGENTS.md│     │
+                     │  │ • web│   │ SQLite   │     │
+                     │  └──────┘   └──────────┘     │
+                     └──────────────────────────────┘
 ```
 
 The agent runs a **plan → act → review** loop. It can call as many tools as it needs before giving you a final answer. Every conversation is checkpointed to SQLite so you can pick up exactly where you left off.
@@ -98,7 +104,7 @@ The agent runs a **plan → act → review** loop. It can call as many tools as 
 Open **PowerShell** and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/questchain/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/genie/main/install.ps1 | iex"
 ```
 
 That's it. The installer handles everything automatically:
@@ -219,7 +225,7 @@ All settings via environment variables or a `.env` file in the project root:
 | `TELEGRAM_OWNER_ID` | — | Your Telegram user ID (access control) |
 | `QUESTCHAIN_DATA_DIR` | `~/.questchain` | Checkpoints, history, cron jobs |
 | `QUESTCHAIN_WORKSPACE_DIR` | Project root | Workspace and memory root |
-| `GENIE_RESPONSE_CACHE` | `false` | Cache identical LLM responses to SQLite |
+| `QUESTCHAIN_RESPONSE_CACHE` | `false` | Cache identical LLM responses to SQLite |
 
 ---
 
@@ -251,7 +257,7 @@ python -m questchain -m <any-model>  # use any model installed in Ollama
 ## Project Structure
 
 ```
-questchain/
+(project root)/
 ├── questchain/
 │   ├── __main__.py         Entry point
 │   ├── cli.py              Terminal UI and REPL loop
