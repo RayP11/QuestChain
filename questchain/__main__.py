@@ -1,6 +1,24 @@
 """Entry point for `python -m questchain`."""
 
 import argparse
+import logging
+import warnings
+
+# Suppress noisy output from the deepagents SummarizationMiddleware — it
+# tries to write conversation history to the filesystem backend which can
+# fail in normal use.  These are recoverable non-fatal events.
+logging.getLogger("deepagents.middleware.summarization").setLevel(logging.ERROR)
+logging.getLogger("deepagents").setLevel(logging.ERROR)
+warnings.filterwarnings(
+    "ignore",
+    message=".*summarization.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*Offloading conversation history.*",
+    category=UserWarning,
+)
 
 from questchain.config import DEFAULT_BUSY_WORK_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
 

@@ -16,7 +16,6 @@ from telegram.ext import (
     filters,
 )
 
-from questchain.agent import build_input
 from questchain.agents import AgentManager, SELECTABLE_TOOLS
 from questchain.config import (
     OLLAMA_MODEL,
@@ -40,7 +39,7 @@ def _load_thread_ids() -> dict[int, str]:
     path = get_thread_ids_path()
     if path.exists():
         try:
-            return {int(k): v for k, v in json.loads(path.read_text()).items()}
+            return {int(k): v for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
         except Exception:
             pass
     return {}
@@ -49,7 +48,7 @@ def _load_thread_ids() -> dict[int, str]:
 def _save_thread_ids() -> None:
     path = get_thread_ids_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({str(k): v for k, v in _thread_ids.items()}))
+    path.write_text(json.dumps({str(k): v for k, v in _thread_ids.items()}), encoding="utf-8")
 
 
 _thread_ids: dict[int, str] = _load_thread_ids()
@@ -225,7 +224,7 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not about.exists():
         await update.message.reply_text("No memory file yet. Use /onboard to create one.")
         return
-    chunks = _split_message(about.read_text())
+    chunks = _split_message(about.read_text(encoding="utf-8"))
     for chunk in chunks:
         try:
             await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
@@ -243,7 +242,7 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not tasks.exists():
         await update.message.reply_text("No TASKS.md found in workspace.")
         return
-    chunks = _split_message(tasks.read_text())
+    chunks = _split_message(tasks.read_text(encoding="utf-8"))
     for chunk in chunks:
         try:
             await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
@@ -262,7 +261,7 @@ async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     jobs = []
     if jobs_path.exists():
         try:
-            jobs = json.loads(jobs_path.read_text())
+            jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
         except Exception:
             pass
     if not jobs:
@@ -625,16 +624,9 @@ async def _run_agent_collect(agent, user_text: str, config: dict, update: Update
 
     try:
         full_response = ""
-        async for event in agent.astream_events(
-            build_input(user_text),
-            config=config,
-            version="v2",
-        ):
-            kind = event["event"]
-            if kind == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
-                if hasattr(chunk, "content") and isinstance(chunk.content, str):
-                    full_response += chunk.content
+        thread_id = config.get("configurable", {}).get("thread_id", "telegram")
+        async for token in agent.run(user_text, thread_id=thread_id):
+            full_response += token
     except Exception as e:
         logger.exception("Agent error")
         full_response = f"Error: {e}"

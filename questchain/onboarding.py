@@ -95,7 +95,7 @@ def mark_onboarded() -> None:
     """Create the onboarded marker file."""
     path = get_onboarded_marker_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("done")
+    path.write_text("done", encoding="utf-8")
 
 
 def clear_onboarded() -> None:
@@ -106,14 +106,13 @@ def clear_onboarded() -> None:
 
 
 def _get_env_path() -> Path:
-    """Return the canonical ~/.questchain/.env path for persisting credentials."""
-    path = QUESTCHAIN_DATA_DIR / ".env"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    """Return the project root .env path for persisting credentials."""
+    from questchain.config import WORKSPACE_DIR
+    return WORKSPACE_DIR / ".env"
 
 
 def _save_env_key(key: str, value: str) -> None:
-    """Write a key=value to os.environ and to ~/.questchain/.env."""
+    """Write a key=value to os.environ and to the project root .env."""
     os.environ[key] = value
     env_path = _get_env_path()
     try:
@@ -121,10 +120,10 @@ def _save_env_key(key: str, value: str) -> None:
         set_key(str(env_path), key, value)
     except Exception:
         # Fallback: write directly as KEY="value" lines
-        existing = env_path.read_text() if env_path.exists() else ""
+        existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         lines = [l for l in existing.splitlines() if not l.startswith(f"{key}=")]
         lines.append(f'{key}="{value}"')
-        env_path.write_text("\n".join(lines) + "\n")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 async def _prompt_input(
@@ -246,9 +245,9 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
     if not agents_md.exists():
-        agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n")
+        agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n", encoding="utf-8")
     if not about_md.exists():
-        about_md.write_text("")
+        about_md.write_text("", encoding="utf-8")
 
     # ── Welcome banner ────────────────────────────────────────────────────────
     console.print()
@@ -316,7 +315,7 @@ Output ONLY the markdown. No extra commentary."""
         HumanMessage(content=profile_prompt),
     ])
     profile_text = re.sub(r"<think>.*?</think>", "", response.content, flags=re.DOTALL).strip()
-    about_md.write_text(profile_text + "\n")
+    about_md.write_text(profile_text + "\n", encoding="utf-8")
     console.print("[dim]Profile saved.[/dim]")
 
     mark_onboarded()

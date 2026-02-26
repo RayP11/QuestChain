@@ -53,7 +53,7 @@ def create_speak_tool(on_audio: Callable[[bytes], Awaitable[None]]):
 
         # Collect all samples from the stream
         all_samples = []
-        stream = kokoro.create_stream(text, voice="af_heart", speed=1.0, lang="en-us")
+        stream = kokoro.create_stream(text, voice="bm_fable", speed=1.0, lang="en-us")
         async for samples, _sr in stream:
             all_samples.append(samples)
 

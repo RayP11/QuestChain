@@ -15,7 +15,7 @@ from rich.text import Text
 _SEP = "─"
 
 from questchain import __version__
-from questchain.agent import build_input, create_questchain_agent
+from questchain.agent import create_questchain_agent
 from questchain.agents import AgentManager, BUILTIN_AGENT, SELECTABLE_TOOLS
 from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
@@ -24,7 +24,7 @@ from questchain.config import (
     get_history_path,
 )
 from questchain.onboarding import QUESTCHAIN_ART, TAGLINES, clear_onboarded, is_onboarded, run_onboarding
-from questchain.memory.store import create_checkpointer, create_memory_store
+from questchain.memory.store import get_thread_history
 from questchain.models import check_ollama_connection, list_available_models, wait_for_ollama
 
 console = Console()
@@ -89,15 +89,14 @@ class _AudioRouter:
             await _play_audio(wav_bytes)
 
 
-def _make_agent_from_def(agent_def: dict, checkpointer, store, audio_router) -> object:
+def _make_agent_from_def(agent_def: dict, audio_router, **_ignored) -> object:
     """Create a QuestChain agent from an agent definition dict."""
     return create_questchain_agent(
         model_name=agent_def.get("model"),
-        checkpointer=checkpointer,
-        store=store,
         on_audio=audio_router,
         system_prompt_override=agent_def.get("system_prompt"),
         tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
+        agent_name=agent_def.get("name", "QuestChain"),
     )
 
 
@@ -196,7 +195,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.config import MEMORY_DIR
         about = MEMORY_DIR / "ABOUT.md"
         if about.exists():
-            console.print(Panel(about.read_text(), title="Memory — ABOUT.md", border_style="cyan"))
+            console.print(Panel(about.read_text(encoding="utf-8"), title="Memory — ABOUT.md", border_style="cyan"))
         else:
             console.print("[dim]No memory file yet. Run /onboard to create one.[/dim]")
         return True
@@ -205,7 +204,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.config import WORKSPACE_DIR
         tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
         if tasks.exists():
-            console.print(Panel(tasks.read_text(), title="Tasks", border_style="cyan"))
+            console.print(Panel(tasks.read_text(encoding="utf-8"), title="Tasks", border_style="cyan"))
         else:
             console.print("[dim]No TASKS.md found in workspace.[/dim]")
         return True
@@ -217,7 +216,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         jobs = []
         if jobs_path.exists():
             try:
-                jobs = json.loads(jobs_path.read_text())
+                jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
         if jobs:
@@ -595,13 +594,15 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
     console.print("[yellow]Invalid selection.[/yellow]")
 
 
-async def run_agent_stream(agent, user_input: str, config: dict, agent_name: str = "QuestChain") -> str:
+async def run_agent_stream(
+    agent, user_input: str, config: dict, agent_name: str = "QuestChain"
+) -> str:
     """Stream agent response to the console, returning the full text."""
     from rich.live import Live
     from rich.spinner import Spinner
 
+    thread_id = config.get("configurable", {}).get("thread_id", "default")
     full_response = ""
-    tool_calls_shown = set()
     past_spinner = False
 
     live = Live(
@@ -619,34 +620,17 @@ async def run_agent_stream(agent, user_input: str, config: dict, agent_name: str
             live.stop()
             console.print(f"[bold green]{agent_name}[/bold green]")
 
-    async for event in agent.astream_events(
-        build_input(user_input),
-        config=config,
-        version="v2",
-    ):
-        kind = event["event"]
+    async def _on_tool_call(tool_name: str, tool_args: dict) -> None:
+        _stop_spinner()
+        console.print()
+        print_tool_call(tool_name, tool_args)
 
-        if kind == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if hasattr(chunk, "content") and isinstance(chunk.content, str) and chunk.content:
-                _stop_spinner()
-                full_response += chunk.content
-                console.print(chunk.content, end="")
+    async for token in agent.run(user_input, thread_id=thread_id, on_tool_call=_on_tool_call):
+        _stop_spinner()
+        full_response += token
+        console.print(token, end="")
 
-        elif kind == "on_tool_start":
-            tool_name = event.get("name", "unknown")
-            tool_input = event.get("data", {}).get("input", {})
-            call_id = f"{tool_name}:{id(event)}"
-            if call_id not in tool_calls_shown:
-                tool_calls_shown.add(call_id)
-                _stop_spinner()
-                console.print()
-                print_tool_call(tool_name, tool_input)
-
-        elif kind == "on_tool_end":
-            pass
-
-    _stop_spinner()  # Safety: in case no tokens were generated
+    _stop_spinner()
     console.print()
     return full_response
 
@@ -688,11 +672,6 @@ async def repl(
             )
             return
 
-    # Set up persistence
-    store = None
-    if use_memory:
-        store = create_memory_store()
-
     # Load agent manager and active agent
     agent_manager = AgentManager()
     active_def = agent_manager.get_active()
@@ -718,58 +697,29 @@ async def repl(
 
     audio_router = _AudioRouter()
 
-    # Create agent and run REPL (checkpointer needs async context manager)
-    if use_memory:
-        async with create_checkpointer() as checkpointer:
-            try:
-                agent = _make_agent_from_def(active_def, checkpointer, store, audio_router)
-            except Exception as e:
-                console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
-                return
-            agent_holder = {"agent": agent}
-            telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
-                agent_holder, effective_model, audio_router, agent_manager
-            )
-            if telegram_send:
-                console.print("[dim]Telegram: bot active[/dim]")
-            try:
-                await _run_with_busy_work(
-                    session, agent_holder, session_state, busy_work_minutes,
-                    use_memory=True, telegram_send=telegram_send,
-                    telegram_queue=telegram_queue,
-                    audio_router=audio_router,
-                    agent_manager=agent_manager,
-                    checkpointer=checkpointer,
-                    store=store,
-                )
-            finally:
-                if telegram_stop:
-                    await telegram_stop()
-    else:
-        try:
-            agent = _make_agent_from_def(active_def, None, None, audio_router)
-        except Exception as e:
-            console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
-            return
-        agent_holder = {"agent": agent}
-        telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
-            agent_holder, effective_model, audio_router, agent_manager
+    try:
+        agent = _make_agent_from_def(active_def, audio_router)
+    except Exception as e:
+        console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
+        return
+
+    agent_holder = {"agent": agent}
+    telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
+        agent_holder, effective_model, audio_router, agent_manager
+    )
+    if telegram_send:
+        console.print("[dim]Telegram: bot active[/dim]")
+    try:
+        await _run_with_busy_work(
+            session, agent_holder, session_state, busy_work_minutes,
+            telegram_send=telegram_send,
+            telegram_queue=telegram_queue,
+            audio_router=audio_router,
+            agent_manager=agent_manager,
         )
-        if telegram_send:
-            console.print("[dim]Telegram: bot active[/dim]")
-        try:
-            await _run_with_busy_work(
-                session, agent_holder, session_state, busy_work_minutes,
-                use_memory=False, telegram_send=telegram_send,
-                telegram_queue=telegram_queue,
-                audio_router=audio_router,
-                agent_manager=agent_manager,
-                checkpointer=None,
-                store=None,
-            )
-        finally:
-            if telegram_stop:
-                await telegram_stop()
+    finally:
+        if telegram_stop:
+            await telegram_stop()
 
 
 async def _run_with_busy_work(
@@ -777,13 +727,10 @@ async def _run_with_busy_work(
     agent_holder: dict,
     session_state: dict,
     busy_work_minutes: int | None,
-    use_memory: bool = True,
     telegram_send=None,
     telegram_queue=None,
     audio_router=None,
     agent_manager: "AgentManager | None" = None,
-    checkpointer=None,
-    store=None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
     from questchain.busy_work import BusyWorkRunner
@@ -808,7 +755,7 @@ async def _run_with_busy_work(
         console.print(f"[dim]Busy work: every {busy_work_minutes} min[/dim]")
 
     # First-run onboarding — jump straight into the conversation
-    if use_memory and not is_onboarded():
+    if not is_onboarded():
         await run_onboarding(agent_holder["agent"], console, prompt_session=session)
 
     try:
@@ -817,8 +764,6 @@ async def _run_with_busy_work(
             telegram_queue=telegram_queue,
             audio_router=audio_router,
             agent_manager=agent_manager,
-            checkpointer=checkpointer,
-            store=store,
         )
     finally:
         if runner:
@@ -832,8 +777,6 @@ async def _repl_loop(
     telegram_queue: asyncio.Queue | None = None,
     audio_router: "_AudioRouter | None" = None,
     agent_manager: "AgentManager | None" = None,
-    checkpointer=None,
-    store=None,
 ):
     """Inner REPL loop.
 
@@ -921,7 +864,7 @@ async def _repl_loop(
                     chosen = await run_agent_menu(console, session, agent_manager)
                     if chosen is not None:
                         try:
-                            new_agent = _make_agent_from_def(chosen, checkpointer, store, audio_router)
+                            new_agent = _make_agent_from_def(chosen, audio_router)
                             agent_holder["agent"] = new_agent
                             session_state["model_name"] = chosen.get("model") or OLLAMA_MODEL
                             agent_manager.set_active(chosen["id"])
@@ -957,7 +900,7 @@ async def _repl_loop(
                     f"  Switching to [cyan]{OLLAMA_MODEL}[/cyan] and retrying…"
                 )
                 try:
-                    fallback = _make_agent_from_def(BUILTIN_AGENT, checkpointer, store, audio_router)
+                    fallback = _make_agent_from_def(BUILTIN_AGENT, audio_router)
                     agent_holder["agent"] = fallback
                     session_state["model_name"] = OLLAMA_MODEL
                     if agent_manager:

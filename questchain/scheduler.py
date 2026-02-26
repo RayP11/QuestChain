@@ -11,7 +11,6 @@ from typing import Any, Callable, Awaitable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from questchain.agent import build_input
 from questchain.config import get_cron_jobs_path
 
 logger = logging.getLogger(__name__)
@@ -185,15 +184,8 @@ class CronScheduler:
         chunks: list[str] = []
 
         async def _stream() -> None:
-            async for event in agent.astream_events(
-                build_input(prompt),
-                config=config,
-                version="v2",
-            ):
-                if event["event"] == "on_chat_model_stream":
-                    chunk = event["data"]["chunk"]
-                    if hasattr(chunk, "content") and isinstance(chunk.content, str):
-                        chunks.append(chunk.content)
+            async for token in agent.run(prompt, thread_id=thread_id):
+                chunks.append(token)
 
         try:
             await asyncio.wait_for(_stream(), timeout=1800)  # 30 min — local models can be slow

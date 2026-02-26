@@ -111,7 +111,7 @@ class AgentManager:
         path = get_active_agent_path()
         if path.exists():
             try:
-                return path.read_text().strip()
+                return path.read_text(encoding="utf-8").strip()
             except Exception:
                 pass
         return "default"
@@ -120,7 +120,7 @@ class AgentManager:
         """Persist the active agent ID to disk."""
         path = get_active_agent_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(agent_id)
+        path.write_text(agent_id, encoding="utf-8")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -130,7 +130,7 @@ class AgentManager:
         path = get_agents_path()
         if path.exists():
             try:
-                data = json.loads(path.read_text())
+                data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     self._agents = data
             except Exception:
@@ -139,4 +139,4 @@ class AgentManager:
     def _save(self) -> None:
         path = get_agents_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self._agents, indent=2))
+        path.write_text(json.dumps(self._agents, indent=2), encoding="utf-8")

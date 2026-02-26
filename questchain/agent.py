@@ -1,144 +1,81 @@
-"""Core QuestChain agent built on Deep Agents."""
-
-from datetime import datetime
-
-from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
+"""QuestChain agent — thin factory that wires the engine together."""
 
 from questchain.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensure_memory_dir
-from questchain.models import get_model
-from questchain.tools import get_custom_tools
-
-
-def build_input(content: str) -> dict:
-    """Build the agent input dict with a timestamped system context.
-
-    Every invocation gets the current date/time so the agent always knows
-    what time it is without needing a tool call.
-    """
-    now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-    return {
-        "messages": [
-            {"role": "system", "content": f"Current date and time: {now}"},
-            {"role": "user", "content": content},
-        ]
-    }
+from questchain.engine.agent import Agent
+from questchain.engine.model import OllamaModel
+from questchain.engine.tools import make_registry, wrap_lc_tool
+from questchain.engine.skills import SkillsManager
+from questchain.engine.builtins import filesystem, shell, planning
 
 SYSTEM_PROMPT = """\
-You are QuestChain, a capable AI assistant running locally via Ollama.
+You are {agent_name}, a capable AI assistant running locally via Ollama.
 
-## Agent Loop
-You are in an agent loop. You can call tools multiple times. After each tool \
-result, decide if you need more information or if you can give a final answer. \
-Do NOT stop after a single tool call if the task requires more steps.
-
-## Anti-Hallucination Rule
-Do NOT hallucinate file contents, URLs, paths, or facts. If you are unsure, \
-use a tool to verify (e.g. read_file, ls, web_search). Never fabricate output.
-
-## Your Capabilities
-- **Web Search**: Search the web for current information using the web_search tool.
-- **Web Browse**: Read full web page content using the web_browse tool.
-- **File Operations**: Read, write, edit, list, and search files on the local filesystem.
-- **Shell Commands**: Execute terminal commands to interact with the system.
-- **Planning**: Break down complex tasks into steps using the todo/planning tools.
-- **Sub-agents**: Delegate specialized subtasks to focused sub-agents.
-- **Code with Claude**: Delegate coding tasks to Claude Code using the claude_code tool. \
-For any task that involves writing, editing, debugging, or refactoring code, use `claude_code`.
-- **Cron Jobs**: Schedule recurring tasks using cron_add, cron_list, and cron_remove tools. \
-Jobs run on a cron schedule and deliver results via Telegram. Only available in Telegram mode.
-- **Voice**: Speak text aloud using the speak tool. Use this when the user asks you to say \
-something out loud, read something aloud, or when a spoken response would be helpful.
-- **Persistent Memory**: Your memory files are loaded automatically (see <agent_memory> above). \
-Edit `/workspace/memory/AGENTS.md` to save learnings across conversations. \
-`/workspace/memory/ABOUT.md` contains the user's profile from onboarding — use it to personalize responses.
-- **Busy Work**: You are periodically invoked to check `/workspace/BUSY_WORK.md`. \
-If the file contains tasks or reminders that need attention, act on them. \
-If nothing needs attention or the file doesn't exist, respond with exactly `NO_WORK`.
-
-## Important: File Paths
-All file paths use virtual paths starting with `/`. For example:
-- `/workspace/memory/AGENTS.md` — your persistent memory file
-- `/skills/` — your skills directory
-Do NOT use Windows-style paths (like `C:\\...`). Always use forward slashes starting with `/`.
-
-## Tool Usage Guidelines
-- **Coding tasks** → Delegate to `claude_code`. Set complexity and mode appropriately.
-- **Need current info** → Use `web_search` to find URLs, then `web_browse` to read them.
-- **File questions** → Use `read_file`, `ls`, `glob`, or `grep` to inspect the filesystem. Never guess.
-- **Complex tasks** → Use `write_todos` to plan steps, then work through them.
-- **Multi-part tasks** → Consider breaking subtasks out with the `task` tool for sub-agents.
-- If a task seems risky (deleting files, running destructive commands), confirm with the user first.
-- Be concise and direct in your responses.
-
-## Examples
-
-### Example 1: Find and read a file
-User: "What does the config file look like?"
-1. Call `glob` with pattern `**/config.*` to find config files.
-2. Call `read_file` on the matching path to see its contents.
-3. Summarize the contents for the user.
-
-### Example 2: Delegate a coding task
-User: "Add input validation to the login endpoint"
-1. Call `claude_code` with task="Add input validation to the login endpoint in the API", \
-complexity="medium", mode="code".
-2. Report the result back to the user.
+## Rules
+- Never hallucinate file contents, URLs, or facts — verify with tools first.
+- Coding tasks → use `claude_code`. Need current info → `web_search` then `web_browse`.
+- All virtual file paths start with `/` (e.g. `/workspace/memory/ABOUT.md`).
+- User profile is at `/workspace/memory/ABOUT.md` — read it to personalize responses.
+- For complex multi-step tasks, plan with `write_todos` first.
+- Confirm before risky or destructive actions.
+- Be concise and direct.
 """
 
 
 def create_questchain_agent(
     model_name: str | None = None,
-    checkpointer=None,
-    store=None,
-    on_audio=None,
     system_prompt_override: str | None = None,
     tools_filter: list[str] | None = None,
-):
+    agent_name: str = "QuestChain",
+    on_audio=None,
+    # Legacy params accepted but unused (kept for call-site compatibility)
+    checkpointer=None,
+    store=None,
+) -> Agent:
     """Create the QuestChain agent.
 
     Args:
         model_name: Ollama model to use. Defaults to config value.
-        checkpointer: LangGraph checkpointer for conversation persistence.
-        store: LangGraph memory store for long-term memory.
         system_prompt_override: Replace the default SYSTEM_PROMPT when set.
-        tools_filter: Restrict custom tools to this list; None = all tools.
-
-    Returns:
-        Compiled LangGraph graph (the agent).
+        tools_filter: Restrict custom tools to this subset by name; None = all.
+        agent_name: Display name injected into the system prompt.
+        on_audio: TTS callback for the speak tool.
     """
     model_name = model_name or OLLAMA_MODEL
-    model = get_model(model_name)
-    custom_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio, tools_filter=tools_filter)
+    model = OllamaModel(model_name)
 
-    # Ensure memory directory exists on disk
     ensure_memory_dir()
 
-    backend = FilesystemBackend(root_dir=str(WORKSPACE_DIR), virtual_mode=True)
-
-    # Memory: deepagents MemoryMiddleware auto-loads AGENTS.md into the system
-    # prompt and injects guidelines for the agent to edit it with edit_file.
-    # The virtual path /workspace/memory/AGENTS.md resolves to the real
-    # WORKSPACE_DIR/workspace/memory/AGENTS.md via FilesystemBackend.
-    memory_paths = [
-        "/workspace/memory/AGENTS.md",
-        "/workspace/memory/ABOUT.md",
+    # Built-in tools
+    builtin_fns = [
+        filesystem.read_file,
+        filesystem.write_file,
+        filesystem.edit_file,
+        filesystem.ls,
+        filesystem.glob,
+        filesystem.grep,
+        shell.execute,
+        planning.write_todos,
+        planning.read_todos,
     ]
 
-    # Note: SummarizationMiddleware is added automatically by create_deep_agent.
-    # It uses model.profile["max_input_tokens"] (set in models.py) to compute
-    # fraction-based thresholds (85% trigger, 10% keep) instead of the 170K
-    # token fallback that would be unreachable with local model context windows.
+    # Skills (lazy-loaded on demand by the agent)
+    skills = SkillsManager()
 
-    agent = create_deep_agent(
+    # Registry: builtins + read_skill
+    registry = make_registry(*builtin_fns, skills.make_read_skill_tool())
+
+    # Custom tools (web, claude_code, speak, cron) — bridged from LangChain
+    from questchain.tools import get_custom_tools
+    lc_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio, tools_filter=tools_filter)
+    for lc_tool in lc_tools:
+        registry.register(wrap_lc_tool(lc_tool))
+
+    system_prompt = (system_prompt_override or SYSTEM_PROMPT).format(agent_name=agent_name)
+
+    return Agent(
         model=model,
-        tools=custom_tools,
-        system_prompt=system_prompt_override or SYSTEM_PROMPT,
-        checkpointer=checkpointer,
-        store=store,
-        backend=backend,
-        skills=["/skills/"],
-        memory=memory_paths,
+        tools=registry,
+        skills=skills,
+        system_prompt=system_prompt,
+        agent_name=agent_name,
     )
-
-    return agent
