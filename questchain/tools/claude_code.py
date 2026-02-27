@@ -19,7 +19,7 @@ _COMPLEXITY_CONFIG = {
 # Mode → permission flags mapping
 _MODE_CONFIG = {
     "code": {
-        "permission_mode": "acceptEdits",
+        "permission_mode": "bypassPermissions",
         "allowed_tools": None,
     },
     "review": {
@@ -30,7 +30,7 @@ _MODE_CONFIG = {
 
 _APPEND_SYSTEM = (
     "You are working inside the QuestChain project at {cwd}. "
-    "This is a Python project using uv, LangGraph Deep Agents, and Ollama."
+    "This is a Python project using uv and a custom async ReAct engine backed by Ollama."
 )
 
 
