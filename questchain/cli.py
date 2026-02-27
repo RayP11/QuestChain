@@ -16,7 +16,7 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
 from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
@@ -42,12 +42,13 @@ def _get_class_display(class_name: str) -> str:
 
 
 def _build_agent_label(agent_def: dict, prog: ProgressionManager | None) -> str:
-    """Return a short label like 'Aria · Lv.3 🔭 Scout'."""
+    """Return a Rich-markup label like '[cyan]Aria[/cyan] · Lv.3 🔭 Scout'."""
     name = agent_def.get("name", "QuestChain")
     class_name = agent_def.get("class_name", DEFAULT_CLASS)
     class_display = _get_class_display(class_name)
+    color = CLASS_COLORS.get(class_name, "bright_white")
     level = prog.get_record().level if prog is not None else 1
-    return f"{name} · Lv.{level} {class_display}"
+    return f"[{color}]{name}[/{color}][dim] · Lv.{level} {class_display}[/dim]"
 
 
 def _init_progression(agent_def: dict) -> ProgressionManager:
@@ -776,7 +777,8 @@ async def run_agent_stream(
             live.stop()
             if progression is not None:
                 rec = progression.get_record()
-                console.print(f"[bold green]{agent_name}[/bold green]  [dim]Lv.{rec.level}[/dim]")
+                color = CLASS_COLORS.get(rec.class_name, "bright_white")
+                console.print(f"[bold {color}]{agent_name}[/bold {color}]  [dim]Lv.{rec.level}[/dim]")
             else:
                 console.print(f"[bold green]{agent_name}[/bold green]")
 
@@ -861,7 +863,7 @@ async def repl(
     # Print welcome banner
     print_banner(effective_model)
     console.print(f"[dim]Thread: {session_state['thread_id']}[/dim]")
-    console.print(f"[dim]{_build_agent_label(active_def, _progression)}[/dim]")
+    console.print(_build_agent_label(active_def, _progression))
     console.print()
 
     # Set up prompt with history

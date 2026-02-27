@@ -16,6 +16,16 @@ AGENT_CLASSES: list[tuple[str, str, str]] = [
 ]
 DEFAULT_CLASS = "Wanderer"
 
+# Rich color for each class — used to tint the agent name in the terminal UI.
+CLASS_COLORS: dict[str, str] = {
+    "Wanderer":  "bright_blue",
+    "Archivist": "yellow",
+    "Scout":     "cyan",
+    "Architect": "orange3",
+    "Oracle":    "magenta",
+    "Sentinel":  "green",
+}
+
 # Tool presets applied when creating an agent of each class.
 # None = user configures manually (Wanderer only).
 # list = selectable tool names; [] = built-in tools only.
