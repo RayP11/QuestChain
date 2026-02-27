@@ -16,7 +16,8 @@ from telegram.ext import (
     filters,
 )
 
-from questchain.agents import AgentManager, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.progression import ProgressionManager
 from questchain.config import (
     OLLAMA_MODEL,
     TELEGRAM_BOT_TOKEN,
@@ -304,7 +305,13 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = agent_def["name"]
         model = agent_def.get("model") or OLLAMA_MODEL
         is_active = agent_id == active_id
-        label = f"{'✓ ' if is_active else '  '}{name}  ({model})"
+        try:
+            pm = ProgressionManager(agent_id, agent_def.get("class_name", DEFAULT_CLASS))
+            lv = pm.get_record().level
+            level_tag = f" Lv.{lv}"
+        except Exception:
+            level_tag = ""
+        label = f"{'✓ ' if is_active else '  '}{name}{level_tag}  ({model})"
         row = [InlineKeyboardButton(label, callback_data=f"agent:pick:{agent_id}")]
         row.append(InlineKeyboardButton("✏️", callback_data=f"agent:edit:{agent_id}"))
         if not agent_def.get("built_in"):
@@ -358,7 +365,7 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.chat_data["building_agent"] = {"step": "name", "data": {}}
         await query.edit_message_text(
             "Let's create a new agent. Send /cancel at any time.\n\n"
-            "Step 1/4 — What's the agent's name?"
+            "Step 1/5 — What's the agent's name?"
         )
 
     elif data.startswith("agent:edit:"):
@@ -382,7 +389,7 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         }
         await query.edit_message_text(
             f"Editing '{agent_def['name']}'. Send '-' to keep the current value.\n\n"
-            f"Step 1/4 — New name? (current: {agent_def['name']})"
+            f"Step 1/5 — New name? (current: {agent_def['name']})"
         )
 
     elif data.startswith("agent:delete:"):
@@ -437,7 +444,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     step = state["step"]
     data = state["data"]
 
-    # ── Create flow ──────────────────────────────────────────────────────────
+    # ── Create flow  (name → model → class → tools[if Wanderer] → prompt → confirm) ────
 
     if step == "name":
         if not text:
@@ -446,21 +453,50 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         data["name"] = text
         state["step"] = "model"
         await update.message.reply_text(
-            f"Step 2/4 — Which model? (send empty for default: {OLLAMA_MODEL})"
+            f"Step 2/5 — Which model? (send empty for default: {OLLAMA_MODEL})"
         )
 
     elif step == "model":
         data["model"] = text if text else None
-        state["step"] = "tools"
-        tool_lines = "\n".join(
-            f"  {i}. {name} — {desc}"
-            for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
+        state["step"] = "class"
+        class_lines = "\n".join(
+            f"  {i}. {icon} {cname} — {desc}"
+            for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1)
         )
         await update.message.reply_text(
-            f"Step 3/4 — Which tools? (filesystem/shell/planning always included)\n\n"
-            f"{tool_lines}\n\n"
-            f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
+            f"Step 3/5 — Agent class:\n\n{class_lines}\n\n"
+            f"Send a number (1-{len(AGENT_CLASSES)}) or empty for Wanderer (custom tools)."
         )
+
+    elif step == "class":
+        chosen_class = DEFAULT_CLASS
+        if text.isdigit():
+            idx = int(text) - 1
+            if 0 <= idx < len(AGENT_CLASSES):
+                chosen_class = AGENT_CLASSES[idx][0]
+        data["class_name"] = chosen_class
+        preset = CLASS_TOOL_PRESETS.get(chosen_class)
+        if preset is None:
+            # Wanderer: ask for tools
+            state["step"] = "tools"
+            tool_lines = "\n".join(
+                f"  {i}. {name} — {desc}"
+                for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
+            )
+            await update.message.reply_text(
+                f"Step 4/5 — Which tools? (filesystem/shell/planning always included)\n\n"
+                f"{tool_lines}\n\n"
+                f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
+            )
+        else:
+            # Non-Wanderer: apply preset, skip tools step
+            data["tools"] = preset
+            state["step"] = "prompt"
+            preset_display = ", ".join(preset) if preset else "built-in tools only"
+            await update.message.reply_text(
+                f"Tools preset for {chosen_class}: {preset_display}\n\n"
+                f"Step 4/4 — System prompt? (send empty to use the default QuestChain prompt)"
+            )
 
     elif step == "tools":
         if text.lower() in ("", "all"):
@@ -476,18 +512,20 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             data["tools"] = selected if selected else "all"
         state["step"] = "prompt"
         await update.message.reply_text(
-            "Step 4/4 — System prompt? (send empty to use the default QuestChain prompt)"
+            "Step 5/5 — System prompt? (send empty to use the default QuestChain prompt)"
         )
 
     elif step == "prompt":
         data["system_prompt"] = text if text else None
         state["step"] = "confirm"
-        tools_display = data["tools"] if data["tools"] == "all" else ", ".join(data["tools"])
+        _tools = data.get("tools", "all")
+        tools_display = _tools if _tools == "all" else (", ".join(_tools) if _tools else "built-in only")
         model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
         prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
         await update.message.reply_text(
             f"Confirm new agent:\n\n"
             f"Name: {data['name']}\n"
+            f"Class: {data.get('class_name', DEFAULT_CLASS)}\n"
             f"Model: {model_display}\n"
             f"Tools: {tools_display}\n"
             f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
@@ -505,7 +543,8 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 name=data["name"],
                 model=data.get("model"),
                 system_prompt=data.get("system_prompt"),
-                tools=data["tools"],
+                tools=data.get("tools", "all"),
+                class_name=data.get("class_name", DEFAULT_CLASS),
             )
             context.chat_data.pop("building_agent", None)
             await update.message.reply_text(
@@ -515,7 +554,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             context.chat_data.pop("building_agent", None)
             await update.message.reply_text("Agent creation cancelled.")
 
-    # ── Edit flow ────────────────────────────────────────────────────────────
+    # ── Edit flow  (edit_name → edit_model → edit_class → edit_tools → edit_prompt → edit_confirm) ──
 
     elif step == "edit_name":
         if text and text != "-":
@@ -523,21 +562,43 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         state["step"] = "edit_model"
         current_model = data.get("model") or OLLAMA_MODEL
         await update.message.reply_text(
-            f"Step 2/4 — New model? (current: {current_model}, send '-' to keep)"
+            f"Step 2/5 — New model? (current: {current_model}, send '-' to keep)"
         )
 
     elif step == "edit_model":
         if text and text != "-":
             data["model"] = text
+        state["step"] = "edit_class"
+        current_class = data.get("class_name", DEFAULT_CLASS)
+        class_lines = "\n".join(
+            f"  {i}. {icon} {cname} — {desc}"
+            for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1)
+        )
+        await update.message.reply_text(
+            f"Step 3/5 — Agent class? (current: {current_class})\n\n{class_lines}\n\n"
+            f"Send a number (1-{len(AGENT_CLASSES)}) or '-' to keep current."
+        )
+
+    elif step == "edit_class":
+        if text and text != "-" and text.isdigit():
+            idx = int(text) - 1
+            if 0 <= idx < len(AGENT_CLASSES):
+                data["class_name"] = AGENT_CLASSES[idx][0]
         state["step"] = "edit_tools"
         current_tools = data.get("tools", "all")
-        tools_display = current_tools if current_tools == "all" else ", ".join(current_tools)
+        tools_display = current_tools if current_tools == "all" else (", ".join(current_tools) if current_tools else "built-in only")
+        current_class = data.get("class_name", DEFAULT_CLASS)
+        preset = CLASS_TOOL_PRESETS.get(current_class)
+        preset_hint = ""
+        if preset is not None:
+            preset_display = ", ".join(preset) if preset else "built-in only"
+            preset_hint = f"\nClass preset ({current_class}): {preset_display}"
         tool_lines = "\n".join(
             f"  {i}. {name} — {desc}"
             for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
         )
         await update.message.reply_text(
-            f"Step 3/4 — Tools? (current: {tools_display})\n\n"
+            f"Step 4/5 — Tools? (current: {tools_display}){preset_hint}\n\n"
             f"{tool_lines}\n\n"
             f"Send comma-separated numbers, 'all', or '-' to keep current."
         )
@@ -559,7 +620,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         state["step"] = "edit_prompt"
         current_prompt = data.get("system_prompt") or "(default)"
         await update.message.reply_text(
-            f"Step 4/4 — System prompt?\n"
+            f"Step 5/5 — System prompt?\n"
             f"Current: {current_prompt[:100]}{'…' if len(current_prompt) > 100 else ''}\n\n"
             f"Send new prompt, or '-' to keep current."
         )
@@ -569,12 +630,13 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             data["system_prompt"] = text
         state["step"] = "edit_confirm"
         current_tools = data.get("tools", "all")
-        tools_display = current_tools if current_tools == "all" else ", ".join(current_tools)
+        tools_display = current_tools if current_tools == "all" else (", ".join(current_tools) if current_tools else "built-in only")
         model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
         prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
         await update.message.reply_text(
             f"Confirm updated agent:\n\n"
             f"Name: {data['name']}\n"
+            f"Class: {data.get('class_name', DEFAULT_CLASS)}\n"
             f"Model: {model_display}\n"
             f"Tools: {tools_display}\n"
             f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
@@ -594,6 +656,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 model=data.get("model"),
                 tools=data.get("tools", "all"),
                 system_prompt=data.get("system_prompt"),
+                class_name=data.get("class_name", DEFAULT_CLASS),
             )
             context.chat_data.pop("building_agent", None)
             await update.message.reply_text(f"✓ Agent '{data['name']}' updated!")

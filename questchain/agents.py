@@ -6,6 +6,28 @@ from datetime import datetime, timezone
 
 from questchain.config import get_active_agent_path, get_agents_path
 
+AGENT_CLASSES: list[tuple[str, str, str]] = [
+    ("Wanderer",  "🌀", "Unspecialized — custom-configured tools"),
+    ("Archivist", "📚", "Master of files and knowledge management"),
+    ("Scout",     "🔭", "Explorer of the web and information"),
+    ("Architect", "⚒️",  "Builder and coder"),
+    ("Oracle",    "🔮", "Planner and strategist"),
+    ("Sentinel",  "⏱️",  "Scheduler and automation specialist"),
+]
+DEFAULT_CLASS = "Wanderer"
+
+# Tool presets applied when creating an agent of each class.
+# None = user configures manually (Wanderer only).
+# list = selectable tool names; [] = built-in tools only.
+CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
+    "Wanderer":  None,
+    "Archivist": [],
+    "Scout":     ["web_search", "web_browse"],
+    "Architect": ["claude_code"],
+    "Oracle":    ["web_search"],
+    "Sentinel":  ["cron"],
+}
+
 SELECTABLE_TOOLS = [
     ("web_search",  "Web search via Tavily"),
     ("web_browse",  "Full page content via Tavily"),
@@ -21,6 +43,7 @@ BUILTIN_AGENT = {
     "model": None,
     "system_prompt": None,
     "tools": "all",
+    "class_name": DEFAULT_CLASS,
 }
 
 
@@ -49,7 +72,7 @@ class AgentManager:
             return saved_default if saved_default else BUILTIN_AGENT
         return next((a for a in self._agents if a["id"] == agent_id), None)
 
-    def add(self, name: str, model: str | None, system_prompt: str | None, tools: list[str] | str) -> dict:
+    def add(self, name: str, model: str | None, system_prompt: str | None, tools: list[str] | str, class_name: str | None = None) -> dict:
         """Create a new custom agent, save it, and return its definition."""
         agent_def = {
             "id": secrets.token_hex(3),
@@ -57,6 +80,7 @@ class AgentManager:
             "model": model or None,
             "system_prompt": system_prompt or None,
             "tools": tools,
+            "class_name": class_name or DEFAULT_CLASS,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._agents.append(agent_def)

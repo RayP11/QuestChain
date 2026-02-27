@@ -2,7 +2,7 @@
 
 <img src="QuestChain.png" alt="QuestChain" width="400"/>
 
-### A self-improving AI agent — built for edge hardware, running entirely on-device.
+### Small but mighty. Send your hardware on a quest.
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
@@ -77,6 +77,42 @@ Most AI assistants send your conversations to the cloud, charge per token, and f
 QuestChain runs entirely on your own hardware using [Ollama](https://ollama.com). Your data never leaves your machine. No API bills, no rate limits, no terms-of-service watching your messages. It works offline. It's yours.
 
 And it's not a chatbot. QuestChain is a full **agentic loop** — it can search the web, read and write files, execute shell commands, schedule recurring tasks, send you Telegram messages, and work autonomously in the background while you focus on something else.
+
+---
+
+## RPG Progression
+
+Every agent levels up from use. The more it works, the stronger it gets — and you can see it in real time.
+
+- **XP per turn** — tool calls, response length, and completed tasks all earn XP
+- **20 levels** — each ~1.6× harder than the last
+- **20 achievements** — First Strike, Polymath, Speed Demon, Legend, and more
+- **6 agent classes** — each with a preset tool loadout and its own identity
+
+```
+──────────── Aria · Lv.3 🔭 Scout ────────────
+❯ find the latest papers on in-context learning
+
+Aria  Lv.3
+  > Using tool: web_search
+  > Using tool: web_browse
+...
+⚔  LEVEL UP — Level 4  ·  🔭 Scout
+  ✦ Achievement unlocked: Bibliophile — Read 50 files
+```
+
+Use `/stats` to see your agent's XP bar, top tools, and achievement history. Use `/agents` to switch between agents — each tracks its own progression independently.
+
+### Classes
+
+| Class | Icon | Tool Preset |
+|---|---|---|
+| Wanderer | 🌀 | Custom — you configure |
+| Archivist | 📚 | Built-in tools only |
+| Scout | 🔭 | Web search + browse |
+| Architect | ⚒️ | Claude Code |
+| Oracle | 🔮 | Web search |
+| Sentinel | ⏱️ | Cron scheduler |
 
 ---
 
@@ -215,6 +251,7 @@ questchain start --list-models
 | `/tasks` | Show the current workspace task list |
 | `/cron` | List scheduled cron jobs |
 | `/agents` | Manage agent profiles (list, switch, create, edit) |
+| `/stats` | Show agent level, XP bar, top tools, and achievements |
 | `/onboard` | Re-run the onboarding conversation |
 | `/tavily` | Set up Tavily web search API key |
 | `/telegram` | Set up Telegram bot credentials |
@@ -307,6 +344,8 @@ questchain start -m <any-model>  # use any model installed in Ollama
 │   ├── __main__.py         Entry point
 │   ├── cli.py              Terminal UI and REPL loop
 │   ├── agent.py            Agent factory — wires engine together
+│   ├── agents.py           Agent profiles — classes, presets, persistence
+│   ├── progression.py      XP, levels, achievements per agent
 │   ├── config.py           Settings, model presets, paths
 │   ├── telegram.py         Telegram bot adapter
 │   ├── scheduler.py        Cron job runner
@@ -362,5 +401,5 @@ questchain start -m <any-model>  # use any model installed in Ollama
 ---
 
 <div align="center">
-<sub>No cloud. No cost. No compromise. And it's getting smarter on its own.</sub>
+<sub>No cloud. No cost. No compromise. Small but mighty — send your hardware on a quest.</sub>
 </div>

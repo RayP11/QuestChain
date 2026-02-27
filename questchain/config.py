@@ -150,5 +150,12 @@ def get_active_agent_path() -> Path:
     return ensure_data_dir() / "active_agent"
 
 
+def get_progression_dir() -> Path:
+    """Get (and create) the per-agent progression directory."""
+    d = ensure_data_dir() / "progression"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # --- Busy work settings ---
 DEFAULT_BUSY_WORK_MINUTES = 60

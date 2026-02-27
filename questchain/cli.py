@@ -16,7 +16,8 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent
-from questchain.agents import AgentManager, BUILTIN_AGENT, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
 from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
@@ -29,14 +30,45 @@ from questchain.models import check_ollama_connection, list_available_models, wa
 
 console = Console()
 
+_progression: ProgressionManager | None = None
 
-async def _user_prompt(session: PromptSession) -> str:
+
+def _get_class_display(class_name: str) -> str:
+    """Return 'icon Name' for a class, e.g. '🔭 Scout'."""
+    for cname, icon, _ in AGENT_CLASSES:
+        if cname == class_name:
+            return f"{icon} {cname}"
+    return class_name
+
+
+def _build_agent_label(agent_def: dict, prog: ProgressionManager | None) -> str:
+    """Return a short label like 'Aria · Lv.3 🔭 Scout'."""
+    name = agent_def.get("name", "QuestChain")
+    class_name = agent_def.get("class_name", DEFAULT_CLASS)
+    class_display = _get_class_display(class_name)
+    level = prog.get_record().level if prog is not None else 1
+    return f"{name} · Lv.{level} {class_display}"
+
+
+def _init_progression(agent_def: dict) -> ProgressionManager:
+    """Load (or create) the ProgressionManager for *agent_def* and set the global."""
+    global _progression
+    agent_id = agent_def.get("id", "default")
+    class_name = agent_def.get("class_name", DEFAULT_CLASS)
+    _progression = ProgressionManager(agent_id, class_name)
+    _progression.load()
+    return _progression
+
+
+async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
     """Render the framed input box and return the user's raw input."""
     width = shutil.get_terminal_size().columns
-    sep = _SEP * width
-    console.print(sep, style="dim")
+    if agent_label:
+        console.rule(agent_label, style="dim", characters=_SEP)
+    else:
+        console.print(_SEP * width, style="dim")
     result = await session.prompt_async("❯ ")
-    console.print(sep, style="dim")
+    console.print(_SEP * width, style="dim")
     return result
 
 
@@ -125,6 +157,71 @@ def print_banner(model_name: str):
 def print_tool_call(tool_name: str, tool_input: dict):
     """Display a tool call indicator."""
     console.print(f"  [dim]> Using tool:[/dim] [cyan]{tool_name}[/cyan]")
+
+
+def print_level_up(grant: XPGrant, class_name: str) -> None:
+    """Display a dramatic level-up panel."""
+    from rich.text import Text as RichText
+    class_display = _get_class_display(class_name)
+    t = RichText()
+    t.append(f"⚔  LEVEL UP — Level {grant.new_level}", style="bold yellow")
+    t.append(f"  ·  {class_display}", style="yellow")
+    console.print(Panel(t, border_style="yellow", padding=(1, 2)))
+
+
+def print_achievement_unlock(achievement) -> None:
+    """Display a single achievement unlock notification."""
+    console.print(
+        f"  [bold yellow]✦[/bold yellow] Achievement unlocked: "
+        f"[bold]{achievement.name}[/bold] — {achievement.description}"
+    )
+
+
+async def show_stats(agent_def: dict) -> None:
+    """Render a stats panel for the given agent definition."""
+    agent_id = agent_def.get("id", "default")
+    class_name = agent_def.get("class_name", DEFAULT_CLASS)
+    pm = ProgressionManager(agent_id, class_name)
+    record = pm.load()
+
+    class_display = _get_class_display(record.class_name)
+
+    # XP progress bar (20 chars wide)
+    bar_width = 20
+    if record.xp_next_level > 0:
+        level_span = record.xp_this_level + record.xp_next_level
+        filled = int(bar_width * record.xp_this_level / level_span) if level_span else 0
+        xp_display = f"{record.xp_this_level}/{level_span} XP to Lv.{record.level + 1}"
+    else:
+        filled = bar_width
+        xp_display = "MAX LEVEL"
+    bar = "█" * filled + "░" * (bar_width - filled)
+
+    top_tools = sorted(record.tool_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    lines: list[str] = [
+        f"[bold]{agent_def.get('name', 'QuestChain')}[/bold]  ·  {class_display}  ·  [bold cyan]Level {record.level}[/bold cyan]",
+        f"  [{bar}]  {xp_display}",
+        f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Busy-work: [cyan]{record.busy_work_completed}[/cyan]",
+    ]
+    if top_tools:
+        lines.append("")
+        lines.append("[bold]Top tools:[/bold]")
+        for tool, count in top_tools:
+            lines.append(f"  {tool}: {count}")
+    lines.append("")
+    ach_count = len(record.achievements)
+    lines.append(f"[bold]Achievements ({ach_count}/{TOTAL_ACHIEVEMENTS}):[/bold]")
+    if record.achievements:
+        for a in record.achievements:
+            lines.append(
+                f"  [bold yellow]★[/bold yellow] {a.name} — {a.description}"
+                f"  [dim]{a.earned_at[:10]}[/dim]"
+            )
+    else:
+        lines.append("  [dim]None yet — start chatting![/dim]")
+
+    console.print(Panel("\n".join(lines), title="📊 Stats", border_style="cyan"))
 
 
 def handle_command(command: str, session_state: dict) -> bool | None:
@@ -246,6 +343,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_agent_menu"] = True
         return True
 
+    if cmd == "/stats":
+        session_state["run_stats"] = True
+        return True
+
     if cmd == "/history":
         session_state["run_history"] = True
         return True
@@ -266,6 +367,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tavily        - Set up Tavily web search API key\n"
             "  /telegram      - Set up Telegram bot credentials\n"
             "  /agents        - Manage agents (list, switch, create)\n"
+            "  /stats         - Show agent level and achievements\n"
             "  /history       - Show past conversations with timestamps\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit QuestChain\n"
@@ -333,7 +435,13 @@ async def run_agent_menu(
         if agent_def.get("built_in"):
             name += " (built-in)"
         model = agent_def.get("model") or OLLAMA_MODEL
-        console.print(f"  {i}. {marker} [cyan]{name:<28}[/cyan]  {model}")
+        try:
+            pm = ProgressionManager(agent_def["id"], agent_def.get("class_name", DEFAULT_CLASS))
+            lv = pm.get_record().level
+            level_tag = f"Lv.{lv}"
+        except Exception:
+            level_tag = "Lv.?"
+        console.print(f"  {i}. {marker} [cyan]{name:<28}[/cyan]  {level_tag:<6}  {model}")
     console.print()
 
     selection_raw = await _prompt_line(
@@ -459,26 +567,43 @@ async def _run_create_wizard(
     model = model_raw if model_raw else None
 
     console.print()
-    console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
-    for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
-        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
-    console.print()
+    console.print("[bold]Agent class:[/bold]")
+    for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1):
+        console.print(f"  {i}. {icon} [cyan]{cname}[/cyan] — {desc}")
+    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter=Wanderer: ")
+    chosen_class = DEFAULT_CLASS
+    if class_raw.isdigit():
+        idx = int(class_raw) - 1
+        if 0 <= idx < len(AGENT_CLASSES):
+            chosen_class = AGENT_CLASSES[idx][0]
 
-    include_all_raw = await _prompt_line(session, "Include all tools? [Y/n or numbers]: ")
-    if include_all_raw.lower() in ("", "y", "yes"):
-        tools: list[str] | str = "all"
-    elif include_all_raw.lower() in ("n", "no"):
-        selection_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-        tools = _parse_tool_selection(selection_raw, "all")
+    preset = CLASS_TOOL_PRESETS.get(chosen_class)
+    if preset is None:
+        # Wanderer: user configures tools manually
+        console.print()
+        console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+        for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
+            console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
+        console.print()
+        include_all_raw = await _prompt_line(session, "Include all tools? [Y/n or numbers]: ")
+        if include_all_raw.lower() in ("", "y", "yes"):
+            tools: list[str] | str = "all"
+        elif include_all_raw.lower() in ("n", "no"):
+            selection_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
+            tools = _parse_tool_selection(selection_raw, "all")
+        else:
+            tools = _parse_tool_selection(include_all_raw, "all")
     else:
-        tools = _parse_tool_selection(include_all_raw, "all")
+        tools = preset
+        preset_names = ", ".join(preset) if preset else "built-in only"
+        console.print(f"  [dim]Tools preset for {chosen_class}: {preset_names}[/dim]")
 
     console.print()
     console.print("System prompt (Enter for default QuestChain prompt):")
     prompt_raw = await _prompt_line(session, "> ")
     system_prompt = prompt_raw if prompt_raw else None
 
-    agent_def = agent_manager.add(name, model, system_prompt, tools)
+    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class)
     console.print()
     console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/agents[/cyan] to activate it.")
     return agent_def
@@ -508,8 +633,18 @@ async def _run_edit_wizard(
     else:
         current_tools_display = ", ".join(current_tools) if current_tools else "none"
 
+    # Show class preset hint
+    _edit_class_for_hint = agent_def.get("class_name", DEFAULT_CLASS)
+    _preset = CLASS_TOOL_PRESETS.get(_edit_class_for_hint)
+    _preset_hint = (
+        f"  [dim]Class preset ({_edit_class_for_hint}): {', '.join(_preset) if _preset else 'built-in only'}[/dim]"
+        if _preset is not None else ""
+    )
+
     console.print()
     console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+    if _preset_hint:
+        console.print(_preset_hint)
     for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
         console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
     console.print()
@@ -530,13 +665,28 @@ async def _run_edit_wizard(
     prompt_raw = await _prompt_line(session, "> ")
     new_system_prompt = prompt_raw if prompt_raw else agent_def.get("system_prompt")
 
+    current_class = agent_def.get("class_name", DEFAULT_CLASS)
+    console.print()
+    console.print(f"[bold]Agent class:[/bold] (current: {_get_class_display(current_class)})")
+    for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1):
+        console.print(f"  {i}. {icon} [cyan]{cname}[/cyan] — {desc}")
+    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter=keep current: ")
+    new_class = current_class
+    if class_raw.isdigit():
+        idx = int(class_raw) - 1
+        if 0 <= idx < len(AGENT_CLASSES):
+            new_class = AGENT_CLASSES[idx][0]
+
     agent_manager.update(
         agent_def["id"],
         name=new_name,
         model=new_model,
         tools=new_tools,
         system_prompt=new_system_prompt,
+        class_name=new_class,
     )
+    if _progression is not None and _progression._agent_id == agent_def["id"]:
+        _progression.update_class(new_class)
     console.print()
     console.print(f"[green]✓ Agent '[bold]{new_name}[/bold]' updated.[/green]")
 
@@ -595,15 +745,21 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
 
 
 async def run_agent_stream(
-    agent, user_input: str, config: dict, agent_name: str = "QuestChain"
-) -> str:
-    """Stream agent response to the console, returning the full text."""
+    agent,
+    user_input: str,
+    config: dict,
+    agent_name: str = "QuestChain",
+    progression: ProgressionManager | None = None,
+    is_busy_work: bool = False,
+) -> tuple[str, XPGrant | None]:
+    """Stream agent response to the console, returning (full_text, xp_grant)."""
     from rich.live import Live
     from rich.spinner import Spinner
 
     thread_id = config.get("configurable", {}).get("thread_id", "default")
     full_response = ""
     past_spinner = False
+    tools_this_turn: list[str] = []
 
     live = Live(
         Spinner("dots", text=" Thinking…"),
@@ -618,12 +774,19 @@ async def run_agent_stream(
         if not past_spinner:
             past_spinner = True
             live.stop()
-            console.print(f"[bold green]{agent_name}[/bold green]")
+            if progression is not None:
+                rec = progression.get_record()
+                console.print(f"[bold green]{agent_name}[/bold green]  [dim]Lv.{rec.level}[/dim]")
+            else:
+                console.print(f"[bold green]{agent_name}[/bold green]")
 
     async def _on_tool_call(tool_name: str, tool_args: dict) -> None:
         _stop_spinner()
         console.print()
         print_tool_call(tool_name, tool_args)
+        tools_this_turn.append(tool_name)
+        if progression is not None:
+            progression.record_tool_call(tool_name)
 
     async for token in agent.run(user_input, thread_id=thread_id, on_tool_call=_on_tool_call):
         _stop_spinner()
@@ -632,7 +795,15 @@ async def run_agent_stream(
 
     _stop_spinner()
     console.print()
-    return full_response
+
+    xp_grant: XPGrant | None = None
+    if progression is not None:
+        xp_grant = progression.award_xp(
+            tools_this_turn,
+            is_busy_work=is_busy_work,
+            response_chars=len(full_response),
+        )
+    return full_response, xp_grant
 
 
 async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_router: "_AudioRouter", agent_manager: "AgentManager"):
@@ -684,11 +855,13 @@ async def repl(
         "agent_manager": agent_manager,
     }
 
+    # Load progression before display so we can show the level
+    _init_progression(active_def)
+
     # Print welcome banner
     print_banner(effective_model)
     console.print(f"[dim]Thread: {session_state['thread_id']}[/dim]")
-    if active_def["id"] != "default":
-        console.print(f"[dim]Agent: {active_def['name']}[/dim]")
+    console.print(f"[dim]{_build_agent_label(active_def, _progression)}[/dim]")
     console.print()
 
     # Set up prompt with history
@@ -742,6 +915,12 @@ async def _run_with_busy_work(
             console.print()
             console.print(Panel(text, title="Busy Work", border_style="green"))
             console.print()
+            if _progression is not None:
+                grant = _progression.award_xp([], is_busy_work=True)
+                if grant.leveled_up:
+                    print_level_up(grant, _progression.get_record().class_name)
+                for ach in grant.new_achievements:
+                    print_achievement_unlock(ach)
             if telegram_send:
                 await telegram_send(text)
 
@@ -793,8 +972,13 @@ async def _repl_loop(
         agent_config = None
         telegram_update = None
 
+        # Build label for the separator line
+        _agent_label = ""
+        if agent_manager is not None:
+            _agent_label = _build_agent_label(agent_manager.get_active(), _progression)
+
         if telegram_queue is not None:
-            prompt_task = asyncio.create_task(_user_prompt(session))
+            prompt_task = asyncio.create_task(_user_prompt(session, agent_label=_agent_label))
             queue_task = asyncio.create_task(telegram_queue.get())
             done, pending = await asyncio.wait(
                 [prompt_task, queue_task],
@@ -826,7 +1010,7 @@ async def _repl_loop(
                 console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
         else:
             try:
-                user_input = await _user_prompt(session)
+                user_input = await _user_prompt(session, agent_label=_agent_label)
             except EOFError:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
@@ -868,8 +1052,12 @@ async def _repl_loop(
                             agent_holder["agent"] = new_agent
                             session_state["model_name"] = chosen.get("model") or OLLAMA_MODEL
                             agent_manager.set_active(chosen["id"])
+                            _init_progression(chosen)
                         except Exception as e:
                             console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
+
+                if session_state.pop("run_stats", False) and agent_manager is not None:
+                    await show_stats(agent_manager.get_active())
 
                 continue
 
@@ -885,7 +1073,15 @@ async def _repl_loop(
         active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
         try:
             console.print()
-            full_response = await run_agent_stream(agent_holder["agent"], user_input, agent_config, agent_name=active_name)
+            full_response, xp_grant = await run_agent_stream(
+                agent_holder["agent"], user_input, agent_config,
+                agent_name=active_name, progression=_progression,
+            )
+            if xp_grant and xp_grant.leveled_up and _progression is not None:
+                print_level_up(xp_grant, _progression.get_record().class_name)
+            if xp_grant:
+                for ach in xp_grant.new_achievements:
+                    print_achievement_unlock(ach)
             if response_future and not response_future.done():
                 response_future.set_result(full_response)
         except KeyboardInterrupt:
@@ -905,8 +1101,17 @@ async def _repl_loop(
                     session_state["model_name"] = OLLAMA_MODEL
                     if agent_manager:
                         agent_manager.set_active("default")
+                    _init_progression(BUILTIN_AGENT)
                     console.print()
-                    full_response = await run_agent_stream(fallback, user_input, agent_config, agent_name="QuestChain")
+                    full_response, xp_grant = await run_agent_stream(
+                        fallback, user_input, agent_config,
+                        agent_name="QuestChain", progression=_progression,
+                    )
+                    if xp_grant and xp_grant.leveled_up and _progression is not None:
+                        print_level_up(xp_grant, _progression.get_record().class_name)
+                    if xp_grant:
+                        for ach in xp_grant.new_achievements:
+                            print_achievement_unlock(ach)
                     if response_future and not response_future.done():
                         response_future.set_result(full_response)
                 except Exception as retry_err:
