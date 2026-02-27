@@ -907,7 +907,7 @@ async def run_telegram_alongside_cli(
                 "TELEGRAM_OWNER_ID is not set — all incoming messages will be "
                 "rejected. Set it to your Telegram user ID."
             )
-        return None, None
+        return None, None, None
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -1001,4 +1001,8 @@ async def run_telegram_alongside_cli(
         await app.stop()
         await app.shutdown()
 
-    return send_to_owner, stop_fn
+    def set_runner(runner) -> None:
+        """Called by the CLI after the BusyWorkRunner is started."""
+        app.bot_data["busy_work_runner"] = runner
+
+    return send_to_owner, stop_fn, set_runner

@@ -865,21 +865,21 @@ async def run_agent_stream(
 async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_router: "_AudioRouter", agent_manager: "AgentManager"):
     """Start Telegram bot alongside the CLI if token is configured.
 
-    Returns ``(send_fn, stop_fn, telegram_queue)`` or ``(None, None, None)``.
+    Returns ``(send_fn, stop_fn, telegram_queue, set_runner)`` or four Nones.
     """
     from questchain.config import TELEGRAM_BOT_TOKEN
     if not TELEGRAM_BOT_TOKEN:
-        return None, None, None
+        return None, None, None, None
     try:
         from questchain.telegram import run_telegram_alongside_cli
         telegram_queue: asyncio.Queue = asyncio.Queue()
-        send_fn, stop_fn = await run_telegram_alongside_cli(
+        send_fn, stop_fn, set_runner = await run_telegram_alongside_cli(
             agent_holder, model_name, telegram_queue, audio_router, agent_manager
         )
-        return send_fn, stop_fn, telegram_queue
+        return send_fn, stop_fn, telegram_queue, set_runner
     except Exception as e:
         console.print(f"[yellow]Telegram: failed to start ({e})[/yellow]")
-        return None, None, None
+        return None, None, None, None
 
 
 async def repl(
@@ -934,7 +934,7 @@ async def repl(
 
     _init_metrics(active_def, agent)
     agent_holder = {"agent": agent}
-    telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
+    telegram_send, telegram_stop, telegram_queue, telegram_set_runner = await _maybe_start_telegram(
         agent_holder, effective_model, audio_router, agent_manager
     )
     if telegram_send:
@@ -944,6 +944,7 @@ async def repl(
             session, agent_holder, session_state, busy_work_minutes,
             telegram_send=telegram_send,
             telegram_queue=telegram_queue,
+            telegram_set_runner=telegram_set_runner,
             audio_router=audio_router,
             agent_manager=agent_manager,
         )
@@ -959,6 +960,7 @@ async def _run_with_busy_work(
     busy_work_minutes: int | None,
     telegram_send=None,
     telegram_queue=None,
+    telegram_set_runner=None,
     audio_router=None,
     agent_manager: "AgentManager | None" = None,
 ):
@@ -966,11 +968,13 @@ async def _run_with_busy_work(
     from questchain.busy_work import BusyWorkRunner
 
     runner: BusyWorkRunner | None = None
+    # Shared lock: held by the REPL while running agent; heartbeat checks before ticking.
+    agent_lock = asyncio.Lock()
 
     if busy_work_minutes is not None:
         async def merged_callback(text: str) -> None:
             console.print()
-            console.print(Panel(text, title="Busy Work", border_style="green"))
+            console.print(Panel(text, title="[bold green]Busy Work[/bold green]", border_style="green"))
             console.print()
             if _progression is not None:
                 grant = _progression.award_xp([], is_busy_work=True)
@@ -979,20 +983,27 @@ async def _run_with_busy_work(
                 for ach in grant.new_achievements:
                     print_achievement_unlock(ach)
             if telegram_send:
-                await telegram_send(text)
+                try:
+                    await telegram_send(text)
+                except Exception:
+                    pass
 
         runner = BusyWorkRunner(
-            agent=agent_holder["agent"],
+            agent_holder=agent_holder,
             send_callback=merged_callback,
             interval_minutes=busy_work_minutes,
+            busy_lock=agent_lock,
         )
         await runner.start()
         session_state["busy_work_runner"] = runner
+        if telegram_set_runner is not None:
+            telegram_set_runner(runner)
         console.print(f"[dim]Busy work: every {busy_work_minutes} min[/dim]")
 
-    # First-run onboarding — jump straight into the conversation
+    # First-run onboarding — guard with the lock so a fast heartbeat can't interfere
     if not is_onboarded():
-        await run_onboarding(agent_holder["agent"], console, prompt_session=session)
+        async with agent_lock:
+            await run_onboarding(agent_holder["agent"], console, prompt_session=session)
 
     try:
         await _repl_loop(
@@ -1000,6 +1011,7 @@ async def _run_with_busy_work(
             telegram_queue=telegram_queue,
             audio_router=audio_router,
             agent_manager=agent_manager,
+            busy_lock=agent_lock,
         )
     finally:
         if runner:
@@ -1013,6 +1025,7 @@ async def _repl_loop(
     telegram_queue: asyncio.Queue | None = None,
     audio_router: "_AudioRouter | None" = None,
     agent_manager: "AgentManager | None" = None,
+    busy_lock: asyncio.Lock | None = None,
 ):
     """Inner REPL loop.
 
@@ -1134,10 +1147,11 @@ async def _repl_loop(
         active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
         try:
             console.print()
-            full_response, xp_grant = await run_agent_stream(
-                agent_holder["agent"], user_input, agent_config,
-                agent_name=active_name, progression=_progression,
-            )
+            async with busy_lock if busy_lock else asyncio.Lock():
+                full_response, xp_grant = await run_agent_stream(
+                    agent_holder["agent"], user_input, agent_config,
+                    agent_name=active_name, progression=_progression,
+                )
             if xp_grant and xp_grant.leveled_up and _progression is not None:
                 print_level_up(xp_grant, _progression.get_record().class_name)
             if xp_grant:
@@ -1165,10 +1179,11 @@ async def _repl_loop(
                     _init_progression(BUILTIN_AGENT)
                     _init_metrics(BUILTIN_AGENT, fallback)
                     console.print()
-                    full_response, xp_grant = await run_agent_stream(
-                        fallback, user_input, agent_config,
-                        agent_name="QuestChain", progression=_progression,
-                    )
+                    async with busy_lock if busy_lock else asyncio.Lock():
+                        full_response, xp_grant = await run_agent_stream(
+                            fallback, user_input, agent_config,
+                            agent_name="QuestChain", progression=_progression,
+                        )
                     if xp_grant and xp_grant.leveled_up and _progression is not None:
                         print_level_up(xp_grant, _progression.get_record().class_name)
                     if xp_grant:
