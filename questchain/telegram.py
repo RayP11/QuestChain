@@ -346,7 +346,7 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         audio_router = context.bot_data.get("audio_router")
         from questchain.cli import _make_agent_from_def
         try:
-            new_agent = _make_agent_from_def(agent_def, checkpointer, store, audio_router)
+            new_agent = _make_agent_from_def(agent_def, audio_router)
             agent_holder["agent"] = new_agent
             context.bot_data["model_name"] = agent_def.get("model") or OLLAMA_MODEL
             agent_manager.set_active(agent_id)
