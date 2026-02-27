@@ -619,7 +619,7 @@ async def _run_create_wizard(
     console.print("[bold]Agent class:[/bold]")
     for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1):
         console.print(f"  {i}. {icon} [cyan]{cname}[/cyan] — {desc}")
-    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter=Wanderer: ")
+    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter={DEFAULT_CLASS}: ")
     chosen_class = DEFAULT_CLASS
     if class_raw.isdigit():
         idx = int(class_raw) - 1
@@ -628,7 +628,7 @@ async def _run_create_wizard(
 
     preset = CLASS_TOOL_PRESETS.get(chosen_class)
     if preset is None:
-        # Wanderer: user configures tools manually
+        # Custom: user configures tools manually
         console.print()
         console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
         for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):

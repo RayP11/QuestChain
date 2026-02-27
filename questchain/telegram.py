@@ -532,7 +532,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     step = state["step"]
     data = state["data"]
 
-    # ── Create flow  (name → model → class → tools[if Wanderer] → prompt → confirm) ────
+    # ── Create flow  (name → model → class → tools[if Custom] → prompt → confirm) ────
 
     if step == "name":
         if not text:
@@ -553,7 +553,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         )
         await update.message.reply_text(
             f"Step 3/5 — Agent class:\n\n{class_lines}\n\n"
-            f"Send a number (1-{len(AGENT_CLASSES)}) or empty for Wanderer (custom tools)."
+            f"Send a number (1-{len(AGENT_CLASSES)}) or empty for Custom (custom tools)."
         )
 
     elif step == "class":
@@ -565,7 +565,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
         data["class_name"] = chosen_class
         preset = CLASS_TOOL_PRESETS.get(chosen_class)
         if preset is None:
-            # Wanderer: ask for tools
+            # Custom: ask for tools
             state["step"] = "tools"
             tool_lines = "\n".join(
                 f"  {i}. {name} — {desc}"
@@ -577,7 +577,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
             )
         else:
-            # Non-Wanderer: apply preset, skip tools step
+            # Non-Custom: apply preset, skip tools step
             data["tools"] = preset
             state["step"] = "prompt"
             preset_display = ", ".join(preset) if preset else "built-in tools only"

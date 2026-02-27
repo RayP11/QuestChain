@@ -7,35 +7,42 @@ from datetime import datetime, timezone
 from questchain.config import get_active_agent_path, get_agents_path
 
 AGENT_CLASSES: list[tuple[str, str, str]] = [
-    ("Wanderer",  "🌀", "Unspecialized — custom-configured tools"),
-    ("Archivist", "📚", "Master of files and knowledge management"),
-    ("Scout",     "🔭", "Explorer of the web and information"),
+    ("Custom",    "🌀", "Unspecialized — custom-configured tools"),
+    ("Sage",      "📚", "Master of files and knowledge management"),
+    ("Explorer",  "🔭", "Explorer of the web and information"),
     ("Architect", "⚒️",  "Builder and coder"),
     ("Oracle",    "🔮", "Planner and strategist"),
     ("Sentinel",  "⏱️",  "Scheduler and automation specialist"),
 ]
-DEFAULT_CLASS = "Wanderer"
+DEFAULT_CLASS = "Custom"
 
 # Rich color for each class — used to tint the agent name in the terminal UI.
 CLASS_COLORS: dict[str, str] = {
-    "Wanderer":  "bright_blue",
-    "Archivist": "yellow",
-    "Scout":     "cyan",
+    "Custom":    "bright_blue",
+    "Sage":      "yellow",
+    "Explorer":  "cyan",
     "Architect": "orange3",
     "Oracle":    "magenta",
     "Sentinel":  "green",
 }
 
 # Tool presets applied when creating an agent of each class.
-# None = user configures manually (Wanderer only).
+# None = user configures manually (Custom only).
 # list = selectable tool names; [] = built-in tools only.
 CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
-    "Wanderer":  None,
-    "Archivist": [],
-    "Scout":     ["web_search", "web_browse"],
+    "Custom":    None,
+    "Sage":      [],
+    "Explorer":  ["web_search", "web_browse"],
     "Architect": ["claude_code"],
     "Oracle":    ["web_search"],
     "Sentinel":  ["cron"],
+}
+
+# Migrate old class names from saved agent JSON to the current names.
+_CLASS_MIGRATIONS: dict[str, str] = {
+    "Wanderer":  "Custom",
+    "Archivist": "Sage",
+    "Scout":     "Explorer",
 }
 
 SELECTABLE_TOOLS = [
@@ -169,6 +176,15 @@ class AgentManager:
                     self._agents = data
             except Exception:
                 self._agents = []
+        # Migrate any stale class names from older versions
+        migrated = False
+        for agent in self._agents:
+            old = agent.get("class_name", "")
+            if old in _CLASS_MIGRATIONS:
+                agent["class_name"] = _CLASS_MIGRATIONS[old]
+                migrated = True
+        if migrated:
+            self._save()
 
     def _save(self) -> None:
         path = get_agents_path()
