@@ -17,7 +17,8 @@ from telegram.ext import (
 )
 
 from questchain.agents import AGENT_CLASSES, AgentManager, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
-from questchain.progression import ProgressionManager
+from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS
+from questchain.stats import MetricsManager
 from questchain.config import (
     OLLAMA_MODEL,
     TELEGRAM_BOT_TOKEN,
@@ -117,6 +118,8 @@ _HELP_TEXT = (
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
     "/agents — Manage agents (list, switch, create, edit)\n"
+    "/level — Show agent level and achievements\n"
+    "/stats — Show agent metrics (prompts, tokens, errors)\n"
     "/help — Show this help message"
 )
 
@@ -286,6 +289,91 @@ async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.chat_data["onboarding_active"] = True
     context.chat_data.pop("onboarding_intro_sent", None)
     await update.message.reply_text(OPENING_QUESTION)
+
+
+async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /level command — show XP, level, and achievements."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+    if agent_manager is None:
+        await update.message.reply_text("Agent manager not available.")
+        return
+
+    active = agent_manager.get_active()
+    agent_id = active.get("id", "default")
+    class_name = active.get("class_name", DEFAULT_CLASS)
+    pm = ProgressionManager(agent_id, class_name)
+    record = pm.load()
+
+    bar_width = 20
+    if record.xp_next_level > 0:
+        level_span = record.xp_this_level + record.xp_next_level
+        filled = int(bar_width * record.xp_this_level / level_span) if level_span else 0
+        xp_display = f"{record.xp_this_level}/{level_span} XP to Lv.{record.level + 1}"
+    else:
+        filled = bar_width
+        xp_display = "MAX LEVEL"
+    bar = "█" * filled + "░" * (bar_width - filled)
+
+    top_tools = sorted(record.tool_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    lines = [
+        f"📊 {active.get('name', 'QuestChain')} · Level {record.level}",
+        f"[{bar}] {xp_display}",
+        f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Busy-work: {record.busy_work_completed}",
+    ]
+    if top_tools:
+        lines.append("\nTop tools:")
+        for tool, count in top_tools:
+            lines.append(f"  {tool}: {count}")
+    lines.append(f"\nAchievements ({len(record.achievements)}/{TOTAL_ACHIEVEMENTS}):")
+    if record.achievements:
+        for a in record.achievements:
+            lines.append(f"  ★ {a.name} — {a.description}  ({a.earned_at[:10]})")
+    else:
+        lines.append("  None yet — start chatting!")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /stats command — show all-time metrics."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+    if agent_manager is None:
+        await update.message.reply_text("Agent manager not available.")
+        return
+
+    active = agent_manager.get_active()
+    agent_id = active.get("id", "default")
+    mm = MetricsManager(agent_id)
+    mm.load()
+    rec = mm.get_record()
+
+    model_line = rec.model_name or "(unknown)"
+    if rec.model_params:
+        model_line += f"  ·  {rec.model_params}"
+    if rec.model_size_gb:
+        model_line += f"  ·  {rec.model_size_gb} GB"
+
+    lines = [
+        "⚙ Agent Stats",
+        "",
+        f"Model:         {model_line}",
+        f"Context:       {rec.context_window:,} tokens",
+        f"Tools:         {rec.num_tools} registered",
+        f"Skills:        {rec.num_skills} available",
+        "",
+        f"Prompts:       {rec.prompt_count}",
+        f"Tokens used:   ~{rec.tokens_used:,}",
+        f"Total errors:  {rec.total_errors}",
+        f"Highest Chain: {rec.highest_chain} tool loops",
+    ]
+    await update.message.reply_text("\n".join(lines))
 
 
 async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -870,6 +958,8 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
     app.add_handler(CommandHandler("agents", cmd_agent))
+    app.add_handler(CommandHandler("level", cmd_level))
+    app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
@@ -896,6 +986,8 @@ async def run_telegram_alongside_cli(
         BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
         BotCommand("agents", "Manage agents — list, switch, create, edit"),
+        BotCommand("level", "Show agent level and achievements"),
+        BotCommand("stats", "Show agent metrics (prompts, tokens, errors)"),
         BotCommand("help", "Show all commands"),
     ])
     await app.start()

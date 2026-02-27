@@ -44,6 +44,8 @@ class Agent:
         self.skills = skills
         self.agent_name = agent_name
         self._base_system_prompt = system_prompt
+        self.last_iterations: int = 0   # tool-loop depth of the most recent turn
+        self.last_tool_errors: int = 0  # error count of the most recent turn
 
     # ------------------------------------------------------------------
     # Public API
@@ -66,6 +68,9 @@ class Agent:
                           "Using tool: …" indicators.
             max_iterations: Safety cap on tool-call loops.
         """
+        self.last_iterations = 0
+        self.last_tool_errors = 0
+
         context = ContextManager(
             thread_id,
             max_tokens=self.model.num_ctx,
@@ -116,6 +121,11 @@ class Agent:
 
                 # Execute tools in parallel
                 results = await self.tools.execute_parallel(tool_calls)
+                for r in results:
+                    content = r.get("content", "")
+                    if isinstance(content, str) and content.startswith("Error running"):
+                        self.last_tool_errors += 1
+                self.last_iterations = iteration + 1
                 context.extend(results)
                 context.save()
                 # Loop — let model process the results

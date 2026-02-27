@@ -157,5 +157,12 @@ def get_progression_dir() -> Path:
     return d
 
 
+def get_metrics_dir() -> Path:
+    """Get (and create) the per-agent metrics directory."""
+    d = ensure_data_dir() / "metrics"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # --- Busy work settings ---
 DEFAULT_BUSY_WORK_MINUTES = 60

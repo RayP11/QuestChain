@@ -18,6 +18,7 @@ from questchain import __version__
 from questchain.agent import create_questchain_agent
 from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
+from questchain.stats import MetricsManager
 from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
     OLLAMA_MODEL,
@@ -31,6 +32,7 @@ from questchain.models import check_ollama_connection, list_available_models, wa
 console = Console()
 
 _progression: ProgressionManager | None = None
+_metrics: MetricsManager | None = None
 
 
 def _get_class_display(class_name: str) -> str:
@@ -59,6 +61,25 @@ def _init_progression(agent_def: dict) -> ProgressionManager:
     _progression = ProgressionManager(agent_id, class_name)
     _progression.load()
     return _progression
+
+
+def _init_metrics(agent_def: dict, agent) -> MetricsManager:
+    """Load (or create) the MetricsManager for *agent_def* and set the global."""
+    global _metrics
+    mm = MetricsManager(agent_def.get("id", "default"))
+    mm.load()
+    mm.update_static(
+        model_name=agent.model.model_name,
+        num_tools=len(agent.tools),
+        num_skills=len(agent.skills),
+        context_window=agent.model.num_ctx,
+    )
+    try:
+        mm.fetch_model_info()
+    except Exception:
+        pass
+    _metrics = mm
+    return mm
 
 
 async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
@@ -222,7 +243,29 @@ async def show_stats(agent_def: dict) -> None:
     else:
         lines.append("  [dim]None yet — start chatting![/dim]")
 
-    console.print(Panel("\n".join(lines), title="📊 Stats", border_style="cyan"))
+    console.print(Panel("\n".join(lines), title="📊 Level", border_style="cyan"))
+
+
+def show_metrics(mm: MetricsManager) -> None:
+    """Render a metrics panel for the given MetricsManager."""
+    rec = mm.get_record()
+    model_line = rec.model_name
+    if rec.model_params:
+        model_line += f"  ·  {rec.model_params}"
+    if rec.model_size_gb:
+        model_line += f"  ·  {rec.model_size_gb} GB"
+    lines = [
+        f"[bold]Model[/bold]         {model_line}",
+        f"[bold]Context[/bold]       {rec.context_window:,} tokens",
+        f"[bold]Tools[/bold]         {rec.num_tools} registered",
+        f"[bold]Skills[/bold]        {rec.num_skills} available",
+        "",
+        f"[bold]Prompts[/bold]          {rec.prompt_count}",
+        f"[bold]Tokens used[/bold]      ~{rec.tokens_used:,}",
+        f"[bold]Total errors[/bold]     {rec.total_errors}",
+        f"[bold]Highest Chain[/bold]  {rec.highest_chain} tool loops",
+    ]
+    console.print(Panel("\n".join(lines), title="[bold]⚙  Agent Stats[/bold]", border_style="cyan"))
 
 
 def handle_command(command: str, session_state: dict) -> bool | None:
@@ -344,8 +387,12 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_agent_menu"] = True
         return True
 
+    if cmd == "/level":
+        session_state["run_level"] = True
+        return True
+
     if cmd == "/stats":
-        session_state["run_stats"] = True
+        session_state["run_stats_metrics"] = True
         return True
 
     if cmd == "/history":
@@ -368,7 +415,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tavily        - Set up Tavily web search API key\n"
             "  /telegram      - Set up Telegram bot credentials\n"
             "  /agents        - Manage agents (list, switch, create)\n"
-            "  /stats         - Show agent level and achievements\n"
+            "  /level         - Show agent level and achievements\n"
+            "  /stats         - Show agent metrics (prompts, tokens, errors)\n"
             "  /history       - Show past conversations with timestamps\n"
             "  /clear         - Clear the screen\n"
             "  /quit          - Exit QuestChain\n"
@@ -805,6 +853,12 @@ async def run_agent_stream(
             is_busy_work=is_busy_work,
             response_chars=len(full_response),
         )
+    if _metrics is not None and not is_busy_work:
+        _metrics.record_turn(
+            response_chars=len(full_response),
+            tool_errors=agent.last_tool_errors,
+            chain_depth=agent.last_iterations,
+        )
     return full_response, xp_grant
 
 
@@ -878,6 +932,7 @@ async def repl(
         console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
         return
 
+    _init_metrics(active_def, agent)
     agent_holder = {"agent": agent}
     telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
         agent_holder, effective_model, audio_router, agent_manager
@@ -1055,11 +1110,15 @@ async def _repl_loop(
                             session_state["model_name"] = chosen.get("model") or OLLAMA_MODEL
                             agent_manager.set_active(chosen["id"])
                             _init_progression(chosen)
+                            _init_metrics(chosen, new_agent)
                         except Exception as e:
                             console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
 
-                if session_state.pop("run_stats", False) and agent_manager is not None:
+                if session_state.pop("run_level", False) and agent_manager is not None:
                     await show_stats(agent_manager.get_active())
+
+                if session_state.pop("run_stats_metrics", False) and _metrics is not None:
+                    show_metrics(_metrics)
 
                 continue
 
@@ -1104,6 +1163,7 @@ async def _repl_loop(
                     if agent_manager:
                         agent_manager.set_active("default")
                     _init_progression(BUILTIN_AGENT)
+                    _init_metrics(BUILTIN_AGENT, fallback)
                     console.print()
                     full_response, xp_grant = await run_agent_stream(
                         fallback, user_input, agent_config,
