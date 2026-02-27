@@ -19,7 +19,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
-[![Custom Engine](https://img.shields.io/badge/Engine-Custom%20Async%20ReAct-orange)]()
+[![Custom Engine](https://img.shields.io/badge/Engine-Custom%20Python%20Agent-orange)]()
 [![Runs Locally](https://img.shields.io/badge/Runs-100%25%20Locally-brightgreen?logo=homeassistant&logoColor=white)]()
 [![No Cloud](https://img.shields.io/badge/No%20Cloud-No%20Cost-success)]()
 
@@ -31,16 +31,33 @@
 
 Most AI agent frameworks are designed around cloud inference — they assume fast APIs, abundant context windows, and predictable latency. QuestChain is built for the opposite: **consumer GPUs, local models, and constrained hardware.**
 
-The core engine is a custom async ReAct loop written from scratch to be lightweight and efficient. No heavy framework dependencies, no unnecessary overhead. Just a tight plan-act-observe cycle tuned to get the most out of small, fast local models like Qwen3 and DeepSeek.
+The engine is a custom Python async loop — no agent framework, no middleware stack. Just the Ollama Python client, `asyncio`, and a tight streaming loop written specifically to get the most out of small local models.
 
 > *"All the power of AI, none of the cloud bills."*
 
-**What "edge-optimized" means in practice:**
-- A **custom async streaming engine** — not a general-purpose framework bolted onto a local model. Every design decision prioritizes low overhead and responsiveness on modest hardware.
-- **Token budget management** — context is compacted automatically so long-running sessions don't balloon memory usage.
-- **Lazy skill loading** — the system prompt stays short (~550 chars). Full skill content is only loaded into context when the agent actually needs it.
-- **`<think>` tag filtering** — reasoning traces from models like DeepSeek-R1 and Qwen3 are stripped before they reach the token budget, keeping responses clean and context lean.
-- **Parallel tool execution** — independent tool calls run concurrently, cutting wall-clock latency significantly on tasks that touch multiple tools.
+**How it's optimized for edge hardware:**
+
+- **No framework overhead.** The entire agent loop is ~100 lines of plain Python. Stream from Ollama, detect tool calls, execute, loop. No graph execution engines, no serialization layers, nothing between the model and your hardware.
+
+- **Streaming from the first token.** Text tokens are yielded to the UI as they arrive from Ollama. You see output immediately — critical when you can't afford the latency of waiting for a full response before rendering.
+
+- **`<think>` filtering on the stream.** Reasoning models like DeepSeek-R1 and Qwen3 emit `<think>…</think>` blocks before their actual response. QuestChain strips them using a character-level state machine *as the stream arrives* — they never reach the context buffer, never consume your token budget, and never appear in the UI.
+
+- **Per-model context tuning.** Each model preset specifies its own `num_ctx`, `num_predict`, and `temperature`. You're not running an 8B model with a 128k context window it can't fill — context is sized to match the model's actual capacity.
+
+- **Direct GPU and CPU control.** `OLLAMA_NUM_GPU` and `OLLAMA_NUM_THREAD` pass through directly to Ollama's inference options. Pin layers to GPU, pin thread count — no abstraction layer in the way.
+
+- **Approximate token counting, no tokenizer API.** Budget tracking uses `chars / 4` — a fast local approximation with no round-trip to the model. Context compaction triggers automatically before the window fills up.
+
+- **Auto-compaction via the model itself.** When context gets tight, QuestChain keeps the 6 most recent messages and uses the model to summarise everything older into a single block. The summary replaces the raw history in the JSONL file — reclaiming space while preserving what matters.
+
+- **Lazy skill loading.** Each skill contributes only its name and a one-line description to the system prompt (~24 tokens). The full skill content is only fetched into context when the agent explicitly calls `read_skill(name)`. A large skill library costs almost nothing at inference time.
+
+- **Short system prompt by design.** The base system prompt is ~550 characters. Every token in the system prompt is repeated across every turn — keeping it small has a compounding effect on memory and speed over long sessions.
+
+- **Parallel tool execution.** When the model issues multiple tool calls in one turn, they run concurrently via `asyncio.gather`. File reads, web searches, and shell commands that don't depend on each other don't wait in line.
+
+- **Plain JSONL history, no database.** Conversation history is stored as one JSON object per line in `~/.questchain/sessions/`. Human-readable, zero-dependency, trivially debuggable.
 
 ---
 
@@ -115,10 +132,10 @@ And it's not a chatbot. QuestChain is a full **agentic loop** — it can search 
       You type       │            QuestChain                │
   ────────────────▶  │                                      │
   (CLI or Telegram)  │  ┌─────────────────────────────┐    │
-                     │  │   Custom Async ReAct Engine  │    │
+                     │  │   Custom Python Agent Engine │    │
                      │  │                             │    │    ┌─────────────┐
-                     │  │  think → act → observe      │◀───┼───▶│   Ollama    │
-                     │  │  (streaming, parallel tools) │    │    │  (on-device)│
+                     │  │  stream → tools → stream    │◀───┼───▶│   Ollama    │
+                     │  │  (async, parallel tools)    │    │    │  (on-device)│
                      │  └──────────────┬──────────────┘    │    └─────────────┘
                      │                 │                    │
                      │        ┌────────┴────────┐           │
@@ -136,7 +153,7 @@ And it's not a chatbot. QuestChain is a full **agentic loop** — it can search 
                      └─────────────────────────────────────┘
 ```
 
-The engine runs a **think → act → observe** loop. It streams tokens from Ollama, detects tool calls in real time, executes them (in parallel where possible), and feeds results back into the next iteration. Conversation history is stored as human-readable JSONL, compacted automatically when it approaches the token budget.
+The engine streams tokens from Ollama, detects tool calls in the final chunk, executes them concurrently via `asyncio.gather`, appends results to the JSONL history, and loops — up to 30 iterations. When the context window fills up, old turns are summarised by the model and replaced in place. The loop exits when the model responds with text and no tool calls.
 
 ---
 
@@ -308,8 +325,8 @@ questchain start -m <any-model>  # use any model installed in Ollama
 │   ├── scheduler.py        Cron job runner
 │   ├── busy_work.py        Background autonomous work loop
 │   ├── onboarding.py       First-run onboarding flow
-│   ├── engine/             Custom async ReAct runtime
-│   │   ├── agent.py        Core think→act→observe loop
+│   ├── engine/             Custom Python async agent runtime
+│   │   ├── agent.py        Core stream→tools→stream loop
 │   │   ├── model.py        OllamaModel: streaming + <think> filtering
 │   │   ├── tools.py        ToolRegistry, @tool decorator, parallel exec
 │   │   ├── context.py      JSONL history, token budget, compaction
