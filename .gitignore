@@ -26,6 +26,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Conversation history
+conversation_history/
+
 # Genie data
 *.db
 workspace/
