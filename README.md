@@ -388,7 +388,7 @@ questchain start -m <any-model>  # use any model installed in Ollama
 
 </div>
 
-- **Custom async ReAct engine** — purpose-built for edge AI; lightweight, streaming, parallel tool execution
+- **Custom async agent engine** — purpose-built for edge AI; lightweight, streaming, parallel tool execution
 - **[Ollama](https://ollama.com)** — Run any open-weight LLM locally with one command
 - **[Claude Code](https://claude.ai/code)** — Anthropic's coding agent; QuestChain delegates programming tasks to it
 - **[Tavily](https://tavily.com)** — Web search and full-page extraction API
