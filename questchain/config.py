@@ -110,11 +110,6 @@ def ensure_memory_dir() -> Path:
     return MEMORY_DIR
 
 
-def get_db_path() -> Path:
-    """Get the path to the SQLite checkpoint database."""
-    return ensure_data_dir() / "checkpoints.db"
-
-
 def get_history_path() -> Path:
     """Get the path to the command history file."""
     return ensure_data_dir() / "history"

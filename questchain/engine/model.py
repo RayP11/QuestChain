@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
@@ -11,6 +12,8 @@ import ollama
 from questchain.config import MODEL_PRESETS, OLLAMA_BASE_URL, OLLAMA_NUM_GPU, OLLAMA_NUM_THREAD
 
 logger = logging.getLogger(__name__)
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 @dataclass
@@ -122,8 +125,7 @@ class OllamaModel:
                     "args": dict(tc.function.arguments) if tc.function.arguments else {},
                 })
 
-        import re
-        text = re.sub(r"<think>.*?</think>", "", msg.content or "", flags=re.DOTALL).strip()
+        text = _THINK_RE.sub("", msg.content or "").strip()
         return Response(text=text, tool_calls=tool_calls)
 
     async def summarize(self, text: str) -> str:

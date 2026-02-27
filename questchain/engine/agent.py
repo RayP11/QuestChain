@@ -11,6 +11,7 @@ The loop:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
 _MAX_ITERATIONS = 30
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class Agent:
@@ -116,8 +118,8 @@ class Agent:
                     for tc in tool_calls:
                         try:
                             await on_tool_call(tc["name"], tc["args"])
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("on_tool_call callback raised: %s", e)
 
                 # Execute tools in parallel
                 results = await self.tools.execute_parallel(tool_calls)
@@ -154,7 +156,7 @@ class Agent:
         if not heartbeat_path.exists():
             return None
 
-        content = heartbeat_path.read_text(encoding="utf-8").strip()
+        content = (await asyncio.to_thread(heartbeat_path.read_text, encoding="utf-8")).strip()
         # Skip if only headers and blank lines (file is effectively empty)
         meaningful = [
             l for l in content.splitlines()
@@ -172,9 +174,7 @@ class Agent:
         async for chunk in self.run(prompt, thread_id=thread_id, max_iterations=15):
             tokens.append(chunk)
 
-        response = re.sub(
-            r"<think>.*?</think>", "", "".join(tokens), flags=re.DOTALL
-        ).strip()
+        response = _THINK_RE.sub("", "".join(tokens)).strip()
 
         if HEARTBEAT_OK in response and len(response) < 300:
             return None

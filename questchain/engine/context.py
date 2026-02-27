@@ -16,6 +16,10 @@ from questchain.config import QUESTCHAIN_DATA_DIR
 logger = logging.getLogger(__name__)
 
 _INTERNAL_PREFIXES = ("busy_work", "heartbeat", "onboarding", "cron:")
+_COMPACT_KEEP_RECENT = 6       # messages preserved verbatim during compaction
+_COMPACT_CONTENT_LIMIT = 800   # chars per message fed to the summarizer
+_THREAD_FIRST_MSG_LIMIT = 80   # chars kept for the first-message preview
+_THREAD_LIST_DEFAULT_LIMIT = 50
 
 
 def _sessions_dir() -> Path:
@@ -80,15 +84,14 @@ class ContextManager:
 
         Keeps the most recent 6 messages intact; summarises everything before.
         """
-        if len(self._messages) <= 6:
+        if len(self._messages) <= _COMPACT_KEEP_RECENT:
             return
 
-        keep_count = 6
-        old = self._messages[:-keep_count]
-        recent = self._messages[-keep_count:]
+        old = self._messages[:-_COMPACT_KEEP_RECENT]
+        recent = self._messages[-_COMPACT_KEEP_RECENT:]
 
         text = "\n\n".join(
-            f"{m['role'].upper()}: {str(m.get('content', ''))[:800]}"
+            f"{m['role'].upper()}: {str(m.get('content', ''))[:_COMPACT_CONTENT_LIMIT]}"
             for m in old
         )
 
@@ -134,7 +137,7 @@ class ContextManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def list_threads(limit: int = 50) -> list[dict]:
+    def list_threads(limit: int = _THREAD_LIST_DEFAULT_LIMIT) -> list[dict]:
         """Return metadata for saved threads, newest first.
 
         Each entry: {thread_id, last_active (datetime|None), first_message (str|None)}
@@ -160,10 +163,10 @@ class ContextManager:
                     for line in f:
                         data = json.loads(line)
                         if data.get("role") == "user" and data.get("content"):
-                            first_msg = str(data["content"])[:80]
+                            first_msg = str(data["content"])[:_THREAD_FIRST_MSG_LIMIT]
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not read thread preview for %s: %s", path.stem, e)
 
             threads.append({
                 "thread_id": tid,

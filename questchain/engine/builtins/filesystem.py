@@ -8,13 +8,19 @@ from pathlib import Path
 from questchain.config import WORKSPACE_DIR
 from questchain.engine.tools import tool
 
-_ROOT = WORKSPACE_DIR
+_ROOT = WORKSPACE_DIR.resolve()
 
 
 def _resolve(virtual_path: str) -> Path:
-    """Map a virtual /path to a real filesystem path under WORKSPACE_DIR."""
+    """Map a virtual /path to a real filesystem path under WORKSPACE_DIR.
+
+    Raises PermissionError if the resolved path escapes the workspace root.
+    """
     rel = virtual_path.lstrip("/")
-    return (_ROOT / rel).resolve()
+    real = (_ROOT / rel).resolve()
+    if not real.is_relative_to(_ROOT):
+        raise PermissionError(f"Access denied: path escapes workspace: {virtual_path!r}")
+    return real
 
 
 @tool
@@ -24,7 +30,10 @@ def read_file(path: str) -> str:
     Args:
         path: Virtual file path starting with / (e.g. /workspace/memory/ABOUT.md)
     """
-    real = _resolve(path)
+    try:
+        real = _resolve(path)
+    except PermissionError as e:
+        return str(e)
     if not real.exists():
         return f"Error: file not found: {path}"
     try:
@@ -41,8 +50,8 @@ def write_file(path: str, content: str) -> str:
         path: Virtual file path starting with /
         content: Content to write
     """
-    real = _resolve(path)
     try:
+        real = _resolve(path)
         real.parent.mkdir(parents=True, exist_ok=True)
         real.write_text(content, encoding="utf-8")
         return f"Written {len(content)} chars to {path}"
@@ -59,7 +68,10 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
         old_str: Exact string to find and replace
         new_str: Replacement string
     """
-    real = _resolve(path)
+    try:
+        real = _resolve(path)
+    except PermissionError as e:
+        return str(e)
     if not real.exists():
         return f"Error: file not found: {path}"
     try:
@@ -79,7 +91,10 @@ def ls(path: str = "/workspace") -> str:
     Args:
         path: Virtual directory path to list (default: /workspace)
     """
-    real = _resolve(path)
+    try:
+        real = _resolve(path)
+    except PermissionError as e:
+        return str(e)
     if not real.exists():
         return f"Error: path not found: {path}"
     if not real.is_dir():
@@ -99,6 +114,8 @@ def glob(pattern: str) -> str:
     Args:
         pattern: Glob pattern (e.g. **/*.py or memory/*.md)
     """
+    if ".." in pattern.split("/"):
+        return "Error: glob pattern must not contain '..'"
     try:
         matches = list(_ROOT.glob(pattern))
         if not matches:
