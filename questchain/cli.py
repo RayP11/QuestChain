@@ -943,12 +943,26 @@ async def run_agent_stream(
         if progression is not None:
             progression.record_tool_call(tool_name)
 
-    async for token in agent.run(user_input, thread_id=thread_id, on_tool_call=_on_tool_call):
-        _stop_spinner()
-        full_response += token
-        console.print(token, end="")
+    # Stream tokens into a Live Markdown display that updates in-place.
+    live_md: Live | None = None
 
-    _stop_spinner()
+    async for token in agent.run(user_input, thread_id=thread_id, on_tool_call=_on_tool_call):
+        if live_md is None:
+            _stop_spinner()
+            live_md = Live(
+                Markdown(""),
+                console=console,
+                refresh_per_second=8,
+                transient=False,
+            )
+            live_md.start(refresh=True)
+        full_response += token
+        live_md.update(Markdown(full_response))
+
+    if live_md is not None:
+        live_md.stop()
+
+    _stop_spinner()  # no-op if already stopped; handles the zero-token edge case
     console.print()
 
     xp_grant: XPGrant | None = None
