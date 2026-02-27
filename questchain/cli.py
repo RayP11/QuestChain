@@ -6,7 +6,12 @@ import shutil
 import uuid
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.shortcuts import CompleteStyle
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -268,6 +273,106 @@ def show_metrics(mm: MetricsManager) -> None:
     console.print(Panel("\n".join(lines), title="[bold]⚙  Agent Stats[/bold]", border_style="cyan"))
 
 
+# Sorted list of (command, description) pairs shown in the autocomplete dropdown.
+_SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
+    ("/busy",         "Show busy work scheduler status"),
+    ("/clear",        "Clear the screen"),
+    ("/cron",         "List scheduled cron jobs"),
+    ("/exit",         "Exit QuestChain"),
+    ("/help",         "Show all available commands"),
+    ("/history",      "Show past conversations with timestamps"),
+    ("/instructions", "Show the agent's system prompt"),
+    ("/level",        "Show agent level and achievements"),
+    ("/memory",       "Show your saved user profile"),
+    ("/model",        "Show current model and list available ones"),
+    ("/new",          "Start a fresh conversation"),
+    ("/onboard",      "Re-run the onboarding conversation"),
+    ("/quit",         "Exit QuestChain"),
+    ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
+    ("/tasks",        "Show the current workspace task list"),
+    ("/tavily",       "Set up Tavily web search API key"),
+    ("/telegram",     "Set up Telegram bot credentials"),
+    ("/thread",       "Show current conversation thread ID"),
+    ("/tools",        "List all available agent tools"),
+]
+
+
+class _SlashCompleter(Completer):
+    """Autocomplete slash commands with inline descriptions."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        word = text.lower()
+        for cmd, desc in _SLASH_COMMANDS:
+            if cmd.startswith(word):
+                yield Completion(
+                    cmd,
+                    start_position=-len(text),
+                    display=cmd,
+                    display_meta=desc,
+                )
+
+
+# ── Completion dropdown style (dark background, blue highlight) ───────────────
+
+_COMPLETION_STYLE = Style.from_dict({
+    "completion-menu":                         "bg:#1e1e2e #cdd6f4",
+    "completion-menu.completion":              "bg:#1e1e2e #cdd6f4",
+    "completion-menu.completion.current":      "bg:#1d6fbd #ffffff bold",
+    "completion-menu.meta.completion":         "bg:#2a2a3e #7f849c",
+    "completion-menu.meta.completion.current": "bg:#1a5fa8 #cdd6f4",
+    "scrollbar.background":                    "bg:#313244",
+    "scrollbar.button":                        "bg:#6c7086",
+})
+
+
+def _completions_visible() -> bool:
+    """True when the autocomplete menu is open with any completions."""
+    from prompt_toolkit.application import get_app
+    try:
+        state = get_app().current_buffer.complete_state
+        return state is not None and bool(state.completions)
+    except Exception:
+        return False
+
+
+def _typing_slash() -> bool:
+    """True when the current input starts with '/'."""
+    from prompt_toolkit.application import get_app
+    try:
+        return get_app().current_buffer.text.startswith("/")
+    except Exception:
+        return False
+
+
+_slash_kb = KeyBindings()
+
+
+@_slash_kb.add("enter", filter=Condition(_completions_visible), eager=True)
+def _enter_accept_completion(event):
+    """Accept the highlighted completion (or first if none highlighted) then submit."""
+    buf = event.current_buffer
+    state = buf.complete_state
+    completion = state.current_completion
+    if completion is None and state.completions:
+        completion = state.completions[0]
+    if completion is not None:
+        buf.apply_completion(completion)
+    buf.validate_and_handle()
+
+
+@_slash_kb.add("backspace", filter=Condition(_typing_slash), eager=True)
+def _backspace_reopen_menu(event):
+    """Delete one char and re-trigger completions if still in a slash command."""
+    buf = event.current_buffer
+    buf.delete_before_cursor()
+    if buf.text.startswith("/"):
+        buf.start_completion(select_first=False)
+
+
 def handle_command(command: str, session_state: dict) -> bool | None:
     """Handle slash commands.
 
@@ -343,11 +448,11 @@ def handle_command(command: str, session_state: dict) -> bool | None:
 
     if cmd == "/tasks":
         from questchain.config import WORKSPACE_DIR
-        tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
+        tasks = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
         if tasks.exists():
             console.print(Panel(tasks.read_text(encoding="utf-8"), title="Tasks", border_style="cyan"))
         else:
-            console.print("[dim]No TASKS.md found in workspace.[/dim]")
+            console.print("[dim]No HEARTBEAT.md found in workspace.[/dim]")
         return True
 
     if cmd == "/cron":
@@ -922,7 +1027,25 @@ async def repl(
 
     # Set up prompt with history
     history_path = get_history_path()
-    session = PromptSession(history=FileHistory(str(history_path)))
+    session = PromptSession(
+        history=FileHistory(str(history_path)),
+        completer=_SlashCompleter(),
+        complete_style=CompleteStyle.COLUMN,
+        complete_while_typing=True,
+        style=_COMPLETION_STYLE,
+        key_bindings=_slash_kb,
+    )
+
+    # Auto-highlight the first completion whenever the dropdown appears.
+    def _auto_select_first(buf):
+        state = buf.complete_state
+        if state and state.completions and state.current_completion is None:
+            state.go_to_index(0)
+
+    try:
+        session.default_buffer.on_completions_changed += _auto_select_first
+    except AttributeError:
+        pass
 
     audio_router = _AudioRouter()
 

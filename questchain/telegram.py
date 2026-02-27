@@ -237,14 +237,14 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tasks command — show TASKS.md."""
+    """Handle /tasks command — show HEARTBEAT.md."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
     from questchain.config import WORKSPACE_DIR
-    tasks = WORKSPACE_DIR / "workspace" / "TASKS.md"
+    tasks = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
     if not tasks.exists():
-        await update.message.reply_text("No TASKS.md found in workspace.")
+        await update.message.reply_text("No HEARTBEAT.md found in workspace.")
         return
     chunks = _split_message(tasks.read_text(encoding="utf-8"))
     for chunk in chunks:
