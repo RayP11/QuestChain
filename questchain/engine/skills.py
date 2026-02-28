@@ -36,7 +36,14 @@ class SkillsManager:
         WORKSPACE_DIR / "skills",         # higher priority — overwrites
     ]
 
-    def __init__(self):
+    def __init__(self, skills_filter: list[str] | None = None):
+        """
+        Args:
+            skills_filter: Whitelist of skill dir-names to expose.
+                           None (default) = all discovered skills.
+                           [] = no skills at all.
+        """
+        self._skills_filter = skills_filter
         self._skills: dict[str, SkillMeta] = {}
         self._scan()
 
@@ -56,6 +63,11 @@ class SkillsManager:
                 if not md.exists():
                     continue
                 self._skills[name] = self._parse_meta(name, md)
+        # Apply the filter after the full scan so precedence rules still work
+        if self._skills_filter is not None:
+            self._skills = {
+                k: v for k, v in self._skills.items() if k in self._skills_filter
+            }
 
     def _parse_meta(self, name: str, path: Path) -> SkillMeta:
         try:

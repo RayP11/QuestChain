@@ -20,8 +20,8 @@ from rich.text import Text
 _SEP = "─"
 
 from questchain import __version__
-from questchain.agent import create_questchain_agent
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.agent import create_questchain_agent, make_agent_from_def
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -30,7 +30,13 @@ from questchain.config import (
     TAVILY_API_KEY,
     get_history_path,
 )
-from questchain.onboarding import QUESTCHAIN_ART, TAGLINES, clear_onboarded, is_onboarded, run_onboarding
+from questchain.onboarding import (
+    QUESTCHAIN_ART, TAGLINES,
+    clear_onboarded, is_onboarded, run_onboarding,
+    is_overnight_onboarded, run_overnight_onboarding,
+    is_fitness_onboarded, run_fitness_onboarding,
+    run_setup_claude_code,
+)
 from questchain.memory.store import get_thread_history
 from questchain.models import check_ollama_connection, list_available_models, wait_for_ollama
 
@@ -148,15 +154,9 @@ class _AudioRouter:
             await _play_audio(wav_bytes)
 
 
-def _make_agent_from_def(agent_def: dict, audio_router, **_ignored) -> object:
+def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> object:
     """Create a QuestChain agent from an agent definition dict."""
-    return create_questchain_agent(
-        model_name=agent_def.get("model"),
-        on_audio=audio_router,
-        system_prompt_override=agent_def.get("system_prompt"),
-        tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
-        agent_name=agent_def.get("name", "QuestChain"),
-    )
+    return make_agent_from_def(agent_def, audio_router)
 
 
 def print_banner(model_name: str):
@@ -175,7 +175,15 @@ def print_banner(model_name: str):
     if TAVILY_API_KEY:
         banner.append("  Web search: enabled", style="green")
     else:
-        banner.append("  Web search: disabled (no TAVILY_API_KEY)", style="yellow")
+        banner.append("  Web search: disabled  ", style="yellow")
+        banner.append("/tavily to set up", style="dim")
+    banner.append("\n")
+    from questchain.tools import is_claude_code_available
+    if is_claude_code_available():
+        banner.append("  Claude Code: enabled", style="green")
+    else:
+        banner.append("  Claude Code: disabled  ", style="yellow")
+        banner.append("/claudecode to set up", style="dim")
     banner.append("\n")
     banner.append("  Type /help for commands, Ctrl+D to exit", style="dim")
     console.print(Panel(banner, border_style="green"))
@@ -277,6 +285,7 @@ def show_metrics(mm: MetricsManager) -> None:
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/busy",         "Show busy work scheduler status"),
+    ("/claudecode",   "Set up Claude Code CLI integration"),
     ("/clear",        "Clear the screen"),
     ("/cron",         "List scheduled cron jobs"),
     ("/exit",         "Exit QuestChain"),
@@ -288,6 +297,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/model",        "Show current model and list available ones"),
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
+    ("/overnight",    "Add a task to tonight's Night Owl queue (prompts for task)"),
     ("/quit",         "Exit QuestChain"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
     ("/tasks",        "Show the current workspace task list"),
@@ -484,12 +494,25 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_setup_tavily"] = True
         return True
 
+    if cmd == "/claudecode":
+        session_state["run_setup_claudecode"] = True
+        return True
+
     if cmd == "/telegram":
         session_state["run_setup_telegram"] = True
         return True
 
     if cmd == "/agents":
         session_state["run_agent_menu"] = True
+        return True
+
+    if cmd == "/overnight":
+        from questchain.config import WORKSPACE_DIR
+        overnight_path = WORKSPACE_DIR / "workspace" / "overnight.md"
+        if not overnight_path.exists():
+            console.print("[yellow]overnight.md not found — switch to Night Owl first to set up.[/yellow]")
+            return True
+        session_state["run_overnight_queue"] = True
         return True
 
     if cmd == "/level":
@@ -507,25 +530,27 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     if cmd == "/help":
         help_text = (
             "[bold]Commands:[/bold]\n"
-            "  /new           - Start a new conversation\n"
-            "  /model         - Show current model and available models\n"
-            "  /thread        - Show current thread ID\n"
-            "  /busy          - Show busy work status\n"
-            "  /tools         - List available tools\n"
-            "  /instructions  - Show agent system prompt\n"
-            "  /memory        - Show your saved user profile\n"
-            "  /tasks         - Show current task list\n"
-            "  /cron          - List scheduled cron jobs\n"
-            "  /onboard       - Re-run the onboarding flow\n"
-            "  /tavily        - Set up Tavily web search API key\n"
-            "  /telegram      - Set up Telegram bot credentials\n"
-            "  /agents        - Manage agents (list, switch, create)\n"
-            "  /level         - Show agent level and achievements\n"
-            "  /stats         - Show agent metrics (prompts, tokens, errors)\n"
-            "  /history       - Show past conversations with timestamps\n"
-            "  /clear         - Clear the screen\n"
-            "  /quit          - Exit QuestChain\n"
-            "  /help          - Show this help message"
+            "  /new                   - Start a new conversation\n"
+            "  /model                 - Show current model and available models\n"
+            "  /thread                - Show current thread ID\n"
+            "  /busy                  - Show busy work status\n"
+            "  /tools                 - List available tools\n"
+            "  /instructions          - Show agent system prompt\n"
+            "  /memory                - Show your saved user profile\n"
+            "  /tasks                 - Show current task list\n"
+            "  /cron                  - List scheduled cron jobs\n"
+            "  /onboard               - Re-run the onboarding flow\n"
+            "  /overnight             - Add a task to Night Owl's queue\n"
+            "  /tavily                - Set up Tavily web search API key\n"
+            "  /claudecode            - Set up Claude Code CLI integration\n"
+            "  /telegram              - Set up Telegram bot credentials\n"
+            "  /agents                - Manage agents (list, switch, create)\n"
+            "  /level                 - Show agent level and achievements\n"
+            "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
+            "  /history               - Show past conversations with timestamps\n"
+            "  /clear                 - Clear the screen\n"
+            "  /quit                  - Exit QuestChain\n"
+            "  /help                  - Show this help message"
         )
         console.print(Panel(help_text, title="Help", border_style="blue"))
         return True
@@ -665,7 +690,7 @@ async def _agent_action_menu(
     action = options[choice][1]
 
     if action == "switch":
-        console.print(f"[green]🔗 Switched to '[bold]{name}[/bold]'. Current thread continues.[/green]")
+        console.print(f"[green]🔗 Switched to '[bold]{name}[/bold]'.[/green]")
         return agent_def
 
     if action == "edit":
@@ -688,6 +713,39 @@ async def _agent_action_menu(
     return None
 
 
+def _get_available_skills() -> list[tuple[str, str]]:
+    """Return [(name, description)] for all skills discovered on disk."""
+    from questchain.engine.skills import SkillsManager
+    sm = SkillsManager()
+    return [(s.name, s.description) for s in sm.list_skills()]
+
+
+def _tool_availability_tag(tool_name: str) -> str:
+    """Return a Rich markup tag like ' [dim](no API key)[/dim]' if a tool needs setup."""
+    from questchain.config import TAVILY_API_KEY
+    from questchain.tools import is_claude_code_available
+    if tool_name in ("web_search", "web_browse") and not TAVILY_API_KEY:
+        return "  [dim](no Tavily key — /tavily)[/dim]"
+    if tool_name == "claude_code" and not is_claude_code_available():
+        return "  [dim](claude not found — /claudecode)[/dim]"
+    return ""
+
+
+def _parse_skill_selection(raw: str, available: list[tuple[str, str]], fallback) -> list[str] | None:
+    """Parse comma-separated skill indices from raw input.
+
+    Returns a list of skill names, or *fallback* if nothing valid was parsed.
+    """
+    selected: list[str] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            idx = int(part) - 1
+            if 0 <= idx < len(available):
+                selected.append(available[idx][0])
+    return selected if selected else fallback
+
+
 def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
     """Parse comma-separated tool indices from raw input.
 
@@ -701,6 +759,48 @@ def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
             if 0 <= idx < len(SELECTABLE_TOOLS):
                 selected.append(SELECTABLE_TOOLS[idx][0])
     return selected if selected else fallback
+
+
+async def _ask_skills(
+    session: PromptSession,
+    console: Console,
+    class_name: str,
+    current_skills,
+) -> list[str] | None:
+    """Prompt the user to select skills for an agent.
+
+    Returns a list of skill names (possibly empty), or None meaning "all".
+    *current_skills* is the existing value to fall back to on Enter.
+    """
+    available = _get_available_skills()
+    if not available:
+        return current_skills  # nothing to pick from
+
+    console.print()
+    console.print("[bold]Skills[/bold] (loaded into agent context on demand):")
+    for i, (skill_name, desc) in enumerate(available, 1):
+        console.print(f"  {i}. [cyan]{skill_name}[/cyan] — {desc}")
+    console.print()
+
+    skill_preset = CLASS_SKILL_PRESETS.get(class_name)
+    if current_skills is None or current_skills == "all":
+        current_display = "all"
+    else:
+        current_display = ", ".join(current_skills) if current_skills else "none"
+
+    if skill_preset is not None:
+        preset_display = ", ".join(skill_preset) if skill_preset else "none"
+        console.print(f"  [dim]Skill preset for {class_name}: {preset_display}[/dim]")
+
+    raw = await _prompt_line(
+        session, f"Include all skills? current=[{current_display}] [Y/n or numbers]: "
+    )
+    if raw.lower() in ("", "y", "yes"):
+        return None   # all
+    if raw.lower() in ("n", "no"):
+        sel_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
+        return _parse_skill_selection(sel_raw, available, current_skills) if sel_raw else current_skills
+    return _parse_skill_selection(raw, available, current_skills)
 
 
 async def _run_create_wizard(
@@ -737,7 +837,8 @@ async def _run_create_wizard(
         console.print()
         console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
         for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
-            console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
+            tag = _tool_availability_tag(tool_name)
+            console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
         console.print()
         include_all_raw = await _prompt_line(session, "Include all tools? [Y/n or numbers]: ")
         if include_all_raw.lower() in ("", "y", "yes"):
@@ -752,12 +853,14 @@ async def _run_create_wizard(
         preset_names = ", ".join(preset) if preset else "built-in only"
         console.print(f"  [dim]Tools preset for {chosen_class}: {preset_names}[/dim]")
 
+    skills = await _ask_skills(session, console, chosen_class, None)
+
     console.print()
     console.print("System prompt (Enter for default QuestChain prompt):")
     prompt_raw = await _prompt_line(session, "> ")
     system_prompt = prompt_raw if prompt_raw else None
 
-    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class)
+    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class, skills=skills)
     console.print()
     console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/agents[/cyan] to activate it.")
     return agent_def
@@ -800,7 +903,8 @@ async def _run_edit_wizard(
     if _preset_hint:
         console.print(_preset_hint)
     for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
-        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}")
+        tag = _tool_availability_tag(tool_name)
+        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
     console.print()
 
     include_all_raw = await _prompt_line(
@@ -831,11 +935,14 @@ async def _run_edit_wizard(
         if 0 <= idx < len(AGENT_CLASSES):
             new_class = AGENT_CLASSES[idx][0]
 
+    new_skills = await _ask_skills(session, console, new_class, agent_def.get("skills"))
+
     agent_manager.update(
         agent_def["id"],
         name=new_name,
         model=new_model,
         tools=new_tools,
+        skills=new_skills,
         system_prompt=new_system_prompt,
         class_name=new_class,
     )
@@ -1018,8 +1125,9 @@ async def repl(
             )
             return
 
-    # Load agent manager and active agent
+    # Load agent manager and seed built-in preset agents (idempotent)
     agent_manager = AgentManager()
+    agent_manager.seed_preset_agents()
     active_def = agent_manager.get_active()
     effective_model = active_def.get("model") or model_name
 
@@ -1102,9 +1210,11 @@ async def _run_with_busy_work(
     agent_manager: "AgentManager | None" = None,
 ):
     """Start busy work (if enabled), run the REPL, then clean up."""
-    from questchain.busy_work import BusyWorkRunner
+    from questchain.busy_work import BusyWorkRunner, OvernightRunner
 
     runner: BusyWorkRunner | None = None
+    scheduler = None
+    overnight_runner: OvernightRunner | None = None
     # Shared lock: held by the REPL while running agent; heartbeat checks before ticking.
     agent_lock = asyncio.Lock()
 
@@ -1137,10 +1247,54 @@ async def _run_with_busy_work(
             telegram_set_runner(runner)
         console.print(f"[dim]Busy work: every {busy_work_minutes} min[/dim]")
 
+    # CronScheduler — enabled in CLI mode (Telegram mode creates its own instance)
+    # Guard against double-initialization when Telegram is active.
+    if not telegram_send and agent_manager is not None:
+        from questchain.scheduler import CronScheduler, set_scheduler
+
+        async def cron_callback(text: str) -> None:
+            console.print()
+            console.print(Panel(text, title="[bold cyan]Scheduled Task[/bold cyan]", border_style="cyan"))
+            console.print()
+            if telegram_send:
+                try:
+                    await telegram_send(text)
+                except Exception:
+                    pass
+
+        scheduler = CronScheduler(
+            agent=agent_holder["agent"],
+            send_callback=cron_callback,
+            agent_manager=agent_manager,
+            audio_router=audio_router,
+        )
+        set_scheduler(scheduler)
+        await scheduler.start()
+        console.print("[dim]Scheduler: active[/dim]")
+
+        # OvernightRunner — runs Night Owl agent every 30 min during 12 AM–6 AM
+        overnight_runner = OvernightRunner(
+            agent_manager=agent_manager,
+            send_callback=cron_callback,
+            busy_lock=agent_lock,
+        )
+        await overnight_runner.start()
+        console.print("[dim]Overnight runner: active[/dim]")
+
     # First-run onboarding — guard with the lock so a fast heartbeat can't interfere
     if not is_onboarded():
         async with agent_lock:
-            await run_onboarding(agent_holder["agent"], console, prompt_session=session)
+            completed = await run_onboarding(agent_holder["agent"], console, prompt_session=session)
+        if completed and agent_manager is not None:
+            # Reload so the name (and any other changes) take effect immediately
+            new_def = agent_manager.get_active()
+            try:
+                agent_holder["agent"] = _make_agent_from_def(new_def, audio_router)
+                session_state["model_name"] = new_def.get("model") or OLLAMA_MODEL
+                _init_progression(new_def)
+                _init_metrics(new_def, agent_holder["agent"])
+            except Exception:
+                pass
 
     try:
         await _repl_loop(
@@ -1153,6 +1307,12 @@ async def _run_with_busy_work(
     finally:
         if runner:
             await runner.stop()
+        if overnight_runner:
+            await overnight_runner.stop()
+        if scheduler:
+            from questchain.scheduler import set_scheduler
+            await scheduler.stop()
+            set_scheduler(None)
 
 
 async def _repl_loop(
@@ -1244,12 +1404,35 @@ async def _repl_loop(
                     from questchain.onboarding import run_setup_tavily
                     await run_setup_tavily(console, session)
 
+                if session_state.pop("run_setup_claudecode", False):
+                    await run_setup_claude_code(console, session)
+
                 if session_state.pop("run_setup_telegram", False):
                     from questchain.onboarding import run_setup_telegram
                     await run_setup_telegram(console, session)
 
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)
+
+                if session_state.pop("run_overnight_queue", False):
+                    task_text = await _prompt_line(session, "Task for tonight: ")
+                    if task_text.strip():
+                        from questchain.config import WORKSPACE_DIR
+                        overnight_path = WORKSPACE_DIR / "workspace" / "overnight.md"
+                        content = overnight_path.read_text(encoding="utf-8")
+                        new_item = f"- [ ] {task_text.strip()}"
+                        if "## Tonight's Queue" in content:
+                            content = content.replace(
+                                "## Tonight's Queue",
+                                f"## Tonight's Queue\n{new_item}",
+                                1,
+                            )
+                        else:
+                            content = content.rstrip() + f"\n\n## Tonight's Queue\n{new_item}\n"
+                        overnight_path.write_text(content, encoding="utf-8")
+                        console.print(f"[green]Added to tonight's queue:[/green] {task_text.strip()}")
+                    else:
+                        console.print("[dim]Cancelled.[/dim]")
 
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)
@@ -1263,6 +1446,13 @@ async def _repl_loop(
                             _init_metrics(chosen, new_agent)
                         except Exception as e:
                             console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
+                        else:
+                            # Per-agent first-run onboarding for preset agents
+                            chosen_class = chosen.get("class_name", "")
+                            if chosen_class == "NightOwl" and not is_overnight_onboarded():
+                                await run_overnight_onboarding(agent_holder["agent"], console, prompt_session=session)
+                            elif chosen_class == "Trainer" and not is_fitness_onboarded():
+                                await run_fitness_onboarding(agent_holder["agent"], console, prompt_session=session)
 
                 if session_state.pop("run_level", False) and agent_manager is not None:
                     await show_stats(agent_manager.get_active())

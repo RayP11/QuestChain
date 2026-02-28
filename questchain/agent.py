@@ -25,6 +25,7 @@ def create_questchain_agent(
     model_name: str | None = None,
     system_prompt_override: str | None = None,
     tools_filter: list[str] | None = None,
+    skills_filter: list[str] | None = None,
     agent_name: str = "QuestChain",
     on_audio=None,
     # Legacy params accepted but unused (kept for call-site compatibility)
@@ -37,6 +38,7 @@ def create_questchain_agent(
         model_name: Ollama model to use. Defaults to config value.
         system_prompt_override: Replace the default SYSTEM_PROMPT when set.
         tools_filter: Restrict custom tools to this subset by name; None = all.
+        skills_filter: Restrict skills to this subset by dir-name; None = all.
         agent_name: Display name injected into the system prompt.
         on_audio: TTS callback for the speak tool.
     """
@@ -58,8 +60,8 @@ def create_questchain_agent(
         planning.read_todos,
     ]
 
-    # Skills (lazy-loaded on demand by the agent)
-    skills = SkillsManager()
+    # Skills (lazy-loaded on demand by the agent; filtered per agent def)
+    skills = SkillsManager(skills_filter=skills_filter)
 
     # Registry: builtins + read_skill
     registry = make_registry(*builtin_fns, skills.make_read_skill_tool())
@@ -78,4 +80,22 @@ def create_questchain_agent(
         skills=skills,
         system_prompt=system_prompt,
         agent_name=agent_name,
+    )
+
+
+def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
+    """Create a QuestChain agent from an agent definition dict.
+
+    Moved here from cli.py so busy_work.py and scheduler.py can import it
+    without creating a circular dependency through cli.py.
+    """
+    skills_raw = agent_def.get("skills")  # None/"all" → all; list → filtered
+    skills_filter = None if (skills_raw is None or skills_raw == "all") else skills_raw
+    return create_questchain_agent(
+        model_name=agent_def.get("model"),
+        on_audio=audio_router,
+        system_prompt_override=agent_def.get("system_prompt"),
+        tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
+        skills_filter=skills_filter,
+        agent_name=agent_def.get("name", "QuestChain"),
     )

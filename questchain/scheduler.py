@@ -15,6 +15,35 @@ from questchain.config import get_cron_jobs_path
 
 logger = logging.getLogger(__name__)
 
+BUILTIN_CRON_JOBS: list[dict] = [
+    {
+        "id": "builtin_fitness_morning",
+        "name": "Fitness: Morning check-in",
+        "cron_expression": "0 8 * * *",
+        "timezone": "UTC",
+        "prompt": (
+            "Morning fitness check-in! Read /workspace/fitness/goals.md and "
+            "/workspace/workouts.md. Tell me today's workout and give me motivation."
+        ),
+        "enabled": True,
+        "agent_class": "Trainer",
+        "built_in": True,
+    },
+    {
+        "id": "builtin_fitness_weekly",
+        "name": "Fitness: Weekly review",
+        "cron_expression": "0 9 * * 0",
+        "timezone": "UTC",
+        "prompt": (
+            "Weekly fitness review! Read /workspace/fitness/logs/ for this week's "
+            "sessions and /workspace/fitness/goals.md. Summarize progress and plan next week."
+        ),
+        "enabled": True,
+        "agent_class": "Trainer",
+        "built_in": True,
+    },
+]
+
 # Module-level singleton
 _scheduler_instance: "CronScheduler | None" = None
 
@@ -62,8 +91,9 @@ class CronScheduler:
         self._audio_router = audio_router
 
     async def start(self) -> None:
-        """Load persisted jobs, register with APScheduler, start."""
+        """Load persisted jobs, seed builtins, register with APScheduler, start."""
         self._load_jobs()
+        self.seed_builtin_jobs()
         for job in self._jobs:
             if job.get("enabled", True):
                 self._register_job(job)
@@ -152,17 +182,39 @@ class CronScheduler:
             replace_existing=True,
         )
 
+    def seed_builtin_jobs(self) -> None:
+        """Insert builtin cron jobs if they are not already present (by id)."""
+        existing_ids = {j["id"] for j in self._jobs}
+        added = [j for j in BUILTIN_CRON_JOBS if j["id"] not in existing_ids]
+        if added:
+            self._jobs.extend(added)
+            self._save_jobs()
+            logger.info("Seeded %d builtin cron job(s)", len(added))
+
     def _get_agent_for_job(self, job: dict):
         """Return the agent to use for a job, falling back to the default."""
+        from questchain.agent import make_agent_from_def
+
+        # Try class-name lookup first (used by builtin jobs)
+        agent_class = job.get("agent_class")
+        if agent_class and self._agent_manager:
+            agent_def = self._agent_manager.get_by_class_name(agent_class)
+            if agent_def:
+                try:
+                    return make_agent_from_def(agent_def, self._audio_router)
+                except Exception as e:
+                    logger.warning(
+                        "Could not build %s agent for cron job '%s': %s — using default",
+                        agent_class, job["name"], e,
+                    )
+
+        # Fall back to direct ID lookup (user-created jobs)
         agent_id = job.get("agent_id")
         if agent_id and self._agent_manager:
             agent_def = self._agent_manager.get(agent_id)
             if agent_def:
                 try:
-                    from questchain.cli import _make_agent_from_def
-                    return _make_agent_from_def(
-                        agent_def, self._checkpointer, self._store, self._audio_router
-                    )
+                    return make_agent_from_def(agent_def, self._audio_router)
                 except Exception as e:
                     logger.warning(
                         "Could not build agent '%s' for cron job '%s': %s — using default",

@@ -86,9 +86,29 @@ def _build_welcome_panel() -> Panel:
     return Panel(content, border_style="green", title="[bold green] Welcome [/bold green]", subtitle="[dim]Ctrl+C to skip[/dim]")
 
 
+def _overnight_md_path() -> Path:
+    from questchain.config import WORKSPACE_DIR
+    return WORKSPACE_DIR / "workspace" / "overnight.md"
+
+
+def _fitness_goals_path() -> Path:
+    from questchain.config import WORKSPACE_DIR
+    return WORKSPACE_DIR / "workspace" / "fitness" / "goals.md"
+
+
 def is_onboarded() -> bool:
     """Check if the user has completed onboarding."""
     return get_onboarded_marker_path().exists()
+
+
+def is_overnight_onboarded() -> bool:
+    """True when overnight.md has been created (Night Owl onboarding done)."""
+    return _overnight_md_path().exists()
+
+
+def is_fitness_onboarded() -> bool:
+    """True when fitness/goals.md has been created (Trainer onboarding done)."""
+    return _fitness_goals_path().exists()
 
 
 def mark_onboarded() -> None:
@@ -136,6 +156,30 @@ async def _prompt_input(
         return (await asyncio.to_thread(input, prompt_str)).strip()
     except (EOFError, KeyboardInterrupt):
         return ""
+
+
+async def run_setup_claude_code(console, prompt_session) -> bool:
+    """Interactive wizard to guide Claude Code CLI installation.
+
+    Returns True if claude is already installed or the user acknowledges setup.
+    """
+    import shutil
+    if shutil.which("claude"):
+        console.print("  [green]✓ Claude Code is already installed.[/green]")
+        return True
+    console.print()
+    console.print(Panel(
+        "[bold]Claude Code[/bold] — Anthropic's AI coding agent\n\n"
+        "Enables QuestChain to delegate coding tasks to Claude directly.\n\n"
+        "Install via npm:\n"
+        "  [cyan]npm install -g @anthropic-ai/claude-code[/cyan]\n\n"
+        "Then run [cyan]claude[/cyan] once to authenticate.\n"
+        "Restart QuestChain after installing to enable the [bold]claude_code[/bold] tool.",
+        border_style="cyan",
+        title="Claude Code Setup",
+    ))
+    await _prompt_input(prompt_session, console, "  Press Enter to continue: ")
+    return False
 
 
 async def run_setup_tavily(console, prompt_session) -> bool:
@@ -192,22 +236,26 @@ async def run_setup_telegram(console, prompt_session) -> bool:
 
 
 async def _run_integration_setup(console, prompt_session) -> None:
-    """Offer Tavily and Telegram setup as optional post-onboarding steps."""
+    """Offer Tavily, Claude Code, and Telegram setup as optional post-onboarding steps."""
+    import shutil
     needs_tavily = not os.getenv("TAVILY_API_KEY")
+    needs_claude = not shutil.which("claude")
     needs_telegram = not os.getenv("TELEGRAM_BOT_TOKEN")
-    if not needs_tavily and not needs_telegram:
+    if not needs_tavily and not needs_claude and not needs_telegram:
         return
 
     console.print()
     console.print(Panel(
-        "One more thing — a couple of optional integrations can make QuestChain more powerful.\n"
+        "One more thing — a few optional integrations can make QuestChain more powerful.\n"
         "Press [bold]Enter[/bold] to skip any you don't want to set up right now.\n"
-        "You can always run [cyan]/tavily[/cyan] or [cyan]/telegram[/cyan] later.",
+        "You can always run [cyan]/tavily[/cyan], [cyan]/claudecode[/cyan], or [cyan]/telegram[/cyan] later.",
         title="Optional Setup",
         border_style="cyan",
     ))
     if needs_tavily:
         await run_setup_tavily(console, prompt_session)
+    if needs_claude:
+        await run_setup_claude_code(console, prompt_session)
     if needs_telegram:
         await run_setup_telegram(console, prompt_session)
     console.print()
@@ -241,13 +289,17 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     from questchain.config import MEMORY_DIR, ensure_memory_dir
 
     # Ensure workspace memory files exist before the agent tries to read them
+    from questchain.config import WORKSPACE_DIR
     ensure_memory_dir()
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
+    heartbeat_md = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
     if not agents_md.exists():
         agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n", encoding="utf-8")
     if not about_md.exists():
         about_md.write_text("", encoding="utf-8")
+    if not heartbeat_md.exists():
+        heartbeat_md.write_text("", encoding="utf-8")  # placeholder; filled after questions
 
     # ── Welcome banner ────────────────────────────────────────────────────────
     console.print()
@@ -318,6 +370,238 @@ Output ONLY the markdown. No extra commentary."""
     about_md.write_text(profile_text + "\n", encoding="utf-8")
     console.print("[dim]Profile saved.[/dim]")
 
+    # ── Heartbeat: ask what the agent should proactively watch ────────────────
+    HEARTBEAT_QUESTIONS = [
+        ("topics",  f"What topics or areas should I proactively keep up with for you? (e.g. tech news, a project, a domain)"),
+        ("tasks",   f"Any recurring background tasks I should handle? (e.g. summarise news, check docs, maintain files — or press Enter to skip)"),
+    ]
+    hb_answers: dict[str, str] = {}
+    console.print(f"\n[bold green]{agent_name}[/bold green]")
+    console.print("One last thing — I can work in the background between our chats.")
+    for key, question in HEARTBEAT_QUESTIONS:
+        console.print(f"\n[bold green]{agent_name}[/bold green]")
+        console.print(question)
+        answer = await _prompt_user(prompt_session, console)
+        if answer is None:
+            hb_answers[key] = "(not provided)"
+        else:
+            hb_answers[key] = answer or "(not provided)"
+
+    heartbeat_prompt = f"""\
+Write a concise HEARTBEAT.md file for an AI agent that runs periodic background checks.
+The file describes standing areas to look for work — NOT specific one-off tasks.
+The agent will read this file each hour and look for anything that needs attention.
+Use markdown with a short intro line and 2–4 bullet-point sections.
+Keep it focused and actionable — this is loaded into the agent's context every tick.
+
+Topics to monitor: {hb_answers['topics']}
+Recurring background tasks: {hb_answers['tasks']}
+User's work areas (for context): {answers['work']}
+
+Output ONLY the markdown. No extra commentary."""
+
+    console.print(f"\n[bold green]{agent_name}[/bold green]")
+    console.print("[dim]Setting up background tasks…[/dim]")
+
+    hb_response = await model.ainvoke([
+        SystemMessage(content="You write concise, actionable background-task files for AI agents."),
+        HumanMessage(content=heartbeat_prompt),
+    ])
+    hb_text = re.sub(r"<think>.*?</think>", "", hb_response.content, flags=re.DOTALL).strip()
+    heartbeat_md.write_text(hb_text + "\n", encoding="utf-8")
+    console.print("[dim]Background tasks configured.[/dim]")
+
     mark_onboarded()
     await _run_integration_setup(console, prompt_session)
+    return True
+
+
+async def run_overnight_onboarding(agent, console, prompt_session=None) -> bool:
+    """Set up the Night Owl agent — asks what to do each night and writes overnight.md.
+
+    Returns True if completed, False if skipped.
+    """
+    from questchain.config import WORKSPACE_DIR
+    import re
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from questchain.models import get_model
+    from questchain.config import OLLAMA_MODEL
+
+    console.print()
+    console.print(Panel(
+        "  🌙  [bold blue]Night Owl[/bold blue] — Autonomous overnight worker\n\n"
+        "  I'll work while you sleep! Answer a few questions so I know what to do\n"
+        "  each night. You can always edit [cyan]/workspace/overnight.md[/cyan] or\n"
+        "  use [cyan]/overnight <task>[/cyan] to add one-off tasks.",
+        border_style="blue",
+        title="[bold blue] Night Owl Setup [/bold blue]",
+        subtitle="[dim]Enter to skip[/dim]",
+    ))
+
+    NIGHT_QUESTIONS = [
+        ("research",  "What topics or areas should I research each night?"),
+        ("standing",  "Any standing tasks to prepare for you each morning? (summaries, reports, etc.)"),
+        ("extra",     "Anything else you'd like me to do while you sleep? (Enter to skip)"),
+    ]
+    answers: dict[str, str] = {}
+    for key, question in NIGHT_QUESTIONS:
+        console.print(f"\n[bold blue]Night Owl[/bold blue]")
+        console.print(question)
+        answer = await _prompt_user(prompt_session, console)
+        if answer is None:
+            return False
+        answers[key] = answer or "(none)"
+
+    console.print(f"\n[bold blue]Night Owl[/bold blue]")
+    console.print("[dim]Building overnight.md…[/dim]")
+
+    profile_prompt = f"""\
+Write a task configuration file for a Night Owl overnight AI agent.
+Use EXACTLY this markdown structure (preserve all section headers):
+
+# Night Owl — Task Configuration
+
+## Standing Tasks (run every night)
+<!-- Things the Night Owl always does, generated from your answers below -->
+
+## Tonight's Queue
+<!-- One-off tasks for tonight. Mark [x] when done. Add new tasks here. -->
+
+## Completed Archive
+<!-- Agent moves done items here with timestamps -->
+
+Fill in the Standing Tasks section based on the user's answers below.
+Leave Tonight's Queue and Completed Archive empty.
+Each standing task should be a bullet point starting with "- ".
+
+Research topics: {answers['research']}
+Morning preparation tasks: {answers['standing']}
+Other overnight tasks: {answers['extra']}
+
+Output ONLY the markdown. No extra commentary."""
+
+    model = get_model(OLLAMA_MODEL)
+    response = await model.ainvoke([
+        SystemMessage(content="You write clean, structured markdown task files for AI agents."),
+        HumanMessage(content=profile_prompt),
+    ])
+    content = re.sub(r"<think>.*?</think>", "", response.content, flags=re.DOTALL).strip()
+
+    overnight_path = _overnight_md_path()
+    overnight_path.parent.mkdir(parents=True, exist_ok=True)
+    overnight_path.write_text(content + "\n", encoding="utf-8")
+    console.print("[dim]overnight.md saved.[/dim]")
+    return True
+
+
+async def run_fitness_onboarding(agent, console, prompt_session=None) -> bool:
+    """Set up the Fitness Coach agent — asks about goals and writes fitness files.
+
+    Returns True if completed, False if skipped.
+    """
+    from questchain.config import WORKSPACE_DIR
+    import re
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from questchain.models import get_model
+    from questchain.config import OLLAMA_MODEL
+
+    console.print()
+    console.print(Panel(
+        "  💪  [bold green]Coach[/bold green] — Personal fitness coach & health tracker\n\n"
+        "  I'll track your workouts, log nutrition, and keep you on target.\n"
+        "  Answer a few questions so I can personalize your plan.",
+        border_style="green",
+        title="[bold green] Fitness Coach Setup [/bold green]",
+        subtitle="[dim]Enter to skip[/dim]",
+    ))
+
+    FITNESS_QUESTIONS = [
+        ("goals",     "What are your main fitness goals? (e.g. lose weight, build muscle, run a 5K)"),
+        ("split",     "What's your current workout split? (e.g. PPL, upper/lower, 5-day bro split)"),
+        ("nutrition", "Are you tracking nutrition? What are your daily calorie/macro targets?"),
+        ("limits",    "Any injuries or limitations I should know about? (Enter to skip)"),
+    ]
+    answers: dict[str, str] = {}
+    for key, question in FITNESS_QUESTIONS:
+        console.print(f"\n[bold green]Coach[/bold green]")
+        console.print(question)
+        answer = await _prompt_user(prompt_session, console)
+        if answer is None:
+            return False
+        answers[key] = answer or "(not provided)"
+
+    console.print(f"\n[bold green]Coach[/bold green]")
+    console.print("[dim]Setting up your fitness workspace…[/dim]")
+
+    goals_prompt = f"""\
+Write a personalized fitness goals file in clean markdown.
+Use these exact sections: # Fitness Goals, ## Primary Goals, ## Current Workout Split,
+## Nutrition Targets, ## Limitations & Notes.
+Be specific and actionable — this file is read by your AI coach before every session.
+
+Goals: {answers['goals']}
+Workout split: {answers['split']}
+Nutrition targets: {answers['nutrition']}
+Limitations: {answers['limits']}
+
+Output ONLY the markdown. No extra commentary."""
+
+    model = get_model(OLLAMA_MODEL)
+    goals_response = await model.ainvoke([
+        SystemMessage(content="You write clear, motivating fitness goal documents."),
+        HumanMessage(content=goals_prompt),
+    ])
+    goals_text = re.sub(r"<think>.*?</think>", "", goals_response.content, flags=re.DOTALL).strip()
+
+    # Create fitness directory structure
+    fitness_dir = WORKSPACE_DIR / "workspace" / "fitness"
+    logs_dir = fitness_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    (fitness_dir / "goals.md").write_text(goals_text + "\n", encoding="utf-8")
+
+    nutrition_template = f"""\
+# Nutrition Tracking
+
+## Daily Targets
+{answers['nutrition'] if answers['nutrition'] != '(not provided)' else '- Set your targets here'}
+
+## Weekly Log
+| Date | Calories | Protein | Carbs | Fat | Notes |
+|------|----------|---------|-------|-----|-------|
+
+## Notes
+- Log meals here or ask Coach to log them for you
+"""
+    (fitness_dir / "nutrition.md").write_text(nutrition_template, encoding="utf-8")
+
+    progress_template = """\
+# Fitness Progress
+
+## Weekly Summaries
+<!-- Coach writes here every Sunday -->
+
+## Measurements Log
+| Date | Weight | Notes |
+|------|--------|-------|
+
+"""
+    (fitness_dir / "progress.md").write_text(progress_template, encoding="utf-8")
+
+    gitkeep = logs_dir / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.write_text("", encoding="utf-8")
+
+    workouts_md = WORKSPACE_DIR / "workspace" / "workouts.md"
+    if not workouts_md.exists():
+        workouts_md.write_text(
+            "# Workout Programs\n\n"
+            "## Current Program\n"
+            "<!-- Describe your current program or ask Coach to build one -->\n\n"
+            "## Exercise Library\n"
+            "<!-- Coach adds exercises here as you log them -->\n",
+            encoding="utf-8",
+        )
+
+    console.print("[dim]Fitness workspace created.[/dim]")
     return True

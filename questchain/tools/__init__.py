@@ -1,5 +1,6 @@
 """QuestChain custom tools."""
 
+import shutil
 from collections.abc import Awaitable, Callable
 
 from questchain.tools.claude_code import create_claude_code_tool
@@ -7,6 +8,11 @@ from questchain.tools.cron import create_cron_tools
 from questchain.tools.web_search import create_search_tool
 from questchain.tools.web_browse import create_browse_tool
 from questchain.tools.speak import create_speak_tool
+
+
+def is_claude_code_available() -> bool:
+    """True if the 'claude' CLI is on PATH."""
+    return shutil.which("claude") is not None
 
 
 def get_custom_tools(
@@ -30,7 +36,7 @@ def get_custom_tools(
 
     tools = []
 
-    if _want("claude_code"):
+    if _want("claude_code") and is_claude_code_available():
         tools.append(create_claude_code_tool())
 
     if _want("cron"):
