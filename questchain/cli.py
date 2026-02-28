@@ -21,7 +21,7 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, SKILL_REQUIRED_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -713,11 +713,21 @@ async def _agent_action_menu(
     return None
 
 
-def _get_available_skills() -> list[tuple[str, str]]:
-    """Return [(name, description)] for all skills discovered on disk."""
+def _get_available_skills(tools: list[str] | str | None = None) -> list[tuple[str, str]]:
+    """Return [(name, description)] for skills compatible with the given tool set.
+
+    When *tools* is a list, only skills whose required tools are all present are
+    returned.  ``None`` or ``"all"`` means all tools are available.
+    """
     from questchain.engine.skills import SkillsManager
     sm = SkillsManager()
-    return [(s.name, s.description) for s in sm.list_skills()]
+    all_skills = [(s.name, s.description) for s in sm.list_skills()]
+    if tools is None or tools == "all":
+        return all_skills
+    return [
+        (name, desc) for name, desc in all_skills
+        if all(t in tools for t in SKILL_REQUIRED_TOOLS.get(name, []))
+    ]
 
 
 def _tool_availability_tag(tool_name: str) -> str:
@@ -766,15 +776,17 @@ async def _ask_skills(
     console: Console,
     class_name: str,
     current_skills,
+    tools: list[str] | str | None = None,
 ) -> list[str] | None:
     """Prompt the user to select skills for an agent.
 
+    Only skills whose required tools are present in *tools* are shown.
     Returns a list of skill names (possibly empty), or None meaning "all".
     *current_skills* is the existing value to fall back to on Enter.
     """
-    available = _get_available_skills()
+    available = _get_available_skills(tools)
     if not available:
-        return current_skills  # nothing to pick from
+        return []  # no applicable skills for these tools
 
     console.print()
     console.print("[bold]Skills[/bold] (loaded into agent context on demand):")
@@ -782,24 +794,18 @@ async def _ask_skills(
         console.print(f"  {i}. [cyan]{skill_name}[/cyan] — {desc}")
     console.print()
 
-    skill_preset = CLASS_SKILL_PRESETS.get(class_name)
     if current_skills is None or current_skills == "all":
         current_display = "all"
     else:
         current_display = ", ".join(current_skills) if current_skills else "none"
 
-    if skill_preset is not None:
-        preset_display = ", ".join(skill_preset) if skill_preset else "none"
-        console.print(f"  [dim]Skill preset for {class_name}: {preset_display}[/dim]")
-
     raw = await _prompt_line(
-        session, f"Include all skills? current=[{current_display}] [Y/n or numbers]: "
+        session, f"Select skills (numbers, 'none', Enter=all) current=[{current_display}]: "
     )
-    if raw.lower() in ("", "y", "yes"):
-        return None   # all
-    if raw.lower() in ("n", "no"):
-        sel_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-        return _parse_skill_selection(sel_raw, available, current_skills) if sel_raw else current_skills
+    if raw.strip() == "":
+        return None  # all
+    if raw.strip().lower() == "none":
+        return []    # no skills
     return _parse_skill_selection(raw, available, current_skills)
 
 
@@ -853,7 +859,7 @@ async def _run_create_wizard(
         preset_names = ", ".join(preset) if preset else "built-in only"
         console.print(f"  [dim]Tools preset for {chosen_class}: {preset_names}[/dim]")
 
-    skills = await _ask_skills(session, console, chosen_class, None)
+    skills = await _ask_skills(session, console, chosen_class, None, tools)
 
     console.print()
     console.print("System prompt (Enter for default QuestChain prompt):")
@@ -935,7 +941,7 @@ async def _run_edit_wizard(
         if 0 <= idx < len(AGENT_CLASSES):
             new_class = AGENT_CLASSES[idx][0]
 
-    new_skills = await _ask_skills(session, console, new_class, agent_def.get("skills"))
+    new_skills = await _ask_skills(session, console, new_class, agent_def.get("skills"), new_tools)
 
     agent_manager.update(
         agent_def["id"],

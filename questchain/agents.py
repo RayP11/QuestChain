@@ -57,6 +57,15 @@ CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
     "Trainer":   ["fitness-tracker"],
 }
 
+# Maps each skill dir-name to the tool(s) that must be present for it to be useful.
+# Skills not listed here have no tool prerequisite and are always available.
+SKILL_REQUIRED_TOOLS: dict[str, list[str]] = {
+    "claude-code":    ["claude_code"],
+    "cron-jobs":      ["cron"],
+    "overnight-agent": ["web_search", "web_browse", "claude_code"],
+    "fitness-tracker": ["web_search", "web_browse"],
+}
+
 # Migrate old class names from saved agent JSON to the current names.
 _CLASS_MIGRATIONS: dict[str, str] = {
     "Wanderer":  "Custom",
