@@ -69,7 +69,7 @@ This creates a feedback loop where the agent's own capabilities improve over tim
 ```
 
 <div align="center">
-<img src="assets/QuestChain%20coding.png" alt="QuestChain coding itself with Claude Code" width="550"/>
+<img src="assets/QuestChain%20coding.png" alt="QuestChain coding itself with Claude Code" width="380"/>
 </div>
 
 ---
@@ -83,7 +83,7 @@ When you first activate the Night Owl, it walks you through a short setup: what 
 Add one-off tasks at any time with `/overnight` — type the command, enter your task, and it gets queued for tonight.
 
 <div align="center">
-<img src="assets/Overnight%20Worker%20Quest.png" alt="Night Owl overnight worker agent" width="550"/>
+<img src="assets/Overnight%20Worker%20Quest.png" alt="Night Owl overnight worker agent" width="380"/>
 </div>
 
 ---
@@ -98,7 +98,7 @@ Activate it once and it runs a short onboarding: your goals, current workout spl
 - **Every Sunday at 9 AM** — weekly progress summary and next-week plan
 
 <div align="center">
-<img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="550"/>
+<img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="380"/>
 </div>
 
 ---
