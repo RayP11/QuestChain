@@ -2,15 +2,73 @@
 
 <img src="assets/QuestChain.png" alt="QuestChain" width="400"/>
 
-### Small but mighty. Send your hardware on a quest.
+# Truly Local. Always On.
+
+### Your AI assistant — running on your hardware, working for you around the clock.
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
-[![Custom Engine](https://img.shields.io/badge/Engine-Custom%20Python%20Agent-orange)]()
-[![Runs Locally](https://img.shields.io/badge/Runs-100%25%20Locally-brightgreen?logo=homeassistant&logoColor=white)]()
-[![No Cloud](https://img.shields.io/badge/No%20Cloud-No%20Cost-success)]()
+[![Stars](https://img.shields.io/github/stars/RayP11/QuestChain?style=flat&color=yellow)](https://github.com/RayP11/QuestChain/stargazers)
+[![License](https://img.shields.io/github/license/RayP11/QuestChain)](https://github.com/RayP11/QuestChain/blob/main/LICENSE)
 
 </div>
+
+---
+
+QuestChain is an AI assistant that runs entirely on your machine. No subscriptions, no usage limits, no data leaving your hardware. It remembers who you are, works with your files and terminal, and keeps running in the background — checking your task list, working through the night, sending you updates on Telegram — whether you're at the keyboard or not.
+
+---
+
+## Contents
+
+- [What It Can Do](#what-it-can-do)
+- [Local vs. Cloud](#local-vs-cloud)
+- [Built for the Edge](#built-for-the-edge)
+- [The OpenClaw for Edge AI](#the-openclaw-for-edge-ai)
+- [It Codes Itself](#it-codes-itself)
+- [The Night Owl](#the-night-owl)
+- [RPG Progression](#rpg-progression)
+- [Install](#install)
+- [Usage](#usage)
+- [Terminal Commands](#terminal-commands)
+- [Telegram Setup](#telegram-setup)
+- [Busy Work](#busy-work)
+- [Configuration](#configuration)
+- [Model Presets](#model-presets)
+- [Project Structure](#project-structure)
+- [Built With](#built-with)
+
+---
+
+## What It Can Do
+
+- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily *(optional)*
+- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
+- 💻 **Shell Commands** — Run terminal commands and scripts directly
+- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
+- 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
+- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
+- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
+- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
+- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
+- 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
+- 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
+
+---
+
+## Local vs. Cloud
+
+| | QuestChain | Cloud AI |
+|---|---|---|
+| **Your data** | Stays on your machine | Sent to third-party servers |
+| **Cost** | $0 after hardware | $/token or subscription |
+| **Works offline** | ✅ | ❌ |
+| **File & shell access** | Full, real filesystem | Sandboxed or unavailable |
+| **Memory** | Persistent across sessions | Usually resets every chat |
+| **Autonomous tasks** | Background busy work loop | Manual only |
+| **Remote access** | Built-in Telegram bot | Separate product |
+| **Model choice** | Any Ollama model | Locked to provider |
+| **Self-improvement** | Codes its own codebase | ❌ |
 
 ---
 
@@ -38,13 +96,31 @@ The engine is a custom Python async loop — no agent framework, no middleware s
 
 - **Auto-compaction via the model itself.** When context gets tight, QuestChain keeps the 6 most recent messages and uses the model to summarise everything older into a single block. The summary replaces the raw history in the JSONL file — reclaiming space while preserving what matters.
 
-- **Lazy skill loading.** Each skill contributes only its name and a one-line description to the system prompt (~24 tokens). The full skill content is only fetched into context when the agent explicitly calls `read_skill(name)`. A large skill library costs almost nothing at inference time.
-
-- **Short system prompt by design.** The base system prompt is ~550 characters. Every token in the system prompt is repeated across every turn — keeping it small has a compounding effect on memory and speed over long sessions.
-
 - **Parallel tool execution.** When the model issues multiple tool calls in one turn, they run concurrently via `asyncio.gather`. File reads, web searches, and shell commands that don't depend on each other don't wait in line.
 
 - **Plain JSONL history, no database.** Conversation history is stored as one JSON object per line in `~/.questchain/sessions/`. Human-readable, zero-dependency, trivially debuggable.
+
+---
+
+## The OpenClaw for Edge AI
+
+Think of QuestChain as the [OpenClaw](https://github.com/openclaw/openclaw) for edge AI models. OpenClaw is a popular framework built around cloud-scale models and large context windows — it's powerful, but it requires 20B+ parameters and 16K+ token context to run reliably. QuestChain brings that same agentic capability down to the hardware most people actually own, running reliably on models as small as **3B parameters**.
+
+The difference is architectural. Cloud-oriented agents carry heavy overhead by design: system prompts in the thousands of tokens, workspace files injected upfront, and tool calling formats built for models with vast context. QuestChain strips all of that away — a 458 character system prompt, Ollama's native tool protocol, lazy-loaded skills, and a token budget that auto-compacts before it ever fills up. The result is a full agentic loop that works on a laptop GPU, a Raspberry Pi, or anything in between.
+
+Here's what makes it efficient:
+
+- **458 character system prompt.** ~115 tokens. Every token in the system prompt repeats on every turn, so keeping it small compounds over long sessions. A 3B model holds it completely without degradation.
+
+- **Ollama native tool calling.** QuestChain uses Ollama's native Python client directly, keeping tool calls on the native protocol where they work reliably at any model size.
+
+- **Lazy skill loading.** Each skill adds only its name and a one-line description (~24 tokens) to the system prompt. Full content is fetched only when the agent calls for it. A large skill library costs almost nothing at inference time.
+
+- **Token-budgeted context with auto-compaction.** Context is tracked with an explicit token budget tuned per model. When it fills up, QuestChain keeps the 6 most recent messages verbatim and uses the model to summarize everything older into a single block — context stays bounded without losing recent work.
+
+- **No sub-agents, no orchestration overhead.** QuestChain is a single loop: stream from Ollama, detect tool calls, execute in parallel, repeat. Nothing between you and your hardware.
+
+**Fully local by default — optionally connected.** The core works 100% offline with no external accounts required. Two optional integrations let local agents reach further when you want them to: [Tavily](https://tavily.com) for live web search and full-page extraction, and [Claude Code](https://claude.ai/code) for delegating complex coding tasks to Anthropic's CLI agent. Both are opt-in, set up with a single `/tavily` or `/claudecode` command inside QuestChain, and only activate when explicitly called.
 
 ---
 
@@ -84,16 +160,6 @@ Add one-off tasks at any time with `/overnight` — type the command, enter your
 
 ---
 
-## Why QuestChain?
-
-Most AI assistants send your conversations to the cloud, charge per token, and forget everything the moment you close the tab. QuestChain is different.
-
-QuestChain runs entirely on your own hardware using [Ollama](https://ollama.com). Your data never leaves your machine. No API bills, no rate limits, no terms-of-service watching your messages. It works offline. It's yours.
-
-And it's not a chatbot. QuestChain is a full **agentic loop** — it can search the web, read and write files, execute shell commands, schedule recurring tasks, send you Telegram messages, and work autonomously in the background while you focus on something else.
-
----
-
 ## RPG Progression
 
 Every agent levels up from use. The more it works, the stronger it gets — and you can see it in real time.
@@ -128,70 +194,6 @@ Use `/stats` to see your agent's XP bar, top tools, and achievement history. Use
 | Oracle | 🔮 | Web search |
 | Sentinel | ⏱️ | Cron scheduler |
 | Night Owl | 🌙 | Web search + browse + Claude Code |
-
----
-
-## Local vs. Cloud
-
-| | QuestChain | Cloud AI |
-|---|---|---|
-| **Your data** | Stays on your machine | Sent to third-party servers |
-| **Cost** | $0 after hardware | $/token or subscription |
-| **Works offline** | ✅ | ❌ |
-| **File & shell access** | Full, real filesystem | Sandboxed or unavailable |
-| **Memory** | Persistent across sessions | Usually resets every chat |
-| **Autonomous tasks** | Background busy work loop | Manual only |
-| **Remote access** | Built-in Telegram bot | Separate product |
-| **Model choice** | Any Ollama model | Locked to provider |
-| **Self-improvement** | Codes its own codebase | ❌ |
-
----
-
-## What It Can Do
-
-- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily
-- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
-- 💻 **Shell Commands** — Run terminal commands and scripts directly
-- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
-- 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase
-- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
-- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
-- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
-- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
-- 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
-- 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
-
----
-
-## How It Works
-
-```
-                     ┌─────────────────────────────────────┐
-      You type       │            QuestChain                │
-  ────────────────▶  │                                      │
-  (CLI or Telegram)  │  ┌─────────────────────────────┐    │
-                     │  │   Custom Python Agent Engine │    │
-                     │  │                             │    │    ┌─────────────┐
-                     │  │  stream → tools → stream    │◀───┼───▶│   Ollama    │
-                     │  │  (async, parallel tools)    │    │    │  (on-device)│
-                     │  └──────────────┬──────────────┘    │    └─────────────┘
-                     │                 │                    │
-                     │        ┌────────┴────────┐           │
-                     │        ▼                 ▼           │
-                     │   ┌─────────┐     ┌──────────────┐  │
-                     │   │  Tools  │     │   Context    │  │
-                     │   │         │     │              │  │
-                     │   │ • files │     │ JSONL history│  │
-                     │   │ • shell │     │ token budget │  │
-                     │   │ • web   │     │ compaction   │  │
-                     │   │ • cron  │     └──────────────┘  │
-                     │   │ • claude│                        │
-                     │   │   _code │                        │
-                     │   └─────────┘                        │
-                     └─────────────────────────────────────┘
-```
-
-The engine streams tokens from Ollama, detects tool calls in the final chunk, executes them concurrently via `asyncio.gather`, appends results to the JSONL history, and loops — up to 30 iterations. When the context window fills up, old turns are summarised by the model and replaced in place. The loop exits when the model responds with text and no tool calls.
 
 ---
 
@@ -427,4 +429,6 @@ questchain start -m <any-model>  # use any model installed in Ollama
 
 <div align="center">
 <sub>No cloud. No cost. No compromise. Small but mighty — send your hardware on a quest.</sub>
+<br><br>
+<sub>If QuestChain is meaningful to you, a ⭐ helps others find it.</sub>
 </div>
