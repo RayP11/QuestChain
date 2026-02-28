@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="QuestChain.png" alt="QuestChain" width="400"/>
+<img src="assets/QuestChain.png" alt="QuestChain" width="400"/>
 
 ### Small but mighty. Send your hardware on a quest.
 
@@ -67,6 +67,39 @@ This creates a feedback loop where the agent's own capabilities improve over tim
      ↓
   QuestChain reviews the result and reports back
 ```
+
+<div align="center">
+<img src="assets/QuestChain%20coding.png" alt="QuestChain coding itself with Claude Code" width="700"/>
+</div>
+
+---
+
+## The Night Owl
+
+Switch to the **Night Owl** agent and it works while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work — researching topics, writing reports, running code — then logs what it did before going quiet.
+
+When you first activate the Night Owl, it walks you through a short setup: what topics to research each night, what standing tasks to prepare for you each morning, and anything else you want done in the background. It generates a structured `overnight.md` from your answers and runs from it every night.
+
+Add one-off tasks at any time with `/overnight` — type the command, enter your task, and it gets queued for tonight.
+
+<div align="center">
+<img src="assets/Overnight%20Worker%20Quest.png" alt="Night Owl overnight worker agent" width="700"/>
+</div>
+
+---
+
+## The Fitness Coach
+
+The **Coach** agent tracks your workouts, logs nutrition, monitors your goals, and delivers weekly progress reports — all on-device, all in your own files.
+
+Activate it once and it runs a short onboarding: your goals, current workout split, macro targets, and any limitations. It writes your profile to `workspace/fitness/goals.md`, sets up your nutrition and progress files, and schedules two recurring check-ins automatically:
+
+- **Daily at 8 AM** — today's workout and motivation
+- **Every Sunday at 9 AM** — weekly progress summary and next-week plan
+
+<div align="center">
+<img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="700"/>
+</div>
 
 ---
 
