@@ -1,19 +1,19 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Genie installer for Windows
+    QuestChain installer for Windows
 .DESCRIPTION
-    Installs Ollama, Python 3.13, uv, and Genie itself, then registers the
-    'genie' command globally so you can run 'genie start' from any terminal.
+    Installs Ollama, Python 3.13, uv, and QuestChain itself, then registers the
+    'questchain' command globally so you can run 'questchain start' from any terminal.
 .NOTES
-    Run from the Genie source directory:
-        powershell -ExecutionPolicy Bypass -File install.ps1
+    Run via PowerShell one-liner:
+        powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
 #>
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 function Step  { Write-Host "  --> $args" -ForegroundColor Cyan }
 function OK    { Write-Host "  OK  $args" -ForegroundColor Green }
@@ -35,25 +35,20 @@ function Winget-Install {
     OK "$Label installed"
 }
 
-# ── Banner ───────────────────────────────────────────────────────────────────
+# -- Banner -------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "  ____            _       " -ForegroundColor Magenta
-Write-Host " / ___| ___ _ __ (_) ___  " -ForegroundColor Magenta
-Write-Host "| |  _ / _ \ '_ \| |/ _ \ " -ForegroundColor Magenta
-Write-Host "| |_| |  __/ | | | |  __/ " -ForegroundColor Magenta
-Write-Host " \____|\___|_| |_|_|\___| " -ForegroundColor Magenta
-Write-Host ""
-Write-Host "  Installer" -ForegroundColor DarkGray
+Write-Host "  QuestChain" -ForegroundColor Magenta
+Write-Host "  ----------- Installer" -ForegroundColor DarkGray
 Write-Host ""
 
-# ── Check winget ─────────────────────────────────────────────────────────────
+# -- Check winget -------------------------------------------------------------
 
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Fatal "winget not found. Install 'App Installer' from the Microsoft Store, then re-run."
 }
 
-# ── Ollama ───────────────────────────────────────────────────────────────────
+# -- Ollama -------------------------------------------------------------------
 
 Step "Checking Ollama..."
 if (Get-Command ollama -ErrorAction SilentlyContinue) {
@@ -62,7 +57,7 @@ if (Get-Command ollama -ErrorAction SilentlyContinue) {
     Winget-Install "Ollama.Ollama" "Ollama"
 }
 
-# ── Python 3.13 ──────────────────────────────────────────────────────────────
+# -- Python 3.13 --------------------------------------------------------------
 
 Step "Checking Python..."
 $pyVersion = python --version 2>&1
@@ -72,7 +67,7 @@ if ($pyVersion -match "Python 3\.1[3-9]") {
     Winget-Install "Python.Python.3.13" "Python 3.13"
 }
 
-# ── uv ───────────────────────────────────────────────────────────────────────
+# -- uv -----------------------------------------------------------------------
 
 Step "Checking uv..."
 if (Get-Command uv -ErrorAction SilentlyContinue) {
@@ -87,20 +82,19 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     OK "uv installed ($(uv --version))"
 }
 
-# ── Genie ────────────────────────────────────────────────────────────────────
+# -- QuestChain ---------------------------------------------------------------
 
-Step "Installing Genie..."
-uv tool install "git+https://github.com/RayP11/genie" --reinstall
+Step "Installing QuestChain..."
+uv tool install "git+https://github.com/RayP11/QuestChain" --reinstall
 if ($LASTEXITCODE -ne 0) { Fatal "uv tool install failed." }
 Refresh-Path
-OK "Genie installed"
+OK "QuestChain installed"
 
-# ── Default model ─────────────────────────────────────────────────────────────
+# -- Default model ------------------------------------------------------------
 
 $DefaultModel = "qwen3:8b"
 
 Step "Starting Ollama service..."
-# Start ollama serve in the background if not already running
 $ollamaRunning = $false
 try {
     $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 2 -UseBasicParsing
@@ -112,19 +106,19 @@ if (-not $ollamaRunning) {
     Start-Sleep -Seconds 3
 }
 
-Step "Pulling default model ($DefaultModel) — this may take a few minutes..."
-Warn "You can change the model later with: genie start -m <model-name>"
+Step "Pulling default model ($DefaultModel) - this may take a few minutes..."
+Warn "You can change the model later with: questchain start -m [model-name]"
 ollama pull $DefaultModel
 if ($LASTEXITCODE -ne 0) { Warn "Model pull failed. Run 'ollama pull $DefaultModel' manually." }
 else { OK "Model '$DefaultModel' ready" }
 
-# ── Done ──────────────────────────────────────────────────────────────────────
+# -- Done ---------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "  Genie is ready!" -ForegroundColor Magenta
+Write-Host "  QuestChain is ready!" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  Run:" -ForegroundColor DarkGray
-Write-Host "      genie start" -ForegroundColor Cyan
+Write-Host "      questchain start" -ForegroundColor Cyan
 Write-Host ""
-Warn "If 'genie' is not found, restart your terminal to pick up the updated PATH."
+Warn "If 'questchain' is not found, restart your terminal to pick up the updated PATH."
 Write-Host ""

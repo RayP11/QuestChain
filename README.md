@@ -182,15 +182,25 @@ The engine streams tokens from Ollama, detects tool calls in the final chunk, ex
 
 ## Install
 
-Open **PowerShell** and run:
+One command. The installer handles everything: Ollama, Python, uv, QuestChain, and the default model.
+
+**Windows** — open PowerShell and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
 ```
 
-That's it. The installer handles everything automatically:
+**macOS / Linux** — open a terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
+```
+
+> **macOS note:** Ollama is installed via [Homebrew](https://brew.sh). If you don't have Homebrew, install it first or download Ollama manually from [ollama.com](https://ollama.com/download).
+
+What gets installed:
 - **Ollama** — local LLM runtime
-- **Python 3.13** — if not already installed
+- **Python 3.13** — if not already installed (Windows only; uv manages Python on Mac/Linux)
 - **uv** — fast Python package manager
 - **QuestChain** — installed and added to PATH
 - **qwen3:8b** — default model pulled and ready
