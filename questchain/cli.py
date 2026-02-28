@@ -21,7 +21,7 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, SKILL_REQUIRED_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, SKILL_CLASS_RESTRICTIONS, SKILL_REQUIRED_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -713,21 +713,29 @@ async def _agent_action_menu(
     return None
 
 
-def _get_available_skills(tools: list[str] | str | None = None) -> list[tuple[str, str]]:
-    """Return [(name, description)] for skills compatible with the given tool set.
+def _get_available_skills(
+    tools: list[str] | str | None = None,
+    class_name: str | None = None,
+) -> list[tuple[str, str]]:
+    """Return [(name, description)] for skills compatible with the given tool set and class.
 
-    When *tools* is a list, only skills whose required tools are all present are
-    returned.  ``None`` or ``"all"`` means all tools are available.
+    Filters out skills whose required tools are missing and skills restricted to
+    other agent classes.
     """
     from questchain.engine.skills import SkillsManager
     sm = SkillsManager()
-    all_skills = [(s.name, s.description) for s in sm.list_skills()]
-    if tools is None or tools == "all":
-        return all_skills
-    return [
-        (name, desc) for name, desc in all_skills
-        if all(t in tools for t in SKILL_REQUIRED_TOOLS.get(name, []))
-    ]
+    result = []
+    for s in sm.list_skills():
+        # Class restriction: skip if this skill is locked to other classes
+        allowed_classes = SKILL_CLASS_RESTRICTIONS.get(s.name)
+        if allowed_classes is not None and class_name not in allowed_classes:
+            continue
+        # Tool requirement: skip if a required tool isn't in the selected set
+        if tools is not None and tools != "all":
+            if not all(t in tools for t in SKILL_REQUIRED_TOOLS.get(s.name, [])):
+                continue
+        result.append((s.name, s.description))
+    return result
 
 
 def _tool_availability_tag(tool_name: str) -> str:
@@ -784,7 +792,7 @@ async def _ask_skills(
     Returns a list of skill names (possibly empty), or None meaning "all".
     *current_skills* is the existing value to fall back to on Enter.
     """
-    available = _get_available_skills(tools)
+    available = _get_available_skills(tools, class_name)
     if not available:
         return []  # no applicable skills for these tools
 

@@ -60,10 +60,15 @@ CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
 # Maps each skill dir-name to the tool(s) that must be present for it to be useful.
 # Skills not listed here have no tool prerequisite and are always available.
 SKILL_REQUIRED_TOOLS: dict[str, list[str]] = {
-    "claude-code":    ["claude_code"],
-    "cron-jobs":      ["cron"],
-    "overnight-agent": ["web_search", "web_browse", "claude_code"],
-    "fitness-tracker": ["web_search", "web_browse"],
+    "claude-code": ["claude_code"],
+    "cron-jobs":   ["cron"],
+}
+
+# Maps skills that are exclusive to specific agent classes.
+# A skill listed here will only appear for agents of those classes.
+SKILL_CLASS_RESTRICTIONS: dict[str, list[str]] = {
+    "overnight-agent": ["NightOwl"],
+    "fitness-tracker": ["Trainer"],
 }
 
 # Migrate old class names from saved agent JSON to the current names.
