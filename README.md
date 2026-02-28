@@ -50,7 +50,7 @@ The engine is a custom Python async loop — no agent framework, no middleware s
 
 ## It Codes Itself
 
-<img src="assets/QuestChain%20coding.png" alt="QuestChain coding itself with Claude Code" width="380"/>
+<p align="center"><img src="assets/QuestChain%20coding.png" alt="QuestChain coding itself with Claude Code" width="380"/></p>
 
 QuestChain has a `claude_code` tool that delegates programming tasks to Claude Code — Anthropic's AI coding agent running locally in your terminal. QuestChain uses this tool to develop its own codebase.
 
@@ -74,7 +74,7 @@ This creates a feedback loop where the agent's own capabilities improve over tim
 
 ## The Night Owl
 
-<img src="assets/Overnight%20Worker%20Quest.png" alt="Night Owl overnight worker agent" width="380"/>
+<p align="center"><img src="assets/Overnight%20Worker%20Quest.png" alt="Night Owl overnight worker agent" width="380"/></p>
 
 Switch to the **Night Owl** agent and it works while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work — researching topics, writing reports, running code — then logs what it did before going quiet.
 
@@ -86,7 +86,7 @@ Add one-off tasks at any time with `/overnight` — type the command, enter your
 
 ## The Fitness Coach
 
-<img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="380"/>
+<p align="center"><img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="380"/></p>
 
 The **Coach** agent tracks your workouts, logs nutrition, monitors your goals, and delivers weekly progress reports — all on-device, all in your own files.
 
