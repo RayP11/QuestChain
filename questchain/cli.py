@@ -34,7 +34,6 @@ from questchain.onboarding import (
     QUESTCHAIN_ART, TAGLINES,
     clear_onboarded, is_onboarded, run_onboarding,
     is_overnight_onboarded, run_overnight_onboarding,
-    is_fitness_onboarded, run_fitness_onboarding,
     run_setup_claude_code,
 )
 from questchain.memory.store import get_thread_history
@@ -1465,8 +1464,6 @@ async def _repl_loop(
                             chosen_class = chosen.get("class_name", "")
                             if chosen_class == "NightOwl" and not is_overnight_onboarded():
                                 await run_overnight_onboarding(agent_holder["agent"], console, prompt_session=session)
-                            elif chosen_class == "Trainer" and not is_fitness_onboarded():
-                                await run_fitness_onboarding(agent_holder["agent"], console, prompt_session=session)
 
                 if session_state.pop("run_level", False) and agent_manager is not None:
                     await show_stats(agent_manager.get_active())

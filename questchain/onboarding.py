@@ -91,11 +91,6 @@ def _overnight_md_path() -> Path:
     return WORKSPACE_DIR / "workspace" / "overnight.md"
 
 
-def _fitness_goals_path() -> Path:
-    from questchain.config import WORKSPACE_DIR
-    return WORKSPACE_DIR / "workspace" / "fitness" / "goals.md"
-
-
 def is_onboarded() -> bool:
     """Check if the user has completed onboarding."""
     return get_onboarded_marker_path().exists()
@@ -104,11 +99,6 @@ def is_onboarded() -> bool:
 def is_overnight_onboarded() -> bool:
     """True when overnight.md has been created (Night Owl onboarding done)."""
     return _overnight_md_path().exists()
-
-
-def is_fitness_onboarded() -> bool:
-    """True when fitness/goals.md has been created (Trainer onboarding done)."""
-    return _fitness_goals_path().exists()
 
 
 def mark_onboarded() -> None:
@@ -494,114 +484,3 @@ Output ONLY the markdown. No extra commentary."""
     return True
 
 
-async def run_fitness_onboarding(agent, console, prompt_session=None) -> bool:
-    """Set up the Fitness Coach agent — asks about goals and writes fitness files.
-
-    Returns True if completed, False if skipped.
-    """
-    from questchain.config import WORKSPACE_DIR
-    import re
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from questchain.models import get_model
-    from questchain.config import OLLAMA_MODEL
-
-    console.print()
-    console.print(Panel(
-        "  💪  [bold green]Coach[/bold green] — Personal fitness coach & health tracker\n\n"
-        "  I'll track your workouts, log nutrition, and keep you on target.\n"
-        "  Answer a few questions so I can personalize your plan.",
-        border_style="green",
-        title="[bold green] Fitness Coach Setup [/bold green]",
-        subtitle="[dim]Enter to skip[/dim]",
-    ))
-
-    FITNESS_QUESTIONS = [
-        ("goals",     "What are your main fitness goals? (e.g. lose weight, build muscle, run a 5K)"),
-        ("split",     "What's your current workout split? (e.g. PPL, upper/lower, 5-day bro split)"),
-        ("nutrition", "Are you tracking nutrition? What are your daily calorie/macro targets?"),
-        ("limits",    "Any injuries or limitations I should know about? (Enter to skip)"),
-    ]
-    answers: dict[str, str] = {}
-    for key, question in FITNESS_QUESTIONS:
-        console.print(f"\n[bold green]Coach[/bold green]")
-        console.print(question)
-        answer = await _prompt_user(prompt_session, console)
-        if answer is None:
-            return False
-        answers[key] = answer or "(not provided)"
-
-    console.print(f"\n[bold green]Coach[/bold green]")
-    console.print("[dim]Setting up your fitness workspace…[/dim]")
-
-    goals_prompt = f"""\
-Write a personalized fitness goals file in clean markdown.
-Use these exact sections: # Fitness Goals, ## Primary Goals, ## Current Workout Split,
-## Nutrition Targets, ## Limitations & Notes.
-Be specific and actionable — this file is read by your AI coach before every session.
-
-Goals: {answers['goals']}
-Workout split: {answers['split']}
-Nutrition targets: {answers['nutrition']}
-Limitations: {answers['limits']}
-
-Output ONLY the markdown. No extra commentary."""
-
-    model = get_model(OLLAMA_MODEL)
-    goals_response = await model.ainvoke([
-        SystemMessage(content="You write clear, motivating fitness goal documents."),
-        HumanMessage(content=goals_prompt),
-    ])
-    goals_text = re.sub(r"<think>.*?</think>", "", goals_response.content, flags=re.DOTALL).strip()
-
-    # Create fitness directory structure
-    fitness_dir = WORKSPACE_DIR / "workspace" / "fitness"
-    logs_dir = fitness_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    (fitness_dir / "goals.md").write_text(goals_text + "\n", encoding="utf-8")
-
-    nutrition_template = f"""\
-# Nutrition Tracking
-
-## Daily Targets
-{answers['nutrition'] if answers['nutrition'] != '(not provided)' else '- Set your targets here'}
-
-## Weekly Log
-| Date | Calories | Protein | Carbs | Fat | Notes |
-|------|----------|---------|-------|-----|-------|
-
-## Notes
-- Log meals here or ask Coach to log them for you
-"""
-    (fitness_dir / "nutrition.md").write_text(nutrition_template, encoding="utf-8")
-
-    progress_template = """\
-# Fitness Progress
-
-## Weekly Summaries
-<!-- Coach writes here every Sunday -->
-
-## Measurements Log
-| Date | Weight | Notes |
-|------|--------|-------|
-
-"""
-    (fitness_dir / "progress.md").write_text(progress_template, encoding="utf-8")
-
-    gitkeep = logs_dir / ".gitkeep"
-    if not gitkeep.exists():
-        gitkeep.write_text("", encoding="utf-8")
-
-    workouts_md = WORKSPACE_DIR / "workspace" / "workouts.md"
-    if not workouts_md.exists():
-        workouts_md.write_text(
-            "# Workout Programs\n\n"
-            "## Current Program\n"
-            "<!-- Describe your current program or ask Coach to build one -->\n\n"
-            "## Exercise Library\n"
-            "<!-- Coach adds exercises here as you log them -->\n",
-            encoding="utf-8",
-        )
-
-    console.print("[dim]Fitness workspace created.[/dim]")
-    return True

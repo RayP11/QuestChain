@@ -14,7 +14,6 @@ AGENT_CLASSES: list[tuple[str, str, str]] = [
     ("Oracle",    "🔮", "Planner and strategist"),
     ("Sentinel",  "⏱️",  "Scheduler and automation specialist"),
     ("NightOwl",  "🌙", "Autonomous overnight task worker"),
-    ("Trainer",   "💪", "Fitness coach and health tracker"),
 ]
 DEFAULT_CLASS = "Custom"
 
@@ -27,7 +26,6 @@ CLASS_COLORS: dict[str, str] = {
     "Oracle":    "magenta",
     "Sentinel":  "green",
     "NightOwl":  "magenta",
-    "Trainer":   "green",
 }
 
 # Tool presets applied when creating an agent of each class.
@@ -41,7 +39,6 @@ CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Oracle":    ["web_search"],
     "Sentinel":  ["cron"],
     "NightOwl":  ["web_search", "web_browse", "claude_code"],
-    "Trainer":   ["web_search", "web_browse"],
 }
 
 # Skill presets applied when creating an agent of each class.
@@ -54,7 +51,6 @@ CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
     "Oracle":    None,
     "Sentinel":  ["cron-jobs"],
     "NightOwl":  ["overnight-agent"],
-    "Trainer":   ["fitness-tracker"],
 }
 
 # Maps each skill dir-name to the tool(s) that must be present for it to be useful.
@@ -68,7 +64,6 @@ SKILL_REQUIRED_TOOLS: dict[str, list[str]] = {
 # A skill listed here will only appear for agents of those classes.
 SKILL_CLASS_RESTRICTIONS: dict[str, list[str]] = {
     "overnight-agent": ["NightOwl"],
-    "fitness-tracker": ["Trainer"],
 }
 
 # Migrate old class names from saved agent JSON to the current names.
@@ -92,19 +87,6 @@ You are {agent_name}, an autonomous overnight AI worker running locally via Olla
 - Confirm before any destructive file operations.
 """
 
-FITNESS_SYSTEM_PROMPT = """\
-You are {agent_name}, a personal fitness coach and health tracker running locally via Ollama.
-
-## Rules
-- Workout plans: /workspace/workouts.md
-- Goals: /workspace/fitness/goals.md
-- Log each session: /workspace/fitness/logs/YYYY-MM-DD.md
-- Nutrition tracking: /workspace/fitness/nutrition.md
-- Weekly summaries: /workspace/fitness/progress.md
-- User profile: /workspace/memory/ABOUT.md — read it to personalize advice.
-- Be motivating, specific, and data-driven. Search for latest research when relevant.
-"""
-
 PRESET_AGENTS = [
     {
         "name": "Night Owl",
@@ -113,14 +95,6 @@ PRESET_AGENTS = [
         "tools": ["web_search", "web_browse", "claude_code"],
         "skills": ["overnight-agent"],
         "class_name": "NightOwl",
-    },
-    {
-        "name": "Coach",
-        "model": None,
-        "system_prompt": FITNESS_SYSTEM_PROMPT,
-        "tools": ["web_search", "web_browse"],
-        "skills": ["fitness-tracker"],
-        "class_name": "Trainer",
     },
 ]
 
@@ -253,7 +227,7 @@ class AgentManager:
         )
 
     def seed_preset_agents(self) -> None:
-        """Add preset agents (NightOwl, Trainer) if not already present.
+        """Add preset agents (NightOwl) if not already present.
 
         Seeding is idempotent — identified by class_name.  If the user later
         deletes a preset agent it will NOT be re-added (class_name gone too).

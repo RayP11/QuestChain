@@ -84,19 +84,6 @@ Add one-off tasks at any time with `/overnight` — type the command, enter your
 
 ---
 
-## The Fitness Coach
-
-<p align="center"><img src="assets/Fitness%20Coach%20Quest.png" alt="Fitness Coach agent" width="380"/></p>
-
-The **Coach** agent tracks your workouts, logs nutrition, monitors your goals, and delivers weekly progress reports — all on-device, all in your own files.
-
-Activate it once and it runs a short onboarding: your goals, current workout split, macro targets, and any limitations. It writes your profile to `workspace/fitness/goals.md`, sets up your nutrition and progress files, and schedules two recurring check-ins automatically:
-
-- **Daily at 8 AM** — today's workout and motivation
-- **Every Sunday at 9 AM** — weekly progress summary and next-week plan
-
----
-
 ## Why QuestChain?
 
 Most AI assistants send your conversations to the cloud, charge per token, and forget everything the moment you close the tab. QuestChain is different.
@@ -141,7 +128,6 @@ Use `/stats` to see your agent's XP bar, top tools, and achievement history. Use
 | Oracle | 🔮 | Web search |
 | Sentinel | ⏱️ | Cron scheduler |
 | Night Owl | 🌙 | Web search + browse + Claude Code |
-| Trainer | 💪 | Web search + browse |
 
 ---
 

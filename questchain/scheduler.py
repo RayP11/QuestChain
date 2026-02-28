@@ -15,34 +15,7 @@ from questchain.config import get_cron_jobs_path
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_CRON_JOBS: list[dict] = [
-    {
-        "id": "builtin_fitness_morning",
-        "name": "Fitness: Morning check-in",
-        "cron_expression": "0 8 * * *",
-        "timezone": "UTC",
-        "prompt": (
-            "Morning fitness check-in! Read /workspace/fitness/goals.md and "
-            "/workspace/workouts.md. Tell me today's workout and give me motivation."
-        ),
-        "enabled": True,
-        "agent_class": "Trainer",
-        "built_in": True,
-    },
-    {
-        "id": "builtin_fitness_weekly",
-        "name": "Fitness: Weekly review",
-        "cron_expression": "0 9 * * 0",
-        "timezone": "UTC",
-        "prompt": (
-            "Weekly fitness review! Read /workspace/fitness/logs/ for this week's "
-            "sessions and /workspace/fitness/goals.md. Summarize progress and plan next week."
-        ),
-        "enabled": True,
-        "agent_class": "Trainer",
-        "built_in": True,
-    },
-]
+BUILTIN_CRON_JOBS: list[dict] = []
 
 # Module-level singleton
 _scheduler_instance: "CronScheduler | None" = None
