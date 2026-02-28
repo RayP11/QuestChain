@@ -283,11 +283,14 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     ensure_memory_dir()
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
+    profile_md = MEMORY_DIR / "profile.md"
     heartbeat_md = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
     if not agents_md.exists():
         agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n", encoding="utf-8")
     if not about_md.exists():
         about_md.write_text("", encoding="utf-8")
+    if not profile_md.exists():
+        profile_md.write_text("", encoding="utf-8")
     if not heartbeat_md.exists():
         heartbeat_md.write_text("", encoding="utf-8")  # placeholder; filled after questions
 
@@ -325,7 +328,13 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
             return False
         answers[key] = answer or "(not provided)"
 
-    # ── Direct model call to format the profile (bypasses agent middleware) ───
+    # ── Write profile.md — name/address injected into every agent ────────────
+    profile_md.write_text(
+        f"My user's name is {answers['name']}.",
+        encoding="utf-8",
+    )
+
+    # ── Direct model call to format the full profile (bypasses agent middleware) ─
     # We call the LLM directly so summarization/tool middleware can't interfere.
     # The model generates the markdown; we write the file ourselves.
     import re

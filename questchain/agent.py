@@ -14,7 +14,6 @@ You are {agent_name}, a capable AI assistant running locally via Ollama.
 - Never hallucinate file contents, URLs, or facts — verify with tools first.
 - Coding tasks → use `claude_code`. Need current info → `web_search` then `web_browse`.
 - All virtual file paths start with `/` (e.g. `/workspace/memory/ABOUT.md`).
-- User profile is at `/workspace/memory/ABOUT.md` — read it to personalize responses.
 - For complex multi-step tasks, plan with `write_todos` first.
 - Confirm before risky or destructive actions.
 - Be concise and direct.
@@ -28,6 +27,7 @@ def create_questchain_agent(
     skills_filter: list[str] | None = None,
     agent_name: str = "QuestChain",
     on_audio=None,
+    injected_files=None,
     # Legacy params accepted but unused (kept for call-site compatibility)
     checkpointer=None,
     store=None,
@@ -80,6 +80,7 @@ def create_questchain_agent(
         skills=skills,
         system_prompt=system_prompt,
         agent_name=agent_name,
+        injected_files=injected_files,
     )
 
 
@@ -89,8 +90,16 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     Moved here from cli.py so busy_work.py and scheduler.py can import it
     without creating a circular dependency through cli.py.
     """
+    from pathlib import Path
     skills_raw = agent_def.get("skills")  # None/"all" → all; list → filtered
     skills_filter = None if (skills_raw is None or skills_raw == "all") else skills_raw
+
+    # profile.md is injected into every agent; ABOUT.md only for the default agent.
+    memory_dir = WORKSPACE_DIR / "workspace" / "memory"
+    injected_files = [memory_dir / "profile.md"]
+    if agent_def.get("id") == "default":
+        injected_files.append(memory_dir / "ABOUT.md")
+
     return create_questchain_agent(
         model_name=agent_def.get("model"),
         on_audio=audio_router,
@@ -98,4 +107,5 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
         tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
         skills_filter=skills_filter,
         agent_name=agent_def.get("name", "QuestChain"),
+        injected_files=injected_files,
     )

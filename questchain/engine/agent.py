@@ -16,6 +16,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from datetime import datetime
+from pathlib import Path
 from typing import Awaitable, Callable
 
 from questchain.engine.context import ContextManager
@@ -40,12 +41,14 @@ class Agent:
         skills: SkillsManager,
         system_prompt: str,
         agent_name: str = "QuestChain",
+        injected_files: list[Path] | None = None,
     ):
         self.model = model
         self.tools = tools
         self.skills = skills
         self.agent_name = agent_name
         self._base_system_prompt = system_prompt
+        self._injected_files: list[Path] = injected_files or []
         self.last_iterations: int = 0   # tool-loop depth of the most recent turn
         self.last_tool_errors: int = 0  # error count of the most recent turn
 
@@ -187,6 +190,15 @@ class Agent:
     def _build_system_prompt(self) -> str:
         now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         parts = [self._base_system_prompt]
+
+        # Inject profile/about files from disk (always fresh)
+        for path in self._injected_files:
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                if content:
+                    parts.append(content)
+            except FileNotFoundError:
+                pass
 
         skill_text = self.skills.skill_list_text()
         if skill_text:
