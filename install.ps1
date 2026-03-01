@@ -54,7 +54,12 @@ Step "Checking Ollama..."
 if (Get-Command ollama -ErrorAction SilentlyContinue) {
     OK "Ollama already installed ($(ollama --version 2>&1))"
 } else {
-    Winget-Install "Ollama.Ollama" "Ollama"
+    Write-Host ""
+    Warn "Ollama is not installed."
+    Write-Host "  Install it from: " -NoNewline; Write-Host "https://ollama.com/download" -ForegroundColor Cyan
+    Write-Host "  Then run " -NoNewline; Write-Host "ollama serve" -ForegroundColor Cyan -NoNewline; Write-Host " to start it, and re-run this installer."
+    Write-Host ""
+    exit 1
 }
 
 # -- Python 3.13 --------------------------------------------------------------

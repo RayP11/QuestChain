@@ -28,35 +28,12 @@ step "Checking Ollama..."
 if command_exists ollama; then
     ok "Ollama already installed ($(ollama --version 2>&1 | head -1))"
 else
-    if [[ "$OS" == "Darwin" ]]; then
-        if ! command_exists brew; then
-            # Homebrew requires Xcode Command Line Tools
-            if ! xcode-select -p &>/dev/null; then
-                step "Installing Xcode Command Line Tools (required for Homebrew)..."
-                xcode-select --install 2>/dev/null || true
-                warn "A dialog may have appeared — click Install and wait for it to finish."
-                warn "Press Enter here once the Command Line Tools are installed."
-                read -r
-            fi
-            step "Installing Homebrew..."
-            # Prime sudo credentials so NONINTERACTIVE=1 doesn't fail silently
-            sudo -v
-            NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            # Add Homebrew to PATH for Apple Silicon Macs (/opt/homebrew not on PATH by default)
-            if [[ "$(uname -m)" == "arm64" ]] && [[ -x "/opt/homebrew/bin/brew" ]]; then
-                eval "$(/opt/homebrew/bin/brew shellenv)"
-            fi
-            command_exists brew || fatal "Homebrew installation failed. Install it manually from https://brew.sh then re-run."
-            ok "Homebrew installed"
-        fi
-        step "Installing Ollama via Homebrew..."
-        brew install ollama
-        ok "Ollama installed"
-    else
-        step "Installing Ollama..."
-        curl -fsSL https://ollama.com/install.sh | sh
-        ok "Ollama installed"
-    fi
+    echo ""
+    warn "Ollama is not installed."
+    echo -e "  Install it from: \033[36mhttps://ollama.com/download\033[0m"
+    echo -e "  Then run \033[36mollama serve\033[0m to start it, and re-run this installer."
+    echo ""
+    exit 1
 fi
 
 # ── uv ────────────────────────────────────────────────────────────────────────
