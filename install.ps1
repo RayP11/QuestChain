@@ -60,7 +60,8 @@ if (Get-Command ollama -ErrorAction SilentlyContinue) {
 # -- Python 3.13 --------------------------------------------------------------
 
 Step "Checking Python..."
-$pyVersion = python --version 2>&1
+$pyCmd    = Get-Command python -ErrorAction SilentlyContinue
+$pyVersion = if ($pyCmd) { python --version 2>&1 } else { "" }
 if ($pyVersion -match "Python 3\.1[3-9]") {
     OK "Python already installed ($pyVersion)"
 } else {
@@ -88,7 +89,33 @@ Step "Installing QuestChain..."
 uv tool install "git+https://github.com/RayP11/QuestChain" --reinstall
 if ($LASTEXITCODE -ne 0) { Fatal "uv tool install failed." }
 Refresh-Path
+# uv has a known Windows bug where it doesn't always detect its own bin dir on PATH;
+# add it explicitly as a fallback so 'questchain' is callable in this session.
+$uvBinDir = Join-Path $env:USERPROFILE ".local\bin"
+if ((Test-Path $uvBinDir) -and $env:PATH -notlike "*$uvBinDir*") {
+    $env:PATH = "$uvBinDir;$env:PATH"
+}
 OK "QuestChain installed"
+
+# -- Workspace ----------------------------------------------------------------
+
+$WorkspaceDir = Join-Path $env:USERPROFILE "questchain"
+$DataDir      = Join-Path $env:USERPROFILE ".questchain"
+$DataEnv      = Join-Path $DataDir ".env"
+
+Step "Setting up workspace at $WorkspaceDir..."
+New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceDir "workspace\memory") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceDir "workspace\skills")  | Out-Null
+New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+
+# Pin the workspace in ~/.questchain/.env so 'questchain' finds it from any terminal.
+$existing = if (Test-Path $DataEnv) { Get-Content $DataEnv -Raw } else { "" }
+if ($existing -notmatch "(?m)^QUESTCHAIN_WORKSPACE_DIR=") {
+    Add-Content -Path $DataEnv -Value "QUESTCHAIN_WORKSPACE_DIR=$WorkspaceDir"
+    OK "Workspace pinned: $WorkspaceDir"
+} else {
+    OK "Workspace already configured"
+}
 
 # -- Default model ------------------------------------------------------------
 
@@ -103,13 +130,26 @@ try {
 
 if (-not $ollamaRunning) {
     Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden
-    Start-Sleep -Seconds 3
+    # Wait up to 30 seconds for Ollama to become ready
+    Step "Waiting for Ollama to start..."
+    $ready = $false
+    for ($i = 1; $i -le 15; $i++) {
+        Start-Sleep -Seconds 2
+        try {
+            $r = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 2 -UseBasicParsing
+            if ($r.StatusCode -eq 200) { $ready = $true; break }
+        } catch {}
+    }
+    if (-not $ready) {
+        Fatal "Ollama did not start in time. Try running 'ollama serve' manually, then re-run this installer."
+    }
+    OK "Ollama is ready"
 }
 
 Step "Pulling default model ($DefaultModel) - this may take a few minutes..."
 Warn "You can change the model later with: questchain start -m [model-name]"
 ollama pull $DefaultModel
-if ($LASTEXITCODE -ne 0) { Warn "Model pull failed. Run 'ollama pull $DefaultModel' manually." }
+if ($LASTEXITCODE -ne 0) { Fatal "Model pull failed. Check your internet connection and try again, or run: ollama pull $DefaultModel" }
 else { OK "Model '$DefaultModel' ready" }
 
 # -- Done ---------------------------------------------------------------------

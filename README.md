@@ -173,7 +173,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Ray
 curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
 ```
 
-> **macOS note:** Ollama is installed via [Homebrew](https://brew.sh). If you don't have Homebrew, install it first or download Ollama manually from [ollama.com](https://ollama.com/download).
+> **macOS note:** The installer will install [Homebrew](https://brew.sh) automatically if you don't have it. If Xcode Command Line Tools are missing, a dialog will appear — click Install and wait for it to finish, then press Enter to continue.
 
 What gets installed:
 - **Ollama** — local LLM runtime

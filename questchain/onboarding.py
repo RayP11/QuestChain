@@ -189,7 +189,7 @@ async def run_setup_tavily(console, prompt_session) -> bool:
     key = await _prompt_input(prompt_session, console, "  API key (Enter to skip): ")
     if key:
         _save_env_key("TAVILY_API_KEY", key)
-        console.print("  [green]✓ Saved to ~/.questchain/.env — restart QuestChain to enable web search.[/green]")
+        console.print("  [green]✓ Saved to .env — restart QuestChain to enable web search.[/green]")
         return True
     console.print("  [dim]Skipped.[/dim]")
     return False
@@ -221,7 +221,7 @@ async def run_setup_telegram(console, prompt_session) -> bool:
     owner_id = await _prompt_input(prompt_session, console, "  Your Telegram user ID: ")
     if owner_id:
         _save_env_key("TELEGRAM_OWNER_ID", owner_id)
-    console.print("  [green]✓ Saved to ~/.questchain/.env — restart QuestChain to activate the bot.[/green]")
+    console.print("  [green]✓ Saved to .env — restart QuestChain to activate the bot.[/green]")
     return True
 
 

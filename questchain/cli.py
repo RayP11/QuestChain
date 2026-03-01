@@ -1147,6 +1147,16 @@ async def repl(
     active_def = agent_manager.get_active()
     effective_model = active_def.get("model") or model_name
 
+    # Verify the model is actually pulled — fail early with a clear message
+    available = list_available_models()
+    if available and not any(m.startswith(effective_model.split(":")[0]) for m in available):
+        console.print(
+            f"[bold red]Model '{effective_model}' is not pulled.[/bold red]\n"
+            f"Run: [cyan]ollama pull {effective_model}[/cyan]\n\n"
+            f"Available models: {', '.join(available) or 'none'}"
+        )
+        return
+
     # Session state
     session_state = {
         "thread_id": thread_id or str(uuid.uuid4()),

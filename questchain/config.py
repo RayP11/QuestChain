@@ -5,10 +5,20 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load from project .env first, then from ~/.questchain/.env as fallback
-load_dotenv()
-_questchain_env = Path(os.getenv("QUESTCHAIN_DATA_DIR", str(Path.home() / ".questchain"))) / ".env"
-load_dotenv(_questchain_env)  # override=False (default) won't clobber already-set vars
+# ── .env loading (order matters) ──────────────────────────────────────────────
+# 1. Data-dir .env first — the installer writes QUESTCHAIN_WORKSPACE_DIR here
+#    so the app can locate its workspace from any terminal, on any machine.
+_data_env = Path(os.getenv("QUESTCHAIN_DATA_DIR", str(Path.home() / ".questchain"))) / ".env"
+load_dotenv(_data_env)
+
+# 2. Resolve workspace dir now that the data-dir .env has been applied.
+#    Falls back to the package directory only when not installed as a uv tool
+#    (i.e. running directly from a source checkout).
+WORKSPACE_DIR = Path(os.getenv("QUESTCHAIN_WORKSPACE_DIR", Path(__file__).resolve().parent.parent))
+MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
+
+# 3. Workspace .env — project/API-key settings, overrides data-dir .env.
+load_dotenv(WORKSPACE_DIR / ".env", override=True)
 
 # --- Ollama settings ---
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -38,10 +48,6 @@ TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID") or "0")
 
 # --- Data directory ---
 QUESTCHAIN_DATA_DIR = Path(os.getenv("QUESTCHAIN_DATA_DIR", Path.home() / ".questchain"))
-
-# --- Workspace memory directory (agent-accessible notes/knowledge) ---
-WORKSPACE_DIR = Path(os.getenv("QUESTCHAIN_WORKSPACE_DIR", Path(__file__).resolve().parent.parent))
-MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 
 # --- Model presets ---
 MODEL_PRESETS = {
