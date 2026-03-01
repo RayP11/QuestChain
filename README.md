@@ -2,13 +2,12 @@
 
 <img src="assets/QuestChain.png" alt="QuestChain" width="400"/>
 
-# Truly Local. Always On.
+# Truly Local. Always On. Ready for Quests.
 
 ### Your AI assistant — running on your hardware, working for you around the clock.
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
-[![Stars](https://img.shields.io/github/stars/RayP11/QuestChain?style=flat&color=yellow)](https://github.com/RayP11/QuestChain/stargazers)
 [![License](https://img.shields.io/github/license/RayP11/QuestChain)](https://github.com/RayP11/QuestChain/blob/main/LICENSE)
 
 </div>
@@ -35,7 +34,6 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 - [Busy Work](#busy-work)
 - [Configuration](#configuration)
 - [Model Presets](#model-presets)
-- [Project Structure](#project-structure)
 - [Built With](#built-with)
 
 ---
@@ -66,22 +64,10 @@ QuestChain isn't just a tool — it's a companion you build over time. Every age
 - **+20 XP for Claude Code** — delegating a programming task earns a bonus
 - **+25 XP per busy-work task** — autonomous background tasks count toward progression
 
-**What you're building toward:**
+**How the experience works:**
 - **20 levels** — exponential curve; each level is ~1.6× harder than the last
 - **21 achievements** — milestones across leveling, tool mastery, and behavior
 - **7 agent classes** — each with its own identity, tool loadout, and independent progression
-
-```
-──────────── Aria · Lv.3 🔭 Explorer ────────────
-❯ find the latest papers on in-context learning
-
-Aria  Lv.3
-  > Using tool: web_search
-  > Using tool: web_browse
-...
-⚔  LEVEL UP — Level 4  ·  🔭 Explorer
-  ✦ Achievement unlocked: Bibliophile — Read 50 files
-```
 
 Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster — each agent tracks its own progression independently, so your Night Owl and your Architect each have their own story.
 
@@ -129,81 +115,41 @@ Pick a class when creating an agent — it sets the tool loadout, identity, and 
 
 ## Built for the Edge
 
-Most AI agent frameworks are designed around cloud inference — they assume fast APIs, abundant context windows, and predictable latency. QuestChain is built for the opposite: **consumer GPUs, local models, and constrained hardware.**
-
-The engine is a custom Python async loop — no agent framework, no middleware stack. Just the Ollama Python client, `asyncio`, and a tight streaming loop written specifically to get the most out of small local models.
+Most AI tools assume cloud infrastructure — fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own.
 
 > *"All the power of AI, none of the cloud bills."*
 
-**How it's optimized for edge hardware:**
+The engine is purpose-built for small models and constrained hardware:
 
-- **No framework overhead.** The entire agent loop is ~100 lines of plain Python. Stream from Ollama, detect tool calls, execute, loop. No graph execution engines, no serialization layers, nothing between the model and your hardware.
-
-- **Streaming from the first token.** Text tokens are yielded to the UI as they arrive from Ollama. You see output immediately — critical when you can't afford the latency of waiting for a full response before rendering.
-
-- **`<think>` filtering on the stream.** Reasoning models like DeepSeek-R1 and Qwen3 emit `<think>…</think>` blocks before their actual response. QuestChain strips them using a character-level state machine *as the stream arrives* — they never reach the context buffer, never consume your token budget, and never appear in the UI.
-
-- **Per-model context tuning.** Each model preset specifies its own `num_ctx`, `num_predict`, and `temperature`. You're not running an 8B model with a 128k context window it can't fill — context is sized to match the model's actual capacity.
-
-- **Direct GPU and CPU control.** `OLLAMA_NUM_GPU` and `OLLAMA_NUM_THREAD` pass through directly to Ollama's inference options. Pin layers to GPU, pin thread count — no abstraction layer in the way.
-
-- **Approximate token counting, no tokenizer API.** Budget tracking uses `chars / 4` — a fast local approximation with no round-trip to the model. Context compaction triggers automatically before the window fills up.
-
-- **Auto-compaction via the model itself.** When context gets tight, QuestChain keeps the 6 most recent messages and uses the model to summarise everything older into a single block. The summary replaces the raw history in the JSONL file — reclaiming space while preserving what matters.
-
-- **Parallel tool execution.** When the model issues multiple tool calls in one turn, they run concurrently via `asyncio.gather`. File reads, web searches, and shell commands that don't depend on each other don't wait in line.
-
-- **Plain JSONL history, no database.** Conversation history is stored as one JSON object per line in `~/.questchain/sessions/`. Human-readable, zero-dependency, trivially debuggable.
+- **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
+- **Context is managed automatically.** Each model runs with a tuned memory budget. When it fills up, QuestChain summarizes older conversation into a single block and keeps going — no crashes, no cutoffs.
+- **Tools run in parallel.** When the agent needs to search the web, read a file, and run a command at once, it does all three simultaneously.
 
 ---
 
 ## The OpenClaw for Edge AI
 
-Think of QuestChain as the [OpenClaw](https://github.com/openclaw/openclaw) for edge AI models. OpenClaw is a popular framework built around cloud-scale models and large context windows — it's powerful, but it requires 20B+ parameters and 16K+ token context to run reliably. QuestChain brings that same agentic capability down to the hardware most people actually own, running reliably on models as small as **3B parameters**.
+Most AI agent frameworks are built for cloud servers — large models, massive memory, always-online. QuestChain delivers the same agentic capability on hardware you already own, running reliably on models as small as **3B parameters**.
 
-The difference is architectural. Cloud-oriented agents carry heavy overhead by design: system prompts in the thousands of tokens, workspace files injected upfront, and tool calling formats built for models with vast context. QuestChain strips all of that away — a 458 character system prompt, Ollama's native tool protocol, lazy-loaded skills, and a token budget that auto-compacts before it ever fills up. The result is a full agentic loop that works on a laptop GPU, a Raspberry Pi, or anything in between.
+It's faster because it's lean — no framework overhead, no bloated prompts, no unnecessary round-trips. Your data never leaves your machine, so there's nothing to intercept. Because the whole stack is local and open, you stay in control with no accounts or API keys required to get started.
 
-Here's what makes it efficient:
-
-- **458 character system prompt.** ~115 tokens. Every token in the system prompt repeats on every turn, so keeping it small compounds over long sessions. A 3B model holds it completely without degradation.
-
-- **Ollama native tool calling.** QuestChain uses Ollama's native Python client directly, keeping tool calls on the native protocol where they work reliably at any model size.
-
-- **Lazy skill loading.** Each skill adds only its name and a one-line description (~24 tokens) to the system prompt. Full content is fetched only when the agent calls for it. A large skill library costs almost nothing at inference time.
-
-- **Token-budgeted context with auto-compaction.** Context is tracked with an explicit token budget tuned per model. When it fills up, QuestChain keeps the 6 most recent messages verbatim and uses the model to summarize everything older into a single block — context stays bounded without losing recent work.
-
-- **No sub-agents, no orchestration overhead.** QuestChain is a single loop: stream from Ollama, detect tool calls, execute in parallel, repeat. Nothing between you and your hardware.
-
-**Fully local by default — optionally connected.** The core works 100% offline with no external accounts required. Two optional integrations let local agents reach further when you want them to: [Tavily](https://tavily.com) for live web search and full-page extraction, and [Claude Code](https://claude.ai/code) for delegating complex coding tasks to Anthropic's CLI agent. Both are opt-in, set up with a single `/tavily` or `/claudecode` command inside QuestChain, and only activate when explicitly called.
+Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
 
 ---
 
 ## It Codes Itself
 
-QuestChain has a `claude_code` tool that delegates programming tasks to Claude Code — Anthropic's AI coding agent running locally in your terminal. QuestChain uses this tool to develop its own codebase.
+QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) — Anthropic's coding agent — with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back. Features in QuestChain were written by QuestChain itself.
 
-When QuestChain identifies a bug, wants a new feature, or needs to refactor something, it can hand off a coding task to Claude Code with full filesystem access, then review the result. This has already happened: features in QuestChain's codebase were written by QuestChain itself, using Claude Code as its hands.
+This creates a loop where the agent improves over time without you writing a line of code.
 
-This creates a feedback loop where the agent's own capabilities improve over time — without you writing a line of code.
-
-```
-  You: "add a command that summarizes my TASKS.md"
-     ↓
-  QuestChain reasons about what needs to change
-     ↓
-  Calls claude_code("add /summary command to cli.py that reads TASKS.md...")
-     ↓
-  Claude Code edits the files, runs tests, commits
-     ↓
-  QuestChain reviews the result and reports back
-```
+> **No Claude Code?** Run a local coder model instead — `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
 
 ---
 
 ## The Night Owl
 
-Switch to the **Night Owl** agent and it works while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work — researching topics, writing reports, running code — then logs what it did before going quiet.
+The **Night Owl** is a prepackaged agent built to work while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work — researching topics, writing reports, running code — then logs what it did before going quiet.
 
 When you first activate the Night Owl, it walks you through a short setup: what topics to research each night, what standing tasks to prepare for you each morning, and anything else you want done in the background. It generates a structured `overnight.md` from your answers and runs from it every night.
 
@@ -315,22 +261,31 @@ Restart QuestChain and the bot starts alongside the CLI. The same conversation t
 
 ---
 
-## Busy Work
+## Autonomous Work
 
-QuestChain can work autonomously in the background on a timer. Drop tasks into `workspace/TASKS.md`:
+QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it reads `workspace/HEARTBEAT.md` and acts on anything that needs attention. If nothing does, it stays silent.
+
+`HEARTBEAT.md` is a plain Markdown file — write whatever standing tasks or instructions you want the agent to follow each tick:
 
 ```markdown
-- [ ] Research the latest news on quantum computing and summarize key developments
-- [ ] Check if any of my Python packages have available updates
-- [ ] Draft a weekly status email based on my recent work
+# HEARTBEAT.md
+
+- **Research**: Check for new developments in AI tooling and log findings to workspace/notes.md
+- **Maintenance**: Scan for broken links or stale entries in ABOUT.md
+- **Prep**: Draft a morning briefing from recent news and save to workspace/briefing.md
 ```
 
-QuestChain picks up one task per tick, completes it using all its tools, marks it done, and sends you a summary — in the terminal and on Telegram if configured.
+The agent interprets the file, uses all its tools to complete what needs doing, and sends you a summary in the terminal and on Telegram if configured. It stays silent if there's nothing to act on.
 
 ```bash
-# Run with a 30-minute busy work interval
+# Run with a custom interval (minutes)
 questchain start --busy-work 30
+
+# Disable background work entirely
+questchain start --no-busy-work
 ```
+
+Use `/busy` to check scheduler status and `/tasks` to view your current `HEARTBEAT.md`.
 
 ---
 
@@ -369,6 +324,12 @@ Any Ollama model works. These are pre-tuned for the best agentic experience on e
 | `deepseek-r1:7b` | ~6 GB | Strong reasoning, `<think>` filtered automatically |
 | `deepseek-r1:14b` | ~10 GB | Stronger reasoning |
 | `deepseek-coder-v2:16b` | ~12 GB | Best local code generation |
+| `qwen3:4b` | ~3 GB | Compact Qwen3 — solid tool calling, native thinking |
+| `qwen3:1.7b` | ~1.5 GB | Ultra-light Qwen3 — runs on CPU or minimal VRAM |
+| `qwen2.5:3b` | ~2.5 GB | Smallest reliable tool-calling model |
+| `llama3.2:3b` | ~2.5 GB | Meta's 3B — fast, decent tool use |
+| `phi4-mini:3.8b` | ~3 GB | Microsoft Phi-4 Mini — punches above its size |
+| `gemma3:4b` | ~3 GB | Google Gemma 3 4B — efficient, good instruction following |
 
 ```bash
 questchain start --list-models   # see all presets with descriptions
@@ -377,45 +338,6 @@ questchain start -m <any-model>  # use any model installed in Ollama
 
 ---
 
-## Project Structure
-
-```
-(project root)/
-├── questchain/
-│   ├── __main__.py         Entry point
-│   ├── cli.py              Terminal UI and REPL loop
-│   ├── agent.py            Agent factory — wires engine together
-│   ├── agents.py           Agent profiles — classes, presets, persistence
-│   ├── progression.py      XP, levels, achievements per agent
-│   ├── config.py           Settings, model presets, paths
-│   ├── telegram.py         Telegram bot adapter
-│   ├── scheduler.py        Cron job runner
-│   ├── busy_work.py        Background autonomous work loop
-│   ├── onboarding.py       First-run onboarding flow
-│   ├── engine/             Custom Python async agent runtime
-│   │   ├── agent.py        Core stream→tools→stream loop
-│   │   ├── model.py        OllamaModel: streaming + <think> filtering
-│   │   ├── tools.py        ToolRegistry, @tool decorator, parallel exec
-│   │   ├── context.py      JSONL history, token budget, compaction
-│   │   ├── skills.py       Lazy skill loader
-│   │   └── builtins/       filesystem, shell, planning tools
-│   ├── tools/
-│   │   ├── web_search.py   Tavily search
-│   │   ├── web_browse.py   Tavily page extract
-│   │   ├── claude_code.py  Delegate coding tasks to Claude Code
-│   │   ├── cron.py         Cron management tools
-│   │   └── speak.py        Kokoro TTS voice output
-│   └── memory/
-│       └── store.py        Thread history shim
-├── skills/                 Agent skill definitions (Markdown)
-└── workspace/
-    ├── TASKS.md            Drop tasks here for busy work
-    └── memory/
-        ├── ABOUT.md        Your profile (written during onboarding)
-        └── AGENTS.md       Agent's own persistent notes
-```
-
----
 
 ## Built With
 
