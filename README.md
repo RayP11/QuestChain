@@ -8,7 +8,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
-[![License](https://img.shields.io/github/license/RayP11/QuestChain)](https://github.com/RayP11/QuestChain/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/RayP11/QuestChain)](https://github.com/RayP11/QuestChain/blob/master/LICENSE)
 
 </div>
 
