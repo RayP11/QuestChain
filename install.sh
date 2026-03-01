@@ -98,9 +98,9 @@ fi
 MODELS=(
     "qwen3:8b|~6 GB |Fast, excellent tool calling (recommended)"
     "qwen3:4b|~3 GB |Compact — good tool calling, lower VRAM"
-    "qwen3:1.7b|~1.5 GB|Ultra-light — runs on CPU or minimal VRAM"
+    "qwen3:1.7b|~2 GB  |Ultra-light — runs on CPU or minimal VRAM"
     "qwen2.5:7b-instruct|~6 GB |Top-tier tool calling"
-    "qwen2.5:14b-instruct|~10 GB|More capable, higher quality"
+    "qwen2.5:14b-instruct|~12 GB|More capable, higher quality"
 )
 
 echo ""

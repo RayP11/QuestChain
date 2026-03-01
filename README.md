@@ -332,7 +332,7 @@ Any Ollama model works. These are pre-tuned for the best agentic experience on e
 | `deepseek-r1:14b` | ~10 GB | Stronger reasoning |
 | `deepseek-coder-v2:16b` | ~12 GB | Best local code generation |
 | `qwen3:4b` | ~3 GB | Compact Qwen3 — solid tool calling, native thinking |
-| `qwen3:1.7b` | ~1.5 GB | Ultra-light Qwen3 — runs on CPU or minimal VRAM |
+| `qwen3:1.7b` | ~2 GB | Ultra-light Qwen3 — runs on CPU or minimal VRAM |
 | `qwen2.5:3b` | ~2.5 GB | Smallest reliable tool-calling model |
 | `llama3.2:3b` | ~2.5 GB | Meta's 3B — fast, decent tool use |
 | `phi4-mini:3.8b` | ~3 GB | Microsoft Phi-4 Mini — punches above its size |

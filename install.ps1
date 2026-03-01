@@ -142,9 +142,9 @@ OK "Ollama is running"
 $Models = @(
     @{Name="qwen3:8b";             Vram="~6 GB";   Desc="Fast, excellent tool calling (recommended)"},
     @{Name="qwen3:4b";             Vram="~3 GB";   Desc="Compact — good tool calling, lower VRAM"},
-    @{Name="qwen3:1.7b";           Vram="~1.5 GB"; Desc="Ultra-light — runs on CPU or minimal VRAM"},
+    @{Name="qwen3:1.7b";           Vram="~2 GB";   Desc="Ultra-light — runs on CPU or minimal VRAM"},
     @{Name="qwen2.5:7b-instruct";  Vram="~6 GB";   Desc="Top-tier tool calling"},
-    @{Name="qwen2.5:14b-instruct"; Vram="~10 GB";  Desc="More capable, higher quality"}
+    @{Name="qwen2.5:14b-instruct"; Vram="~12 GB";  Desc="More capable, higher quality"}
 )
 
 Write-Host ""
