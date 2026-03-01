@@ -22,12 +22,12 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 ## Contents
 
 - [What It Can Do](#what-it-can-do)
+- [RPG Progression](#rpg-progression)
 - [Local vs. Cloud](#local-vs-cloud)
 - [Built for the Edge](#built-for-the-edge)
 - [The OpenClaw for Edge AI](#the-openclaw-for-edge-ai)
 - [It Codes Itself](#it-codes-itself)
 - [The Night Owl](#the-night-owl)
-- [RPG Progression](#rpg-progression)
 - [Install](#install)
 - [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
@@ -53,6 +53,61 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 - 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
 - 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
 - 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
+
+---
+
+## RPG Progression
+
+QuestChain isn't just a tool — it's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
+
+**How XP is earned:**
+- **10 XP per turn** — base award for each conversation exchange
+- **+2 XP per tool call** — reading files, searching the web, running commands, writing, planning
+- **+20 XP for Claude Code** — delegating a programming task earns a bonus
+- **+25 XP per busy-work task** — autonomous background tasks count toward progression
+
+**What you're building toward:**
+- **20 levels** — exponential curve; each level is ~1.6× harder than the last
+- **21 achievements** — milestones across leveling, tool mastery, and behavior
+- **7 agent classes** — each with its own identity, tool loadout, and independent progression
+
+```
+──────────── Aria · Lv.3 🔭 Explorer ────────────
+❯ find the latest papers on in-context learning
+
+Aria  Lv.3
+  > Using tool: web_search
+  > Using tool: web_browse
+...
+⚔  LEVEL UP — Level 4  ·  🔭 Explorer
+  ✦ Achievement unlocked: Bibliophile — Read 50 files
+```
+
+Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster — each agent tracks its own progression independently, so your Night Owl and your Architect each have their own story.
+
+### Achievements
+
+21 milestones unlock across three categories:
+
+**Progression** — *First Strike*, *Awakening*, *Seasoned*, *Veteran*, *Legend* (max level)
+
+**Tool Mastery** — *Bibliophile* (50 files read), *Web Walker* (50 searches), *Globe Trotter* (25 pages browsed), *Blacksmith* (25 Claude Code tasks), *Demolition* (50 shell commands), *Archivist* (25 files written), *Grand Planner* (10 task lists written)
+
+**Behavior** — *Polymath* (6 distinct tools used), *Speed Demon* (5+ tools in one turn), *Centurion* (1,000 XP earned), *Busy Bee* (10 background tasks), *Road Runner* (50 background tasks)
+
+### Classes
+
+Pick a class when creating an agent — it sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
+
+| Class | Icon | Specialty | Tool Preset |
+|---|---|---|---|
+| Custom | 🌀 | You decide | You configure |
+| Sage | 📚 | Files & knowledge | Built-in tools only |
+| Explorer | 🔭 | Research & discovery | Web search + browse |
+| Architect | ⚒️ | Code & systems | Claude Code |
+| Oracle | 🔮 | Planning & strategy | Web search |
+| Sentinel | ⏱️ | Automation | Cron scheduler |
+| Night Owl | 🌙 | Overnight work | Web search + browse + Claude Code |
 
 ---
 
@@ -157,43 +212,6 @@ Switch to the **Night Owl** agent and it works while you sleep. Every 30 minutes
 When you first activate the Night Owl, it walks you through a short setup: what topics to research each night, what standing tasks to prepare for you each morning, and anything else you want done in the background. It generates a structured `overnight.md` from your answers and runs from it every night.
 
 Add one-off tasks at any time with `/overnight` — type the command, enter your task, and it gets queued for tonight.
-
----
-
-## RPG Progression
-
-Every agent levels up from use. The more it works, the stronger it gets — and you can see it in real time.
-
-- **XP per turn** — tool calls, response length, and completed tasks all earn XP
-- **20 levels** — each ~1.6× harder than the last
-- **20 achievements** — First Strike, Polymath, Speed Demon, Legend, and more
-- **6 agent classes** — each with a preset tool loadout and its own identity
-
-```
-──────────── Aria · Lv.3 🔭 Scout ────────────
-❯ find the latest papers on in-context learning
-
-Aria  Lv.3
-  > Using tool: web_search
-  > Using tool: web_browse
-...
-⚔  LEVEL UP — Level 4  ·  🔭 Scout
-  ✦ Achievement unlocked: Bibliophile — Read 50 files
-```
-
-Use `/stats` to see your agent's XP bar, top tools, and achievement history. Use `/agents` to switch between agents — each tracks its own progression independently.
-
-### Classes
-
-| Class | Icon | Tool Preset |
-|---|---|---|
-| Custom | 🌀 | You configure |
-| Sage | 📚 | Built-in tools only |
-| Explorer | 🔭 | Web search + browse |
-| Architect | ⚒️ | Claude Code |
-| Oracle | 🔮 | Web search |
-| Sentinel | ⏱️ | Cron scheduler |
-| Night Owl | 🌙 | Web search + browse + Claude Code |
 
 ---
 
