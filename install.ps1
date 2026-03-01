@@ -127,11 +127,7 @@ if ($existing -notmatch "(?m)^QUESTCHAIN_WORKSPACE_DIR=") {
 $DefaultModel = "qwen3:8b"
 
 Step "Checking Ollama is running..."
-$ollamaRunning = $false
-try {
-    $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 2 -UseBasicParsing
-    $ollamaRunning = ($resp.StatusCode -eq 200)
-} catch {}
+$ollamaRunning = (Test-NetConnection -ComputerName localhost -Port 11434 -InformationLevel Quiet -WarningAction SilentlyContinue)
 
 if (-not $ollamaRunning) {
     Write-Host ""
