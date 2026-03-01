@@ -122,9 +122,7 @@ if ($existing -notmatch "(?m)^QUESTCHAIN_WORKSPACE_DIR=") {
     OK "Workspace already configured"
 }
 
-# -- Default model ------------------------------------------------------------
-
-$DefaultModel = "qwen3:8b"
+# -- Ollama running check -----------------------------------------------------
 
 Step "Checking Ollama is running..."
 $ollamaRunning = (Test-NetConnection -ComputerName localhost -Port 11434 -InformationLevel Quiet -WarningAction SilentlyContinue)
@@ -139,11 +137,49 @@ if (-not $ollamaRunning) {
 }
 OK "Ollama is running"
 
-Step "Pulling default model ($DefaultModel) - this may take a few minutes..."
-Warn "You can change the model later with: questchain start -m [model-name]"
-ollama pull $DefaultModel
-if ($LASTEXITCODE -ne 0) { Fatal "Model pull failed. Check your internet connection and try again, or run: ollama pull $DefaultModel" }
-else { OK "Model '$DefaultModel' ready" }
+# -- Model selection ----------------------------------------------------------
+
+$Models = @(
+    @{Name="qwen3:8b";             Vram="~6 GB";   Desc="Fast, excellent tool calling (recommended)"},
+    @{Name="qwen3:4b";             Vram="~3 GB";   Desc="Compact — good tool calling, lower VRAM"},
+    @{Name="qwen3:1.7b";           Vram="~1.5 GB"; Desc="Ultra-light — runs on CPU or minimal VRAM"},
+    @{Name="qwen2.5:7b-instruct";  Vram="~6 GB";   Desc="Top-tier tool calling"},
+    @{Name="qwen2.5:14b-instruct"; Vram="~10 GB";  Desc="More capable, higher quality"}
+)
+
+Write-Host ""
+Write-Host "  Choose a model:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host ("  {0,-3} {1,-22} {2,-8} {3}" -f "#", "Model", "VRAM", "Description") -ForegroundColor DarkGray
+for ($i = 0; $i -lt $Models.Count; $i++) {
+    Write-Host ("  {0,-3} {1,-22} {2,-8} {3}" -f "$($i+1).", $Models[$i].Name, $Models[$i].Vram, $Models[$i].Desc)
+}
+Write-Host ("  {0,-3} {1}" -f "$($Models.Count+1).", "Other — enter a model name manually")
+Write-Host ""
+$choice = Read-Host "  Enter number (default: 1)"
+if (-not $choice) { $choice = "1" }
+$idx = [int]$choice - 1
+if ($idx -eq $Models.Count) {
+    $SelectedModel = Read-Host "  Model name"
+    if (-not $SelectedModel) { $SelectedModel = "qwen3:8b" }
+} elseif ($idx -lt 0 -or $idx -ge $Models.Count) {
+    $SelectedModel = $Models[0].Name
+} else {
+    $SelectedModel = $Models[$idx].Name
+}
+Write-Host ""
+OK "Selected: $SelectedModel"
+
+Step "Pulling $SelectedModel - this may take a few minutes..."
+ollama pull $SelectedModel
+if ($LASTEXITCODE -ne 0) { Fatal "Model pull failed. Check your internet connection and try again, or run: ollama pull $SelectedModel" }
+OK "Model '$SelectedModel' ready"
+
+# Save chosen model to ~/.questchain/.env
+$envContent = if (Test-Path $DataEnv) { Get-Content $DataEnv -Raw } else { "" }
+if ($envContent -notmatch "(?m)^OLLAMA_MODEL=") {
+    Add-Content -Path $DataEnv -Value "OLLAMA_MODEL=$SelectedModel"
+}
 
 # -- Done ---------------------------------------------------------------------
 
