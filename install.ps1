@@ -126,7 +126,7 @@ if ($existing -notmatch "(?m)^QUESTCHAIN_WORKSPACE_DIR=") {
 
 $DefaultModel = "qwen3:8b"
 
-Step "Starting Ollama service..."
+Step "Checking Ollama is running..."
 $ollamaRunning = $false
 try {
     $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 2 -UseBasicParsing
@@ -134,22 +134,14 @@ try {
 } catch {}
 
 if (-not $ollamaRunning) {
-    Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden
-    # Wait up to 30 seconds for Ollama to become ready
-    Step "Waiting for Ollama to start..."
-    $ready = $false
-    for ($i = 1; $i -le 15; $i++) {
-        Start-Sleep -Seconds 2
-        try {
-            $r = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -TimeoutSec 2 -UseBasicParsing
-            if ($r.StatusCode -eq 200) { $ready = $true; break }
-        } catch {}
-    }
-    if (-not $ready) {
-        Fatal "Ollama did not start in time. Try running 'ollama serve' manually, then re-run this installer."
-    }
-    OK "Ollama is ready"
+    Write-Host ""
+    Warn "Ollama is not running."
+    Write-Host "  Start it with: " -NoNewline; Write-Host "ollama serve" -ForegroundColor Cyan
+    Write-Host "  Then re-run this installer."
+    Write-Host ""
+    exit 1
 }
+OK "Ollama is running"
 
 Step "Pulling default model ($DefaultModel) - this may take a few minutes..."
 Warn "You can change the model later with: questchain start -m [model-name]"

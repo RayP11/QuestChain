@@ -83,33 +83,16 @@ fi
 
 DEFAULT_MODEL="qwen3:8b"
 
-step "Starting Ollama service..."
+step "Checking Ollama is running..."
 if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-    ok "Ollama service already running"
+    ok "Ollama is running"
 else
-    if [[ "$OS" == "Darwin" ]]; then
-        nohup ollama serve > /dev/null 2>&1 &
-    else
-        # On Linux the install script sets up a systemd service; fall back to
-        # launching in the background if systemd didn't start it yet.
-        if command_exists systemctl && systemctl is-active --quiet ollama 2>/dev/null; then
-            ok "Ollama systemd service is active"
-        else
-            nohup ollama serve > /dev/null 2>&1 &
-        fi
-    fi
-    # Wait up to 30 seconds for Ollama to become ready
-    step "Waiting for Ollama to start..."
-    for i in $(seq 1 15); do
-        if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-            ok "Ollama is ready"
-            break
-        fi
-        if [[ $i -eq 15 ]]; then
-            fatal "Ollama did not start in time. Try running 'ollama serve' manually, then re-run this installer."
-        fi
-        sleep 2
-    done
+    echo ""
+    warn "Ollama is not running."
+    echo -e "  Start it with: \033[36mollama serve\033[0m"
+    echo -e "  Then re-run this installer."
+    echo ""
+    exit 1
 fi
 
 step "Pulling default model ($DEFAULT_MODEL) — this may take a few minutes..."
