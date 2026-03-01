@@ -161,8 +161,8 @@ def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> obje
 def print_banner(model_name: str):
     """Display the QuestChain welcome banner."""
     banner = Text()
-    for line in QUESTCHAIN_ART.strip().splitlines():
-        banner.append(line + "\n", style="bold green")
+    for line in QUESTCHAIN_ART.strip("\n").splitlines():
+        banner.append(line + "\n", style="bold blue")
     banner.append("\n")
     banner.append("  🔗 ", style="bold")
     banner.append(random.choice(TAGLINES), style="italic cyan")
@@ -172,20 +172,20 @@ def print_banner(model_name: str):
     banner.append(f"Model: {model_name}", style="cyan")
     banner.append("\n")
     if TAVILY_API_KEY:
-        banner.append("  Web search: enabled", style="green")
+        banner.append("  Web search: enabled", style="blue")
     else:
         banner.append("  Web search: disabled  ", style="yellow")
         banner.append("/tavily to set up", style="dim")
     banner.append("\n")
     from questchain.tools import is_claude_code_available
     if is_claude_code_available():
-        banner.append("  Claude Code: enabled", style="green")
+        banner.append("  Claude Code: enabled", style="blue")
     else:
         banner.append("  Claude Code: disabled  ", style="yellow")
         banner.append("/claudecode to set up", style="dim")
     banner.append("\n")
     banner.append("  Type /help for commands, Ctrl+D to exit", style="dim")
-    console.print(Panel(banner, border_style="green"))
+    console.print(Panel(banner, border_style="blue", padding=(1, 2)))
 
 
 def print_tool_call(tool_name: str, tool_input: dict):
@@ -400,7 +400,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
 
     if cmd == "/new":
         session_state["thread_id"] = str(uuid.uuid4())
-        console.print(f"[green]New session started.[/green] Thread: [dim]{session_state['thread_id']}[/dim]")
+        console.print(f"[blue]New session started.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
         return True
 
     if cmd == "/model":
@@ -419,7 +419,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     if cmd == "/busy":
         runner = session_state.get("busy_work_runner")
         if runner and runner.running:
-            console.print(f"[green]Busy work:[/green] active (every {runner.interval_minutes} min)")
+            console.print(f"[blue]Busy work:[/blue] active (every {runner.interval_minutes} min)")
         else:
             console.print("[yellow]Busy work:[/yellow] disabled")
         return True
@@ -435,7 +435,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  cron_add, cron_list, cron_remove — scheduled jobs (Telegram)\n"
         )
         if TAVILY_API_KEY:
-            text += "  web_search, web_browse — [green]enabled[/green]\n"
+            text += "  web_search, web_browse — [blue]enabled[/blue]\n"
         else:
             text += "  web_search, web_browse — [yellow]disabled (no TAVILY_API_KEY)[/yellow]\n"
         console.print(Panel(text, title="Tools", border_style="cyan"))
@@ -477,7 +477,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         if jobs:
             lines = []
             for j in jobs:
-                status = "[green]on[/green]" if j.get("enabled", True) else "[dim]off[/dim]"
+                status = "[blue]on[/blue]" if j.get("enabled", True) else "[dim]off[/dim]"
                 lines.append(f"  [{j['id']}] {j['name']} — {j['cron_expression']} ({status})")
             console.print(Panel("\n".join(lines), title="Cron Jobs", border_style="cyan"))
         else:
@@ -689,7 +689,7 @@ async def _agent_action_menu(
     action = options[choice][1]
 
     if action == "switch":
-        console.print(f"[green]🔗 Switched to '[bold]{name}[/bold]'.[/green]")
+        console.print(f"[blue]🔗 Switched to '[bold]{name}[/bold]'.[/blue]")
         return agent_def
 
     if action == "edit":
@@ -823,7 +823,7 @@ async def _run_create_wizard(
 ) -> dict | None:
     """Inline create wizard for a new agent."""
     console.print()
-    console.print(Panel("[bold]Create a new agent[/bold]", border_style="green"))
+    console.print(Panel("[bold]Create a new agent[/bold]", border_style="blue"))
 
     name = await _prompt_line(session, "Agent name: ")
     if not name:
@@ -875,7 +875,7 @@ async def _run_create_wizard(
 
     agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class, skills=skills)
     console.print()
-    console.print(f"[green]✓ Agent '[bold]{name}[/bold]' created.[/green] Use [cyan]/agents[/cyan] to activate it.")
+    console.print(f"[blue]✓ Agent '[bold]{name}[/bold]' created.[/blue] Use [cyan]/agents[/cyan] to activate it.")
     return agent_def
 
 
@@ -888,7 +888,7 @@ async def _run_edit_wizard(
     """Inline edit wizard for an existing agent. Enter keeps the current value."""
     name = agent_def["name"]
     console.print()
-    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="green"))
+    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="blue"))
 
     name_raw = await _prompt_line(session, f"Name [{name}]: ")
     new_name = name_raw if name_raw else name
@@ -962,7 +962,7 @@ async def _run_edit_wizard(
     if _progression is not None and _progression._agent_id == agent_def["id"]:
         _progression.update_class(new_class)
     console.print()
-    console.print(f"[green]✓ Agent '[bold]{new_name}[/bold]' updated.[/green]")
+    console.print(f"[blue]✓ Agent '[bold]{new_name}[/bold]' updated.[/blue]")
 
 
 async def show_history(session: PromptSession, session_state: dict) -> None:
@@ -996,7 +996,7 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
             first_msg = first_msg[:55] + "…"
         first_msg = first_msg.replace("[", "\\[")
         is_current = tid == current_tid
-        tid_display = f"[bold green]{tid_short} *[/bold green]" if is_current else tid_short
+        tid_display = f"[bold blue]{tid_short} *[/bold blue]" if is_current else tid_short
         table.add_row(str(i), tid_display, ts_str, first_msg)
 
     console.print(Panel(table, title="Conversation History", border_style="cyan"))
@@ -1011,7 +1011,7 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
             chosen = rows[idx]
             session_state["thread_id"] = chosen["thread_id"]
             preview = (chosen["first_message"] or "")[:50].replace("[", "\\[")
-            console.print(f"[green]Switched to thread[/green] [dim]{chosen['thread_id']}[/dim]")
+            console.print(f"[blue]Switched to thread[/blue] [dim]{chosen['thread_id']}[/dim]")
             if preview:
                 console.print(f"[dim]{preview}[/dim]")
             return
@@ -1036,7 +1036,10 @@ async def run_agent_stream(
     tools_this_turn: list[str] = []
 
     live = Live(
-        Spinner("dots", text=" Thinking…"),
+        Spinner("dots", text=Text(" " + random.choice([
+            "Casting…", "Channeling…", "Weaving…", "Conjuring…",
+            "Enchanting…", "On the quest…", "Scouting…", "Forging…",
+        ]), style="blue"), style="blue"),
         console=console,
         refresh_per_second=10,
         transient=True,
@@ -1053,7 +1056,7 @@ async def run_agent_stream(
                 color = CLASS_COLORS.get(rec.class_name, "bright_white")
                 console.print(f"[bold {color}]{agent_name}[/bold {color}]  [dim]Lv.{rec.level}[/dim]")
             else:
-                console.print(f"[bold green]{agent_name}[/bold green]")
+                console.print(f"[bold blue]{agent_name}[/bold blue]")
 
     async def _on_tool_call(tool_name: str, tool_args: dict) -> None:
         _stop_spinner()
@@ -1234,7 +1237,7 @@ async def _run_with_busy_work(
     if busy_work_minutes is not None:
         async def merged_callback(text: str) -> None:
             console.print()
-            console.print(Panel(text, title="[bold green]Busy Work[/bold green]", border_style="green"))
+            console.print(Panel(text, title="[bold blue]Busy Work[/bold blue]", border_style="blue"))
             console.print()
             if _progression is not None:
                 grant = _progression.award_xp([], is_busy_work=True)
@@ -1443,7 +1446,7 @@ async def _repl_loop(
                         else:
                             content = content.rstrip() + f"\n\n## Tonight's Queue\n{new_item}\n"
                         overnight_path.write_text(content, encoding="utf-8")
-                        console.print(f"[green]Added to tonight's queue:[/green] {task_text.strip()}")
+                        console.print(f"[blue]Added to tonight's queue:[/blue] {task_text.strip()}")
                     else:
                         console.print("[dim]Cancelled.[/dim]")
 
