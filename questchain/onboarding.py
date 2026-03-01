@@ -294,6 +294,58 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     if not heartbeat_md.exists():
         heartbeat_md.write_text("", encoding="utf-8")  # placeholder; filled after questions
 
+    # ── Model selection & pull ────────────────────────────────────────────────
+    import ollama as _ollama
+
+    _MODELS = [
+        ("qwen3:8b",             "~6 GB",  "Fast, excellent tool calling (recommended)"),
+        ("qwen3:4b",             "~3 GB",  "Compact — good tool calling, lower VRAM"),
+        ("qwen3:1.7b",           "~2 GB",  "Ultra-light — runs on CPU or minimal VRAM"),
+        ("qwen2.5:7b-instruct",  "~6 GB",  "Top-tier tool calling"),
+        ("qwen2.5:14b-instruct", "~12 GB", "More capable, higher quality"),
+    ]
+
+    while True:
+        console.print()
+        console.print("[bold]Choose a model:[/bold]")
+        console.print()
+        for i, (name, vram, desc) in enumerate(_MODELS, 1):
+            console.print(f"  [dim]{i}.[/dim] [cyan]{name}[/cyan]  [dim]{vram}[/dim]  {desc}")
+        console.print(f"  [dim]{len(_MODELS) + 1}.[/dim] Other — enter a model name manually")
+        console.print()
+
+        choice = await _prompt_input(prompt_session, console, "  Enter number (default: 1): ")
+        if not choice:
+            choice = "1"
+
+        if choice == str(len(_MODELS) + 1):
+            chosen = await _prompt_input(prompt_session, console, "  Model name: ")
+            if not chosen:
+                chosen = "qwen3:8b"
+        elif choice.isdigit() and 1 <= int(choice) <= len(_MODELS):
+            chosen = _MODELS[int(choice) - 1][0]
+        else:
+            chosen = _MODELS[0][0]
+
+        console.print(f"\n[dim]Pulling [bold]{chosen}[/bold] — this may take a few minutes…[/dim]")
+        try:
+            for chunk in _ollama.pull(chosen, stream=True):
+                status = getattr(chunk, "status", "") or ""
+                completed = getattr(chunk, "completed", None)
+                total = getattr(chunk, "total", None)
+                if status and completed and total:
+                    pct = int(completed / total * 100)
+                    console.print(f"  [dim]{status} {pct}%[/dim]     ", end="\r")
+            console.print(f"  [green]✓ {chosen} ready[/green]                    ")
+            _save_env_key("OLLAMA_MODEL", chosen)
+            break
+        except Exception as e:
+            console.print(f"\n  [red]Pull failed:[/red] {e}")
+            retry = await _prompt_input(prompt_session, console, "  Try a different model? [Y/n]: ")
+            if retry.lower() == "n":
+                return False
+            # loop back to model selection
+
     # ── Welcome banner ────────────────────────────────────────────────────────
     console.print()
     console.print(_build_welcome_panel())

@@ -93,51 +93,6 @@ else
     exit 1
 fi
 
-# ── Model selection ───────────────────────────────────────────────────────────
-
-MODELS=(
-    "qwen3:8b|~6 GB |Fast, excellent tool calling (recommended)"
-    "qwen3:4b|~3 GB |Compact — good tool calling, lower VRAM"
-    "qwen3:1.7b|~2 GB  |Ultra-light — runs on CPU or minimal VRAM"
-    "qwen2.5:7b-instruct|~6 GB |Top-tier tool calling"
-    "qwen2.5:14b-instruct|~12 GB|More capable, higher quality"
-)
-
-echo ""
-echo -e "\033[36m  Choose a model:\033[0m"
-echo ""
-printf "  \033[90m%-3s %-22s %-8s %s\033[0m\n" "#" "Model" "VRAM" "Description"
-for i in "${!MODELS[@]}"; do
-    IFS='|' read -r name vram desc <<< "${MODELS[$i]}"
-    printf "  %-3s %-22s %-8s %s\n" "$((i+1))." "$name" "$vram" "$desc"
-done
-printf "  %-3s %s\n" "$((${#MODELS[@]}+1))." "Other — enter a model name manually"
-echo ""
-read -rp "  Enter number (default: 1): " model_choice
-model_choice="${model_choice:-1}"
-if [[ "$model_choice" == "$((${#MODELS[@]}+1))" ]]; then
-    read -rp "  Model name: " SELECTED_MODEL
-    [[ -z "$SELECTED_MODEL" ]] && SELECTED_MODEL="qwen3:8b"
-elif ! [[ "$model_choice" =~ ^[0-9]+$ ]] || (( model_choice < 1 || model_choice > ${#MODELS[@]} )); then
-    model_choice=1
-    IFS='|' read -r SELECTED_MODEL _ _ <<< "${MODELS[$((model_choice-1))]}"
-else
-    IFS='|' read -r SELECTED_MODEL _ _ <<< "${MODELS[$((model_choice-1))]}"
-fi
-echo ""
-ok "Selected: $SELECTED_MODEL"
-
-step "Pulling $SELECTED_MODEL — this may take a few minutes..."
-if ollama pull "$SELECTED_MODEL"; then
-    ok "Model '$SELECTED_MODEL' ready"
-else
-    fatal "Model pull failed. Check your internet connection and try again, or run: ollama pull $SELECTED_MODEL"
-fi
-
-# Save chosen model to ~/.questchain/.env
-if ! grep -q "^OLLAMA_MODEL=" "$DATA_ENV" 2>/dev/null; then
-    echo "OLLAMA_MODEL=$SELECTED_MODEL" >> "$DATA_ENV"
-fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
