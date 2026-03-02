@@ -4,17 +4,19 @@
 
 # Truly Local. Always On. Ready for Quests.
 
-### Your AI assistant — running on your hardware, working for you around the clock.
+### Your AI assistant, running on your hardware, working for you around the clock.
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
 [![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/RayP11/QuestChain/blob/master/LICENSE)
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20Community-%235865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/C8Rc3u7KKx)
+
 </div>
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No subscriptions, no usage limits, no data leaving your hardware. It remembers who you are, works with your files and terminal, and keeps running in the background — checking your task list, working through the night, sending you updates on Telegram — whether you're at the keyboard or not.
+QuestChain is an AI assistant that runs entirely on your machine. No subscriptions, no usage limits, no data leaving your hardware. It remembers who you are, works with your files and terminal, and keeps running in the background, checking your task list, working through the night, sending you updates on Telegram, whether you're at the keyboard or not.
 
 ---
 
@@ -22,7 +24,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 
 - [What It Can Do](#what-it-can-do)
 - [RPG Progression](#rpg-progression)
-- [Local vs. Cloud](#local-vs-cloud)
+- [Secure by Design](#secure-by-design)
 - [Built for the Edge](#built-for-the-edge)
 - [The OpenClaw for Edge AI](#the-openclaw-for-edge-ai)
 - [It Codes Itself](#it-codes-itself)
@@ -56,7 +58,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 
 ## RPG Progression
 
-QuestChain isn't just a tool — it's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
+QuestChain isn't just a tool. It's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
 
 **How XP is earned:**
 - **10 XP per turn** — base award for each conversation exchange
@@ -69,7 +71,7 @@ QuestChain isn't just a tool — it's a companion you build over time. Every age
 - **21 achievements** — milestones across leveling, tool mastery, and behavior
 - **7 agent classes** — each with its own identity, tool loadout, and independent progression
 
-Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster — each agent tracks its own progression independently, so your Night Owl and your Architect each have their own story.
+Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster. Each agent tracks its own progression independently, so your Night Owl and your Architect each have their own story.
 
 ### Achievements
 
@@ -83,7 +85,7 @@ Use `/level` to see your agent's XP bar, progress to next level, top tools, and 
 
 ### Classes
 
-Pick a class when creating an agent — it sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
+Pick a class when creating an agent. It sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
 
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
@@ -97,25 +99,21 @@ Pick a class when creating an agent — it sets the tool loadout, identity, and 
 
 ---
 
-## Local vs. Cloud
+## Secure by Design
 
-| | QuestChain | Cloud AI |
-|---|---|---|
-| **Your data** | Stays on your machine | Sent to third-party servers |
-| **Cost** | $0 after hardware | $/token or subscription |
-| **Works offline** | ✅ | ❌ |
-| **File & shell access** | Full, real filesystem | Sandboxed or unavailable |
-| **Memory** | Persistent across sessions | Usually resets every chat |
-| **Autonomous tasks** | Background busy work loop | Manual only |
-| **Remote access** | Built-in Telegram bot | Separate product |
-| **Model choice** | Any Ollama model | Locked to provider |
-| **Self-improvement** | Codes its own codebase | ❌ |
+Most AI agents are built around cloud connections, online marketplaces, and shared services. Every one of those is a door someone can try to kick in. QuestChain is built the other way around:
+
+- **Nothing reachable from outside** — QuestChain runs only on your own computer and is never accessible over the internet. There's no login page to attack, no server to break into.
+- **No store, no strangers' code** — Skills are plain text files that live on your hard drive. There's no online marketplace where someone could slip in something malicious.
+- **No accounts, nothing to steal** — You don't need to create an account or hand over credentials. If you add optional keys for web search or Telegram, they stay in a file on your machine and go nowhere else.
+- **Only reads what you point it at** — The agent takes instructions from you and the files you give it. It doesn't pull hidden commands from the internet or external networks.
+- **Works with no internet at all** — Everything runs locally. Disconnect your machine and QuestChain keeps working.
 
 ---
 
 ## Built for the Edge
 
-Most AI tools assume cloud infrastructure — fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own.
+Most AI tools assume cloud infrastructure: fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own.
 
 > *"All the power of AI, none of the cloud bills."*
 
@@ -129,9 +127,9 @@ The engine is purpose-built for small models and constrained hardware:
 
 ## The OpenClaw for Edge AI
 
-Most AI agent frameworks are built for cloud servers — large models, massive memory, always-online. QuestChain delivers the same agentic capability on hardware you already own, running reliably on models as small as **3B parameters**.
+Most AI agent frameworks are built for cloud servers: large models, massive memory, always-online. QuestChain delivers the same agentic capability on hardware you already own, running reliably on models as small as **3B parameters**.
 
-It's faster because it's lean — no framework overhead, no bloated prompts, no unnecessary round-trips. Your data never leaves your machine, so there's nothing to intercept. Because the whole stack is local and open, you stay in control with no accounts or API keys required to get started.
+It's faster because it's lean: no framework overhead, no bloated prompts, no unnecessary round-trips. Your data never leaves your machine, so there's nothing to intercept. Because the whole stack is local and open, you stay in control with no accounts or API keys required to get started.
 
 Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
 
@@ -139,27 +137,27 @@ Want to go further? Two optional integrations are a single command away: [Tavily
 
 ## It Codes Itself
 
-QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) — Anthropic's coding agent — with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back. Features in QuestChain were written by QuestChain itself.
+QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back. Features in QuestChain were written by QuestChain itself.
 
 This creates a loop where the agent improves over time without you writing a line of code.
 
-> **No Claude Code?** Run a local coder model instead — `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
+> **No Claude Code?** Run a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
 
 ---
 
 ## The Night Owl
 
-The **Night Owl** is a prepackaged agent built to work while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work — researching topics, writing reports, running code — then logs what it did before going quiet.
+The **Night Owl** is a prepackaged agent built to work while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work: researching topics, writing reports, running code. Then it logs what it did before going quiet.
 
 When you first activate the Night Owl, it walks you through a short setup: what topics to research each night, what standing tasks to prepare for you each morning, and anything else you want done in the background. It generates a structured `overnight.md` from your answers and runs from it every night.
 
-Add one-off tasks at any time with `/overnight` — type the command, enter your task, and it gets queued for tonight.
+Add one-off tasks at any time with `/overnight`. Type the command, enter your task, and it gets queued for tonight.
 
 ---
 
 ## Install
 
-### Step 1 — Install Ollama
+### Step 1: Install Ollama
 
 Download and install Ollama from [ollama.com/download](https://ollama.com/download), then start it:
 
@@ -169,15 +167,15 @@ ollama serve
 
 Leave it running, then open a new terminal for the next step.
 
-### Step 2 — Install QuestChain
+### Step 2: Install QuestChain
 
-**Windows** — open PowerShell and run:
+**Windows:** open PowerShell and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
 ```
 
-**macOS / Linux** — open a terminal and run:
+**macOS / Linux:** open a terminal and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
@@ -191,7 +189,7 @@ What gets installed:
 
 Takes ~5 minutes depending on your internet speed (the model download is the slow part).
 
-### Step 3 — Run
+### Step 3: Run
 
 ```
 questchain start
@@ -262,9 +260,9 @@ Run `/telegram` inside QuestChain and it walks you through the setup:
 
 1. Message [@BotFather](https://t.me/botfather) on Telegram → `/newbot` → copy the token
 2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric user ID
-3. Paste both into the `/telegram` wizard — credentials are saved automatically
+3. Paste both into the `/telegram` wizard. Credentials are saved automatically.
 
-Restart QuestChain and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram — switch between them mid-conversation.
+Restart QuestChain and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram. Switch between them mid-conversation.
 
 ---
 
@@ -272,7 +270,7 @@ Restart QuestChain and the bot starts alongside the CLI. The same conversation t
 
 QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it reads `workspace/HEARTBEAT.md` and acts on anything that needs attention. If nothing does, it stays silent.
 
-`HEARTBEAT.md` is a plain Markdown file — write whatever standing tasks or instructions you want the agent to follow each tick:
+`HEARTBEAT.md` is a plain Markdown file. Write whatever standing tasks or instructions you want the agent to follow each tick:
 
 ```markdown
 # HEARTBEAT.md
@@ -371,7 +369,12 @@ questchain start -m <any-model>  # use any model installed in Ollama
 ---
 
 <div align="center">
-<sub>No cloud. No cost. No compromise. Small but mighty — send your hardware on a quest.</sub>
+<sub>No cloud. No cost. No compromise. Small but mighty. Send your hardware on a quest.</sub>
 <br><br>
+
+### 💬 [Join the QuestChain Discord](https://discord.gg/C8Rc3u7KKx)
+**Share agents, get help, and follow development.**
+
+<br>
 <sub>If QuestChain is meaningful to you, a ⭐ helps others find it.</sub>
 </div>
