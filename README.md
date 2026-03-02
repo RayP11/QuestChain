@@ -199,6 +199,31 @@ On first run, QuestChain walks you through a short onboarding conversation and o
 
 > **Web search (optional):** Run `/tavily` inside QuestChain to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
 
+### Clone & Run (alternative)
+
+If you want to clone the repo directly, modify the code, or run from source:
+
+```bash
+git clone https://github.com/RayP11/QuestChain.git
+cd QuestChain
+pip install -e .
+```
+
+Then run:
+
+```bash
+python -m questchain
+```
+
+If you have [uv](https://docs.astral.sh/uv/) installed, you can use that instead of pip:
+
+```bash
+uv pip install -e .
+python -m questchain
+```
+
+> Ollama must still be running before starting QuestChain. See Step 1 above.
+
 ---
 
 ## Usage
