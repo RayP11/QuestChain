@@ -587,83 +587,30 @@ async def _prompt_line(session: PromptSession, prompt_text: str) -> str:
 
 
 async def _inline_file_editor(file_path, title: str) -> bool:
-    """Open *file_path* in a prompt_toolkit full-screen text editor.
+    """Edit *file_path* as plain multiline terminal input.
 
-    Returns True if the file was saved, False if cancelled.
-    Ctrl+S saves, Ctrl+G opens the system editor, Esc cancels.
+    Enter inserts a newline. Alt+Enter (or Esc then Enter) saves and exits.
+    Ctrl+C cancels without saving. Returns True if saved, False if cancelled.
     """
-    from prompt_toolkit import Application
-    from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import HSplit, Window, FloatContainer, Float
-    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.styles import Style as PTStyle
     from pathlib import Path
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
 
     path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     initial_text = path.read_text(encoding="utf-8") if path.exists() else ""
 
-    buf = Buffer(text=initial_text, multiline=True, name="editor")
-    result: list[bool] = [False]
+    console.print(f"[bold]{title}[/bold]  [dim]Alt+Enter to save · Ctrl+C to cancel[/dim]")
+    session = PromptSession(history=InMemoryHistory())
+    try:
+        result = await session.prompt_async("> ", default=initial_text, multiline=True)
+    except KeyboardInterrupt:
+        console.print("[dim]Cancelled.[/dim]")
+        return False
 
-    kb = KeyBindings()
-
-    @kb.add("c-s")
-    def _save(event):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(buf.text, encoding="utf-8")
-        result[0] = True
-        event.app.exit()
-
-    @kb.add("c-g")
-    def _open_system_editor(event):
-        import os, tempfile, subprocess
-        editor = os.environ.get("EDITOR", "notepad" if os.name == "nt" else "nano")
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8"
-        ) as tf:
-            tf.write(buf.text)
-            tmp = tf.name
-        def _edit():
-            subprocess.call([editor, tmp])
-        from prompt_toolkit.application.run_in_terminal import run_in_terminal
-        def _run():
-            import threading
-            t = threading.Thread(target=_edit)
-            t.start()
-            t.join()
-            new_text = Path(tmp).read_text(encoding="utf-8")
-            Path(tmp).unlink(missing_ok=True)
-            buf.set_document(buf.document.__class__(text=new_text, cursor_position=len(new_text)))
-        run_in_terminal(_run)
-
-    @kb.add("escape")
-    def _cancel(event):
-        event.app.exit()
-
-    header = FormattedTextControl(text=f" Quests: {title} ")
-    footer = FormattedTextControl(text=" Ctrl+S to save  ·  Ctrl+G to open in editor  ·  Esc to cancel ")
-
-    layout = Layout(
-        HSplit([
-            Window(header, height=1, style="class:header"),
-            Window(BufferControl(buffer=buf), style="class:editor"),
-            Window(footer, height=1, style="class:footer"),
-        ])
-    )
-
-    style = PTStyle.from_dict({
-        "header": "bg:#004080 #ffffff bold",
-        "footer": "bg:#333333 #aaaaaa",
-        "editor": "bg:#1a1a1a #e0e0e0",
-    })
-
-    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
-    await app.run_async()
-    if result[0]:
-        console.print("[green]Saved.[/green]")
-    return result[0]
+    path.write_text(result, encoding="utf-8")
+    console.print("[green]Saved.[/green]")
+    return True
 
 
 async def _quest_menu(session: PromptSession) -> None:
@@ -820,53 +767,114 @@ async def run_agent_menu(
     session: PromptSession,
     agent_manager: AgentManager,
 ) -> dict | None:
-    """Show agent list, switch by number, or create a new one.
+    """Arrow-key dropdown to browse agents. Returns agent to switch to, or None."""
+    from prompt_toolkit import Application
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
 
-    Returns the chosen agent dict to switch to, or None.
-    """
-    agents = agent_manager.all_agents()
-    active_id = agent_manager.get_active_id()
+    state: dict = {"idx": 0, "chosen": None, "new": False, "exit": False}
 
-    console.print()
-    console.print("[bold]🔗 Agents:[/bold]")
-    for i, agent_def in enumerate(agents, 1):
-        marker = "*" if agent_def["id"] == active_id else " "
-        name = agent_def["name"]
-        if agent_def.get("built_in"):
-            name += " (built-in)"
-        model = agent_def.get("model") or OLLAMA_MODEL
-        try:
-            pm = ProgressionManager(agent_def["id"], agent_def.get("class_name", DEFAULT_CLASS))
-            lv = pm.get_record().level
-            level_tag = f"Lv.{lv}"
-        except Exception:
-            level_tag = "Lv.?"
-        console.print(f"  {i}. {marker} [cyan]{name:<28}[/cyan]  {level_tag:<6}  {model}")
-    console.print()
+    def _refresh_idx(agents, active_id):
+        for i, a in enumerate(agents):
+            if a["id"] == active_id:
+                state["idx"] = i
+                return
+        state["idx"] = 0
 
-    selection_raw = await _prompt_line(
-        session, f"Pick [1-{len(agents)}], n=new, Enter=cancel: "
-    )
-    if not selection_raw:
-        console.print("[dim]Cancelled.[/dim]")
-        return None
+    def _render():
+        agents = state["agents"]
+        active_id = state["active_id"]
+        lines = [("class:header", " Agents   [n] new  [Esc] close\n")]
+        lines.append(("class:sep", " " + "─" * 54 + "\n"))
+        for i, a in enumerate(agents):
+            name = a["name"]
+            model = a.get("model") or OLLAMA_MODEL
+            lv = state["levels"].get(a["id"], "?")
+            marker = "*" if a["id"] == active_id else " "
+            label = f" {marker} {name:<24}  Lv.{lv:<3}  {model}"
+            if i == state["idx"]:
+                lines.append(("class:selected", f" ▶{label}\n"))
+            else:
+                lines.append(("class:item", f"  {label}\n"))
+        return lines
 
-    stripped = selection_raw.strip()
+    content = FormattedTextControl(text=_render, focusable=True)
+    kb = KeyBindings()
 
-    if stripped.lower() == "n":
-        await _run_create_wizard(console, session, agent_manager)
-        return None
+    @kb.add("up")
+    def _up(event):
+        if state["idx"] > 0:
+            state["idx"] -= 1
+            content.text = _render
 
-    if stripped.isdigit():
-        idx = int(stripped) - 1
-        if 0 <= idx < len(agents):
-            return await _agent_action_menu(console, session, agent_manager, agents[idx], active_id)
-        else:
-            console.print("[yellow]Invalid selection.[/yellow]")
+    @kb.add("down")
+    def _down(event):
+        if state["idx"] < len(state["agents"]) - 1:
+            state["idx"] += 1
+            content.text = _render
+
+    @kb.add("enter")
+    def _select(event):
+        state["chosen"] = state["agents"][state["idx"]]
+        event.app.exit()
+
+    @kb.add("n")
+    def _new(event):
+        state["new"] = True
+        event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _close(event):
+        state["exit"] = True
+        event.app.exit()
+
+    layout = Layout(Window(content))
+    style = PTStyle.from_dict({
+        "header":   "bold #aaddff",
+        "sep":      "dim",
+        "selected": "bg:#004080 #ffffff bold",
+        "item":     "#cccccc",
+    })
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+
+    while True:
+        agents = agent_manager.all_agents()
+        active_id = agent_manager.get_active_id()
+        levels = {}
+        for a in agents:
+            try:
+                pm = ProgressionManager(a["id"], a.get("class_name", DEFAULT_CLASS))
+                levels[a["id"]] = pm.get_record().level
+            except Exception:
+                levels[a["id"]] = "?"
+        state.update({"agents": agents, "active_id": active_id, "levels": levels,
+                      "chosen": None, "new": False, "exit": False})
+        _refresh_idx(agents, active_id)
+        content.text = _render
+
+        await app.run_async()
+
+        if state["exit"]:
             return None
 
-    console.print("[yellow]Invalid input.[/yellow]")
-    return None
+        if state["new"]:
+            await _run_create_wizard(console, session, agent_manager)
+            continue
+
+        if state["chosen"] is not None:
+            result = await _agent_action_menu(
+                console, session, agent_manager, state["chosen"], active_id
+            )
+            if result is not None:
+                return result
+            # edit/delete/cancel — refresh and re-show list
+            continue
+
+        return None
 
 
 async def _agent_action_menu(
@@ -876,15 +884,18 @@ async def _agent_action_menu(
     agent_def: dict,
     active_id: str,
 ) -> dict | None:
-    """Sub-menu shown after the user picks an agent: Switch / Edit / Delete."""
+    """Arrow-key sub-menu for a single agent: Switch / Edit / Delete."""
+    from prompt_toolkit import Application
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
+
     name = agent_def["name"]
     model = agent_def.get("model") or OLLAMA_MODEL
     is_active = agent_def["id"] == active_id
     is_builtin = agent_def.get("built_in", False)
-
-    console.print()
-    suffix = "  [dim](active)[/dim]" if is_active else ""
-    console.print(f"[bold]{name}[/bold]  [dim]{model}[/dim]{suffix}")
 
     options: list[tuple[str, str]] = []
     if not is_active:
@@ -893,22 +904,62 @@ async def _agent_action_menu(
     if not is_builtin:
         options.append(("Delete", "delete"))
 
-    for i, (label, action) in enumerate(options, 1):
-        style = "red" if action == "delete" else "cyan"
-        console.print(f"  {i}. [{style}]{label}[/{style}]")
-    console.print()
+    state: dict = {"idx": 0, "chosen": None, "exit": False}
 
-    raw = await _prompt_line(session, f"Pick [1-{len(options)}], Enter=cancel: ")
-    if not raw or not raw.isdigit():
-        console.print("[dim]Cancelled.[/dim]")
+    active_tag = "  (active)" if is_active else ""
+
+    def _render():
+        lines = [("class:header", f" {name}  {model}{active_tag}\n")]
+        lines.append(("class:sep", " " + "─" * 44 + "\n"))
+        for i, (label, action) in enumerate(options):
+            cls = "action_delete" if action == "delete" else "action"
+            if i == state["idx"]:
+                lines.append(("class:selected", f" ▶  {label}\n"))
+            else:
+                lines.append((f"class:{cls}", f"    {label}\n"))
+        return lines
+
+    content = FormattedTextControl(text=_render, focusable=True)
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _up(event):
+        if state["idx"] > 0:
+            state["idx"] -= 1
+            content.text = _render
+
+    @kb.add("down")
+    def _down(event):
+        if state["idx"] < len(options) - 1:
+            state["idx"] += 1
+            content.text = _render
+
+    @kb.add("enter")
+    def _pick(event):
+        state["chosen"] = options[state["idx"]][1]
+        event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _close(event):
+        state["exit"] = True
+        event.app.exit()
+
+    layout = Layout(Window(content))
+    style = PTStyle.from_dict({
+        "header":        "bold #aaddff",
+        "sep":           "dim",
+        "selected":      "bg:#004080 #ffffff bold",
+        "action":        "#cccccc",
+        "action_delete": "#ff6666",
+    })
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+    await app.run_async()
+
+    if state["exit"] or state["chosen"] is None:
         return None
 
-    choice = int(raw) - 1
-    if not (0 <= choice < len(options)):
-        console.print("[yellow]Invalid selection.[/yellow]")
-        return None
-
-    action = options[choice][1]
+    action = state["chosen"]
 
     if action == "switch":
         console.print(f"[blue]🔗 Switched to '[bold]{name}[/bold]'.[/blue]")
@@ -916,8 +967,6 @@ async def _agent_action_menu(
 
     if action == "edit":
         await _run_edit_wizard(console, session, agent_manager, agent_def)
-        # If the edited agent is currently active, return the updated def so
-        # the caller rebuilds agent_holder["agent"] with the new settings.
         if is_active:
             return agent_manager.get(agent_def["id"])
         return None

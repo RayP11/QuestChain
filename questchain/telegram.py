@@ -109,11 +109,8 @@ _HELP_TEXT = (
     "Commands:\n"
     "/new — Start a fresh conversation\n"
     "/model — Show current model\n"
-    "/thread — Show current thread ID\n"
     "/busy — Show busy work status\n"
     "/tools — List available tools\n"
-    "/instructions — Show agent system prompt\n"
-    "/memory — Show your saved user profile\n"
     "/tasks — Show pending quests\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
@@ -162,15 +159,6 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Current model: {model_name}")
 
 
-async def cmd_thread(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /thread command — show current thread ID."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    chat_id = update.effective_chat.id
-    thread_id = _get_thread_id(chat_id)
-    await update.message.reply_text(f"Thread ID: {thread_id}")
-
 
 async def cmd_busy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /busy command — show busy work status."""
@@ -207,33 +195,6 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text)
 
 
-async def cmd_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /instructions command — show system prompt."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    from questchain.agent import SYSTEM_PROMPT
-    chunks = _split_message(SYSTEM_PROMPT)
-    for chunk in chunks:
-        await update.message.reply_text(chunk)
-
-
-async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /memory command — show ABOUT.md."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    from questchain.config import MEMORY_DIR
-    about = MEMORY_DIR / "ABOUT.md"
-    if not about.exists():
-        await update.message.reply_text("No memory file yet. Use /onboard to create one.")
-        return
-    chunks = _split_message(about.read_text(encoding="utf-8"))
-    for chunk in chunks:
-        try:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(chunk)
 
 
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -954,11 +915,8 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("model", cmd_model))
-    app.add_handler(CommandHandler("thread", cmd_thread))
     app.add_handler(CommandHandler("busy", cmd_busy))
     app.add_handler(CommandHandler("tools", cmd_tools))
-    app.add_handler(CommandHandler("instructions", cmd_instructions))
-    app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
@@ -982,12 +940,9 @@ async def run_telegram_alongside_cli(
     await app.bot.set_my_commands([
         BotCommand("new", "Start a fresh conversation"),
         BotCommand("model", "Show current model"),
-        BotCommand("thread", "Show current thread ID"),
         BotCommand("busy", "Show busy work status"),
         BotCommand("tools", "List available tools"),
-        BotCommand("instructions", "Show agent system prompt"),
-        BotCommand("memory", "Show your saved user profile"),
-        BotCommand("tasks", "Show current task list"),
+        BotCommand("tasks", "Show pending quests"),
         BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
         BotCommand("agents", "Manage agents — list, switch, create, edit"),
