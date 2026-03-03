@@ -162,32 +162,43 @@ def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> obje
 
 def print_banner(model_name: str):
     """Display the QuestChain welcome banner."""
-    banner = Text(justify="center")
-    for line in QUESTCHAIN_ART.strip("\n").splitlines():
-        banner.append(line.strip() + "\n", style="bold blue")
-    banner.append("\n")
-    banner.append("🔗 ", style="bold")
-    banner.append(random.choice(TAGLINES), style="italic cyan")
-    banner.append("\n\n")
-    banner.append(f"v{__version__}", style="dim")
-    banner.append("  |  ", style="dim")
-    banner.append(f"Model: {model_name}", style="cyan")
-    banner.append("\n")
+    from rich.align import Align
+    from rich.console import Group
+
+    # Art block: pad every line to the same width so the block is a
+    # perfect rectangle, then center it as one unit (not per-line).
+    art_lines = QUESTCHAIN_ART.strip("\n").splitlines()
+    max_art_len = max(len(line) for line in art_lines)
+    art = Text(justify="left")
+    for line in art_lines:
+        art.append(line.ljust(max_art_len) + "\n", style="bold blue")
+
+    # Metadata lines centered individually (short, so per-line centering is fine).
+    meta = Text(justify="center")
+    meta.append("\n")
+    meta.append("🔗 ", style="bold")
+    meta.append(random.choice(TAGLINES), style="italic cyan")
+    meta.append("\n\n")
+    meta.append(f"v{__version__}", style="dim")
+    meta.append("  |  ", style="dim")
+    meta.append(f"Model: {model_name}", style="cyan")
+    meta.append("\n")
     if TAVILY_API_KEY:
-        banner.append("Web search: enabled", style="blue")
+        meta.append("Web search: enabled", style="blue")
     else:
-        banner.append("Web search: disabled  ", style="yellow")
-        banner.append("/tavily to set up", style="dim")
-    banner.append("\n")
+        meta.append("Web search: disabled  ", style="yellow")
+        meta.append("/tavily to set up", style="dim")
+    meta.append("\n")
     from questchain.tools import is_claude_code_available
     if is_claude_code_available():
-        banner.append("Claude Code: enabled", style="blue")
+        meta.append("Claude Code: enabled", style="blue")
     else:
-        banner.append("Claude Code: disabled  ", style="yellow")
-        banner.append("/claudecode to set up", style="dim")
-    banner.append("\n")
-    banner.append("Type /help for commands, Ctrl+D to exit", style="dim")
-    console.print(Panel(banner, border_style="blue", padding=(1, 2)))
+        meta.append("Claude Code: disabled  ", style="yellow")
+        meta.append("/claudecode to set up", style="dim")
+    meta.append("\n")
+    meta.append("Type /help for commands, Ctrl+D to exit", style="dim")
+
+    console.print(Panel(Group(Align.center(art), meta), border_style="blue", padding=(1, 2)))
 
 
 def print_tool_call(tool_name: str, tool_input: dict):
