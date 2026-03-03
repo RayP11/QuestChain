@@ -181,12 +181,6 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Ray
 curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
 ```
 
-What gets installed:
-- **Python 3.13** — if not already installed (Windows only; uv manages Python on Mac/Linux)
-- **uv** — fast Python package manager
-- **QuestChain** — installed and added to PATH
-- **qwen3:8b** — default model pulled and ready
-
 Takes ~5 minutes depending on your internet speed (the model download is the slow part).
 
 ### Step 3: Run
