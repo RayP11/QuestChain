@@ -287,19 +287,25 @@ Restart QuestChain and the bot starts alongside the CLI. The same conversation t
 
 ## Autonomous Work
 
-QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it reads `workspace/HEARTBEAT.md` and acts on anything that needs attention. If nothing does, it stays silent.
+QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
 
-`HEARTBEAT.md` is a plain Markdown file. Write whatever standing tasks or instructions you want the agent to follow each tick:
+**Quests** are individual `.md` files in `workspace/quests/` — one file per task. Write whatever you want the agent to do:
 
 ```markdown
-# HEARTBEAT.md
-
-- **Research**: Check for new developments in AI tooling and log findings to workspace/notes.md
-- **Maintenance**: Scan for broken links or stale entries in ABOUT.md
-- **Prep**: Draft a morning briefing from recent news and save to workspace/briefing.md
+# workspace/quests/find-api-docs.md
+Find the REST API docs for the weather service and save a summary to /workspace/memory/weather-api.md
 ```
 
-The agent interprets the file, uses all its tools to complete what needs doing, and sends you a summary in the terminal and on Telegram if configured. It stays silent if there's nothing to act on.
+The agent reads the quest, uses all its tools to complete the task, then deletes the file automatically. Results are shown in the terminal and on Telegram if configured.
+
+Use `/quest` to open the interactive quest manager — create, view, and delete quests with arrow keys:
+
+```
+ Quests   [n] new  [d] delete  [Esc] close
+ ──────────────────────────────────────────
+ ▶ find-api-docs.md
+   refactor-auth-module.md
+```
 
 ```bash
 # Run with a custom interval (minutes)
@@ -309,7 +315,7 @@ questchain start --busy-work 30
 questchain start --no-busy-work
 ```
 
-Use `/busy` to check scheduler status and `/tasks` to view your current `HEARTBEAT.md`.
+Use `/busy` to check scheduler status.
 
 ---
 

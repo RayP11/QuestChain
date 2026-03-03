@@ -15,7 +15,7 @@ from questchain.config import QUESTCHAIN_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-_INTERNAL_PREFIXES = ("busy_work", "heartbeat", "onboarding", "cron:")
+_INTERNAL_PREFIXES = ("busy_work", "quest", "onboarding", "cron:")
 _COMPACT_KEEP_RECENT = 6       # messages preserved verbatim during compaction
 _COMPACT_CONTENT_LIMIT = 800   # chars per message fed to the summarizer
 _THREAD_FIRST_MSG_LIMIT = 80   # chars kept for the first-message preview
@@ -141,7 +141,7 @@ class ContextManager:
         """Return metadata for saved threads, newest first.
 
         Each entry: {thread_id, last_active (datetime|None), first_message (str|None)}
-        Internal threads (heartbeat, onboarding, cron) are excluded.
+        Internal threads (quest, onboarding, cron) are excluded.
         """
         sessions = _sessions_dir()
         threads = []

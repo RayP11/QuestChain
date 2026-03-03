@@ -1,4 +1,4 @@
-"""QuestChain heartbeat — periodically checks HEARTBEAT.md and acts on it."""
+"""QuestChain quest runner — periodically picks and completes quests from workspace/quests/."""
 
 from __future__ import annotations
 
@@ -21,13 +21,12 @@ _OVERNIGHT_PROMPT = (
 
 
 class BusyWorkRunner:
-    """Runs periodic heartbeat checks via the agent's heartbeat() method.
+    """Runs periodic quest ticks via the agent's run_quest() method.
 
-    The agent reads /workspace/HEARTBEAT.md and acts on anything listed there.
-    Responses containing only HEARTBEAT_OK are silently suppressed.
-    If HEARTBEAT.md is empty or missing the run is skipped entirely.
+    The agent picks the first quest from workspace/quests/ and completes it.
+    If the quests directory is empty or missing, the tick is skipped silently.
 
-    A shared *busy_lock* prevents heartbeat ticks from running while the agent
+    A shared *busy_lock* prevents quest ticks from running while the agent
     is already processing a user or Telegram message.
     """
 
@@ -56,8 +55,8 @@ class BusyWorkRunner:
 
     async def start(self) -> None:
         self._running = True
-        self._task = asyncio.create_task(self._run_loop(), name="heartbeat")
-        logger.info("Heartbeat started (every %d min)", self._interval_minutes)
+        self._task = asyncio.create_task(self._run_loop(), name="quest_runner")
+        logger.info("Quest runner started (every %d min)", self._interval_minutes)
 
     async def stop(self) -> None:
         if self._running:
@@ -69,7 +68,7 @@ class BusyWorkRunner:
                 except asyncio.CancelledError:
                     pass
                 self._task = None
-            logger.info("Heartbeat stopped")
+            logger.info("Quest runner stopped")
 
     async def interrupt(self) -> None:
         """Cancel the in-progress tick (if any) so the lock is released immediately.
@@ -102,43 +101,43 @@ class BusyWorkRunner:
         # In asyncio (single-threaded) there is no TOCTOU between locked() and
         # acquire() because no await separates them.
         if self._busy_lock is not None and self._busy_lock.locked():
-            logger.debug("Heartbeat: skipping tick — agent is busy")
+            logger.debug("Quest: skipping tick — agent is busy")
             return
 
-        thread_id = f"heartbeat_{uuid.uuid4().hex}"
-        logger.debug("Heartbeat tick — thread %s", thread_id)
+        thread_id = f"quest_{uuid.uuid4().hex}"
+        logger.debug("Quest tick — thread %s", thread_id)
 
-        async def _run_heartbeat() -> str | None:
+        async def _run_quest() -> str | None:
             # Always look up the live agent from the holder so agent switches
             # are respected without needing to restart the runner.
             agent = self._agent_holder["agent"]
             if self._busy_lock is not None:
                 async with self._busy_lock:
-                    return await agent.heartbeat(thread_id)
-            return await agent.heartbeat(thread_id)
+                    return await agent.run_quest(thread_id)
+            return await agent.run_quest(thread_id)
 
         try:
             self._current_tick_task = asyncio.create_task(
-                asyncio.wait_for(_run_heartbeat(), timeout=HEARTBEAT_TIMEOUT),
-                name="heartbeat_tick",
+                asyncio.wait_for(_run_quest(), timeout=HEARTBEAT_TIMEOUT),
+                name="quest_tick",
             )
             result = await self._current_tick_task
         except asyncio.CancelledError:
-            logger.debug("Heartbeat tick interrupted by user input")
+            logger.debug("Quest tick interrupted by user input")
             return
         except asyncio.TimeoutError:
-            logger.warning("Heartbeat timed out after %ds", HEARTBEAT_TIMEOUT)
+            logger.warning("Quest timed out after %ds", HEARTBEAT_TIMEOUT)
             try:
-                await self._send_callback("Heartbeat timed out — agent took too long.")
+                await self._send_callback("Quest timed out — agent took too long.")
             except Exception:
-                logger.exception("Failed to deliver heartbeat timeout message")
+                logger.exception("Failed to deliver quest timeout message")
             return
         except Exception as e:
-            logger.exception("Heartbeat tick failed")
+            logger.exception("Quest tick failed")
             try:
-                await self._send_callback(f"Heartbeat error: {e}")
+                await self._send_callback(f"Quest error: {e}")
             except Exception:
-                logger.exception("Failed to deliver heartbeat error message")
+                logger.exception("Failed to deliver quest error message")
             return
         finally:
             self._current_tick_task = None
@@ -146,13 +145,13 @@ class BusyWorkRunner:
         if result:
             await self._send_callback(result)
         else:
-            logger.debug("Heartbeat: nothing to do")
+            logger.debug("Quest: nothing to do")
 
 
 class OvernightRunner:
     """Runs the Night Owl agent every 30 min during overnight hours (12 AM – 6 AM).
 
-    Uses /workspace/overnight.md as its task source — never touches HEARTBEAT.md.
+    Uses /workspace/overnight.md as its task source — never touches quest files.
     Maintains a per-date thread (overnight:YYYY-MM-DD) so the agent remembers
     earlier work from the same night.
     Shares *busy_lock* with BusyWorkRunner to prevent concurrent runs.

@@ -299,7 +299,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/overnight",    "Add a task to tonight's Night Owl queue (prompts for task)"),
     ("/quit",         "Exit QuestChain"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
-    ("/tasks",        "Show the current workspace task list"),
+    ("/quest",        "Manage quests — one-off tasks for the agent to complete"),
     ("/tavily",       "Set up Tavily web search API key"),
     ("/telegram",     "Set up Telegram bot credentials"),
     ("/thread",       "Show current conversation thread ID"),
@@ -455,13 +455,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             console.print("[dim]No memory file yet. Run /onboard to create one.[/dim]")
         return True
 
-    if cmd == "/tasks":
-        from questchain.config import WORKSPACE_DIR
-        tasks = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
-        if tasks.exists():
-            console.print(Panel(tasks.read_text(encoding="utf-8"), title="Tasks", border_style="cyan"))
-        else:
-            console.print("[dim]No HEARTBEAT.md found in workspace.[/dim]")
+    if cmd == "/quest":
+        session_state["run_quest_menu"] = True
         return True
 
     if cmd == "/cron":
@@ -536,7 +531,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /tools                 - List available tools\n"
             "  /instructions          - Show agent system prompt\n"
             "  /memory                - Show your saved user profile\n"
-            "  /tasks                 - Show current task list\n"
+            "  /quest                 - Manage quests (one-off agent tasks)\n"
             "  /cron                  - List scheduled cron jobs\n"
             "  /onboard               - Re-run the onboarding flow\n"
             "  /overnight             - Add a task to Night Owl's queue\n"
@@ -563,6 +558,207 @@ async def _prompt_line(session: PromptSession, prompt_text: str) -> str:
         return (await session.prompt_async(prompt_text)).strip()
     except (EOFError, KeyboardInterrupt):
         return ""
+
+
+async def _inline_file_editor(file_path, title: str) -> bool:
+    """Open *file_path* in a prompt_toolkit full-screen text editor.
+
+    Returns True if the file was saved, False if cancelled.
+    Ctrl+S saves, Ctrl+G opens the system editor, Esc cancels.
+    """
+    from prompt_toolkit import Application
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import HSplit, Window, FloatContainer, Float
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
+    from pathlib import Path
+
+    path = Path(file_path)
+    initial_text = path.read_text(encoding="utf-8") if path.exists() else ""
+
+    buf = Buffer(text=initial_text, multiline=True, name="editor")
+    result: list[bool] = [False]
+
+    kb = KeyBindings()
+
+    @kb.add("c-s")
+    def _save(event):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(buf.text, encoding="utf-8")
+        result[0] = True
+        event.app.exit()
+
+    @kb.add("c-g")
+    def _open_system_editor(event):
+        import os, tempfile, subprocess
+        editor = os.environ.get("EDITOR", "notepad" if os.name == "nt" else "nano")
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tf:
+            tf.write(buf.text)
+            tmp = tf.name
+        def _edit():
+            subprocess.call([editor, tmp])
+        from prompt_toolkit.application.run_in_terminal import run_in_terminal
+        def _run():
+            import threading
+            t = threading.Thread(target=_edit)
+            t.start()
+            t.join()
+            new_text = Path(tmp).read_text(encoding="utf-8")
+            Path(tmp).unlink(missing_ok=True)
+            buf.set_document(buf.document.__class__(text=new_text, cursor_position=len(new_text)))
+        run_in_terminal(_run)
+
+    @kb.add("escape")
+    def _cancel(event):
+        event.app.exit()
+
+    header = FormattedTextControl(text=f" Quests: {title} ")
+    footer = FormattedTextControl(text=" Ctrl+S to save  ·  Ctrl+G to open in editor  ·  Esc to cancel ")
+
+    layout = Layout(
+        HSplit([
+            Window(header, height=1, style="class:header"),
+            Window(BufferControl(buffer=buf), style="class:editor"),
+            Window(footer, height=1, style="class:footer"),
+        ])
+    )
+
+    style = PTStyle.from_dict({
+        "header": "bg:#004080 #ffffff bold",
+        "footer": "bg:#333333 #aaaaaa",
+        "editor": "bg:#1a1a1a #e0e0e0",
+    })
+
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+    await app.run_async()
+    if result[0]:
+        console.print("[green]Saved.[/green]")
+    return result[0]
+
+
+async def _quest_menu(session: PromptSession) -> None:
+    """Keyboard-driven quest management menu (arrow keys + Enter)."""
+    from prompt_toolkit import Application
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import HSplit, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
+    from questchain.config import WORKSPACE_DIR
+
+    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+    quests_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_quests():
+        return sorted(quests_dir.glob("*.md"))
+
+    quest_files = _load_quests()
+    state = {"idx": 0, "files": quest_files, "exit": False, "open_editor": None, "new_quest": False, "delete": False}
+
+    def _render():
+        lines = [("class:header", " Quests   [n] new  [d] delete  [Esc] close\n")]
+        lines.append(("class:sep", " " + "─" * 42 + "\n"))
+        files = state["files"]
+        if not files:
+            lines.append(("class:dim", " No quests yet. Press n to create one.\n"))
+        else:
+            for i, f in enumerate(files):
+                if i == state["idx"]:
+                    lines.append(("class:selected", f" ▶ {f.name}\n"))
+                else:
+                    lines.append(("class:item", f"   {f.name}\n"))
+        return lines
+
+    content = FormattedTextControl(text=_render, focusable=True)
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _up(event):
+        if state["files"] and state["idx"] > 0:
+            state["idx"] -= 1
+            content.text = _render
+
+    @kb.add("down")
+    def _down(event):
+        if state["files"] and state["idx"] < len(state["files"]) - 1:
+            state["idx"] += 1
+            content.text = _render
+
+    @kb.add("enter")
+    def _enter(event):
+        if state["files"]:
+            state["open_editor"] = state["files"][state["idx"]]
+            event.app.exit()
+
+    @kb.add("n")
+    def _new(event):
+        state["new_quest"] = True
+        event.app.exit()
+
+    @kb.add("d")
+    def _delete(event):
+        if state["files"]:
+            state["delete"] = True
+            event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _close(event):
+        state["exit"] = True
+        event.app.exit()
+
+    layout = Layout(Window(content))
+    style = PTStyle.from_dict({
+        "header":   "bold #aaddff",
+        "sep":      "dim",
+        "selected": "bg:#004080 #ffffff bold",
+        "item":     "#cccccc",
+        "dim":      "dim italic",
+    })
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+
+    while True:
+        state["open_editor"] = None
+        state["new_quest"] = False
+        state["delete"] = False
+        state["exit"] = False
+        state["files"] = _load_quests()
+        if state["idx"] >= len(state["files"]):
+            state["idx"] = max(0, len(state["files"]) - 1)
+        content.text = _render
+
+        await app.run_async()
+
+        if state["exit"]:
+            break
+
+        if state["new_quest"]:
+            name = await _prompt_line(session, "Quest name (slug, no spaces): ")
+            if name.strip():
+                slug = name.strip().rstrip(".md")
+                new_path = quests_dir / f"{slug}.md"
+                new_path.write_text("", encoding="utf-8")
+                await _inline_file_editor(new_path, new_path.name)
+            continue
+
+        if state["delete"] and state["files"]:
+            target = state["files"][state["idx"]]
+            confirm = await _prompt_line(session, f"Delete '{target.name}'? [y/N]: ")
+            if confirm.lower() in ("y", "yes"):
+                target.unlink(missing_ok=True)
+                console.print(f"[red]Deleted[/red] {target.name}")
+            continue
+
+        if state["open_editor"]:
+            await _inline_file_editor(state["open_editor"], state["open_editor"].name)
+            continue
+
+        break
 
 
 async def _prompt_model_line(session: PromptSession, prompt_text: str) -> str:
@@ -1241,7 +1437,7 @@ async def _run_with_busy_work(
     runner: BusyWorkRunner | None = None
     scheduler = None
     overnight_runner: OvernightRunner | None = None
-    # Shared lock: held by the REPL while running agent; heartbeat checks before ticking.
+    # Shared lock: held by the REPL while running agent; quest runner checks before ticking.
     agent_lock = asyncio.Lock()
 
     if busy_work_minutes is not None:
@@ -1308,7 +1504,7 @@ async def _run_with_busy_work(
         session_state["overnight_runner"] = overnight_runner
         console.print("[dim]Overnight runner: active[/dim]")
 
-    # First-run onboarding — guard with the lock so a fast heartbeat can't interfere
+    # First-run onboarding — guard with the lock so a fast quest tick can't interfere
     if not is_onboarded():
         async with agent_lock:
             completed = await run_onboarding(agent_holder["agent"], console, prompt_session=session)
@@ -1440,6 +1636,9 @@ async def _repl_loop(
 
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)
+
+                if session_state.pop("run_quest_menu", False):
+                    await _quest_menu(session)
 
                 if session_state.pop("run_overnight_queue", False):
                     task_text = await _prompt_line(session, "Task for tonight: ")

@@ -26,7 +26,7 @@ from questchain.engine.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-HEARTBEAT_OK = "HEARTBEAT_OK"
+QUEST_DONE = "QUEST_DONE"
 _MAX_ITERATIONS = 30
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -146,31 +146,28 @@ class Agent:
             "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
         )
 
-    async def heartbeat(self, thread_id: str) -> str | None:
-        """Run a heartbeat check against HEARTBEAT.md.
+    async def run_quest(self, thread_id: str) -> str | None:
+        """Pick and complete the alphabetically-first quest in workspace/quests/.
 
-        Returns the agent's response if action is needed, or None if all clear.
-        HEARTBEAT_OK responses (< 300 chars) are silently suppressed.
+        Returns the agent's response, or None if there are no quests.
+        Deletes the quest file when the response contains QUEST_DONE.
         """
         from questchain.config import WORKSPACE_DIR
 
-        heartbeat_path = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
-
-        if not heartbeat_path.exists():
+        quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+        if not quests_dir.exists():
             return None
 
-        content = (await asyncio.to_thread(heartbeat_path.read_text, encoding="utf-8")).strip()
-        # Skip if only headers and blank lines (file is effectively empty)
-        meaningful = [
-            l for l in content.splitlines()
-            if l.strip() and not l.strip().startswith("#")
-        ]
-        if not meaningful:
+        quest_files = sorted(quests_dir.glob("*.md"))
+        if not quest_files:
             return None
+
+        quest_path = quest_files[0]
+        quest_name = quest_path.name
 
         prompt = (
-            f"HEARTBEAT. Check /workspace/HEARTBEAT.md and act on anything that needs "
-            f"attention. If nothing needs attention, reply with exactly: {HEARTBEAT_OK}"
+            f"QUEST: Complete the task in /workspace/quests/{quest_name}. "
+            f"Reply {QUEST_DONE} when finished."
         )
 
         tokens: list[str] = []
@@ -179,8 +176,9 @@ class Agent:
 
         response = _THINK_RE.sub("", "".join(tokens)).strip()
 
-        if HEARTBEAT_OK in response and len(response) < 300:
-            return None
+        if QUEST_DONE in response:
+            await asyncio.to_thread(quest_path.unlink, True)
+
         return response or None
 
     # ------------------------------------------------------------------

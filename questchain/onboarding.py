@@ -284,15 +284,14 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
     profile_md = MEMORY_DIR / "profile.md"
-    heartbeat_md = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
+    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
     if not agents_md.exists():
         agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n", encoding="utf-8")
     if not about_md.exists():
         about_md.write_text("", encoding="utf-8")
     if not profile_md.exists():
         profile_md.write_text("", encoding="utf-8")
-    if not heartbeat_md.exists():
-        heartbeat_md.write_text("", encoding="utf-8")  # placeholder; filled after questions
+    quests_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Model selection & pull ────────────────────────────────────────────────
     import ollama as _ollama
@@ -420,47 +419,6 @@ Output ONLY the markdown. No extra commentary."""
     profile_text = re.sub(r"<think>.*?</think>", "", response.content, flags=re.DOTALL).strip()
     about_md.write_text(profile_text + "\n", encoding="utf-8")
     console.print("[dim]Profile saved.[/dim]")
-
-    # ── Heartbeat: ask what the agent should proactively watch ────────────────
-    HEARTBEAT_QUESTIONS = [
-        ("topics",  f"What topics or areas should I proactively keep up with for you? (e.g. tech news, a project, a domain)"),
-        ("tasks",   f"Any recurring background tasks I should handle? (e.g. summarise news, check docs, maintain files — or press Enter to skip)"),
-    ]
-    hb_answers: dict[str, str] = {}
-    console.print(f"\n[bold green]{agent_name}[/bold green]")
-    console.print("One last thing — I can work in the background between our chats.")
-    for key, question in HEARTBEAT_QUESTIONS:
-        console.print(f"\n[bold green]{agent_name}[/bold green]")
-        console.print(question)
-        answer = await _prompt_user(prompt_session, console)
-        if answer is None:
-            hb_answers[key] = "(not provided)"
-        else:
-            hb_answers[key] = answer or "(not provided)"
-
-    heartbeat_prompt = f"""\
-Write a concise HEARTBEAT.md file for an AI agent that runs periodic background checks.
-The file describes standing areas to look for work — NOT specific one-off tasks.
-The agent will read this file each hour and look for anything that needs attention.
-Use markdown with a short intro line and 2–4 bullet-point sections.
-Keep it focused and actionable — this is loaded into the agent's context every tick.
-
-Topics to monitor: {hb_answers['topics']}
-Recurring background tasks: {hb_answers['tasks']}
-User's work areas (for context): {answers['work']}
-
-Output ONLY the markdown. No extra commentary."""
-
-    console.print(f"\n[bold green]{agent_name}[/bold green]")
-    console.print("[dim]Setting up background tasks…[/dim]")
-
-    hb_response = await model.ainvoke([
-        SystemMessage(content="You write concise, actionable background-task files for AI agents."),
-        HumanMessage(content=heartbeat_prompt),
-    ])
-    hb_text = re.sub(r"<think>.*?</think>", "", hb_response.content, flags=re.DOTALL).strip()
-    heartbeat_md.write_text(hb_text + "\n", encoding="utf-8")
-    console.print("[dim]Background tasks configured.[/dim]")
 
     mark_onboarded()
     await _run_integration_setup(console, prompt_session)

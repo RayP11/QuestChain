@@ -114,7 +114,7 @@ _HELP_TEXT = (
     "/tools — List available tools\n"
     "/instructions — Show agent system prompt\n"
     "/memory — Show your saved user profile\n"
-    "/tasks — Show current task list\n"
+    "/tasks — Show pending quests\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
     "/agents — Manage agents (list, switch, create, edit)\n"
@@ -237,21 +237,21 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tasks command — show HEARTBEAT.md."""
+    """Handle /tasks command — list pending quests."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
     from questchain.config import WORKSPACE_DIR
-    tasks = WORKSPACE_DIR / "workspace" / "HEARTBEAT.md"
-    if not tasks.exists():
-        await update.message.reply_text("No HEARTBEAT.md found in workspace.")
+    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+    if not quests_dir.exists():
+        await update.message.reply_text("No quests pending.")
         return
-    chunks = _split_message(tasks.read_text(encoding="utf-8"))
-    for chunk in chunks:
-        try:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(chunk)
+    quest_files = sorted(quests_dir.glob("*.md"))
+    if not quest_files:
+        await update.message.reply_text("No quests pending.")
+        return
+    lines = [f.name for f in quest_files]
+    await update.message.reply_text("Pending quests:\n" + "\n".join(f"• {l}" for l in lines))
 
 
 async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
