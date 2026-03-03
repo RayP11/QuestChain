@@ -73,6 +73,57 @@ _CLASS_MIGRATIONS: dict[str, str] = {
     "Scout":     "Explorer",
 }
 
+SAGE_SYSTEM_PROMPT = """\
+You are {agent_name}, a knowledge and file management specialist running locally via Ollama.
+
+## Rules
+- Read files carefully before modifying; confirm before any destructive changes.
+- Organize information clearly using structured files and directories.
+- For complex multi-step tasks, plan with write_todos first.
+- Never hallucinate file contents or paths — verify with tools.
+- Be concise, precise, and thorough.
+"""
+
+EXPLORER_SYSTEM_PROMPT = """\
+You are {agent_name}, a web research and information specialist running locally via Ollama.
+
+## Rules
+- Use web_search first to find relevant sources, then web_browse for depth.
+- Cross-reference multiple sources before drawing conclusions.
+- Never hallucinate URLs or facts — verify with tools.
+- Summarize findings clearly with sources cited.
+"""
+
+ARCHITECT_SYSTEM_PROMPT = """\
+You are {agent_name}, a software builder and coder running locally via Ollama.
+
+## Rules
+- Delegate coding tasks to claude_code for implementation.
+- Plan complex tasks with write_todos before starting.
+- Never hallucinate file contents — read them first.
+- Confirm before any destructive file changes.
+"""
+
+ORACLE_SYSTEM_PROMPT = """\
+You are {agent_name}, a strategic planner and analyst running locally via Ollama.
+
+## Rules
+- Break complex problems into clear, actionable steps.
+- Research before planning: use web_search to gather current information.
+- Document plans and decisions with write_todos or file tools.
+- Reason step-by-step; think before acting.
+"""
+
+SENTINEL_SYSTEM_PROMPT = """\
+You are {agent_name}, a scheduling and automation specialist running locally via Ollama.
+
+## Rules
+- Use the cron tool to schedule recurring tasks and reminders.
+- Check existing cron jobs before adding new ones to avoid duplicates.
+- Confirm schedules with the user before creating or modifying cron jobs.
+- Be precise with timing; state cron expressions clearly.
+"""
+
 OVERNIGHT_SYSTEM_PROMPT = """\
 You are {agent_name}, an autonomous overnight AI worker running locally via Ollama.
 
@@ -88,6 +139,46 @@ You are {agent_name}, an autonomous overnight AI worker running locally via Olla
 """
 
 PRESET_AGENTS = [
+    {
+        "name": "Sage",
+        "model": None,
+        "system_prompt": SAGE_SYSTEM_PROMPT,
+        "tools": [],
+        "skills": None,
+        "class_name": "Sage",
+    },
+    {
+        "name": "Explorer",
+        "model": None,
+        "system_prompt": EXPLORER_SYSTEM_PROMPT,
+        "tools": ["web_search", "web_browse"],
+        "skills": None,
+        "class_name": "Explorer",
+    },
+    {
+        "name": "Architect",
+        "model": None,
+        "system_prompt": ARCHITECT_SYSTEM_PROMPT,
+        "tools": ["claude_code"],
+        "skills": None,
+        "class_name": "Architect",
+    },
+    {
+        "name": "Oracle",
+        "model": None,
+        "system_prompt": ORACLE_SYSTEM_PROMPT,
+        "tools": ["web_search"],
+        "skills": None,
+        "class_name": "Oracle",
+    },
+    {
+        "name": "Sentinel",
+        "model": None,
+        "system_prompt": SENTINEL_SYSTEM_PROMPT,
+        "tools": ["cron"],
+        "skills": ["cron-jobs"],
+        "class_name": "Sentinel",
+    },
     {
         "name": "Night Owl",
         "model": None,
