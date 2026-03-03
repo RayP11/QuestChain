@@ -162,31 +162,31 @@ def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> obje
 
 def print_banner(model_name: str):
     """Display the QuestChain welcome banner."""
-    banner = Text()
+    banner = Text(justify="center")
     for line in QUESTCHAIN_ART.strip("\n").splitlines():
-        banner.append(line + "\n", style="bold blue")
+        banner.append(line.strip() + "\n", style="bold blue")
     banner.append("\n")
-    banner.append("  🔗 ", style="bold")
+    banner.append("🔗 ", style="bold")
     banner.append(random.choice(TAGLINES), style="italic cyan")
     banner.append("\n\n")
-    banner.append(f"  v{__version__}", style="dim")
+    banner.append(f"v{__version__}", style="dim")
     banner.append("  |  ", style="dim")
     banner.append(f"Model: {model_name}", style="cyan")
     banner.append("\n")
     if TAVILY_API_KEY:
-        banner.append("  Web search: enabled", style="blue")
+        banner.append("Web search: enabled", style="blue")
     else:
-        banner.append("  Web search: disabled  ", style="yellow")
+        banner.append("Web search: disabled  ", style="yellow")
         banner.append("/tavily to set up", style="dim")
     banner.append("\n")
     from questchain.tools import is_claude_code_available
     if is_claude_code_available():
-        banner.append("  Claude Code: enabled", style="blue")
+        banner.append("Claude Code: enabled", style="blue")
     else:
-        banner.append("  Claude Code: disabled  ", style="yellow")
+        banner.append("Claude Code: disabled  ", style="yellow")
         banner.append("/claudecode to set up", style="dim")
     banner.append("\n")
-    banner.append("  Type /help for commands, Ctrl+D to exit", style="dim")
+    banner.append("Type /help for commands, Ctrl+D to exit", style="dim")
     console.print(Panel(banner, border_style="blue", padding=(1, 2)))
 
 
