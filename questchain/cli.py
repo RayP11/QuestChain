@@ -22,7 +22,7 @@ _SEP = "─"
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
 from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, SKILL_CLASS_RESTRICTIONS, SKILL_REQUIRED_TOOLS
-from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant
+from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant, level_personality
 from questchain.stats import MetricsManager
 from questchain.config import (
     DEFAULT_BUSY_WORK_MINUTES,
@@ -59,8 +59,10 @@ def _build_agent_label(agent_def: dict, prog: ProgressionManager | None) -> str:
     class_name = agent_def.get("class_name", DEFAULT_CLASS)
     class_display = _get_class_display(class_name)
     color = CLASS_COLORS.get(class_name, "bright_white")
-    level = prog.get_record().level if prog is not None else 1
-    return f"[{color}]{name}[/{color}][dim] · Lv.{level} {class_display}[/dim]"
+    record = prog.get_record() if prog is not None else None
+    level = record.level if record is not None else 1
+    prestige_badge = (" [bold yellow]" + "✦" * record.prestige + "[/bold yellow]") if (record is not None and record.prestige) else ""
+    return f"[{color}]{name}[/{color}][dim] · Lv.{level} {class_display}[/dim]{prestige_badge}"
 
 
 def _init_progression(agent_def: dict) -> ProgressionManager:
@@ -233,11 +235,15 @@ async def show_stats(agent_def: dict) -> None:
 
     top_tools = sorted(record.tool_counts.items(), key=lambda x: x[1], reverse=True)[:5]
 
+    prestige_badge = (" [bold yellow]" + "✦" * record.prestige + "[/bold yellow]") if record.prestige else ""
     lines: list[str] = [
-        f"[bold]{agent_def.get('name', 'QuestChain')}[/bold]  ·  {class_display}  ·  [bold cyan]Level {record.level}[/bold cyan]",
+        f"[bold]{agent_def.get('name', 'QuestChain')}[/bold]  ·  {class_display}  ·  [bold cyan]Level {record.level}[/bold cyan]{prestige_badge}",
         f"  [{bar}]  {xp_display}",
         f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Busy-work: [cyan]{record.busy_work_completed}[/cyan]",
     ]
+    if record.current_streak > 1:
+        streak_bonus = " [bold yellow](+50% XP)[/bold yellow]" if record.current_streak >= 7 else ""
+        lines.append(f"  🔥 Streak: [bold orange1]{record.current_streak}[/bold orange1] days{streak_bonus}")
     if top_tools:
         lines.append("")
         lines.append("[bold]Top tools:[/bold]")
@@ -256,6 +262,36 @@ async def show_stats(agent_def: dict) -> None:
         lines.append("  [dim]None yet — start chatting![/dim]")
 
     console.print(Panel("\n".join(lines), title="📊 Level", border_style="cyan"))
+
+
+def _birthday_message(days: int) -> str:
+    msgs = {
+        30:  "🎂 30 days old! Your agent has been running for a whole month.",
+        100: "🎂 100 days! A hundred-day milestone of being awesome.",
+        365: "🎂 One year together! Your agent has been with you for a full year.",
+    }
+    return msgs.get(days, f"🎂 {days}-day milestone!")
+
+
+async def _handle_prestige(session: PromptSession) -> None:
+    """Handle the /prestige command."""
+    if _progression is None or not _progression.can_prestige():
+        console.print("[yellow]Prestige is only available at Level 20.[/yellow]")
+        return
+    record = _progression.get_record()
+    console.print(Panel(
+        f"[bold yellow]⚡ PRESTIGE[/bold yellow]\n\n"
+        f"You are Level 20. Prestige resets you to Level 1 but grants a "
+        f"[bold]✦ Prestige {record.prestige + 1}[/bold] badge.\n"
+        f"Your achievements and tools are kept.",
+        border_style="yellow",
+    ))
+    confirm = await _prompt_line(session, "Type PRESTIGE to confirm, or Enter to cancel: ")
+    if confirm.strip().upper() == "PRESTIGE":
+        _progression.do_prestige()
+        console.print("[bold yellow]✦ Prestige complete! You are Level 1 again.[/bold yellow]")
+    else:
+        console.print("[dim]Cancelled.[/dim]")
 
 
 def show_metrics(mm: MetricsManager) -> None:
@@ -297,6 +333,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
     ("/overnight",    "Add a task to tonight's Night Owl queue (prompts for task)"),
+    ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
     ("/quit",         "Exit QuestChain"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
     ("/quest",        "Manage quests — one-off tasks for the agent to complete"),
@@ -509,6 +546,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_overnight_queue"] = True
         return True
 
+    if cmd == "/prestige":
+        session_state["run_prestige"] = True
+        return True
+
     if cmd == "/level":
         session_state["run_level"] = True
         return True
@@ -540,6 +581,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /telegram              - Set up Telegram bot credentials\n"
             "  /agents                - Manage agents (list, switch, create)\n"
             "  /level                 - Show agent level and achievements\n"
+            "  /prestige              - Prestige reset (requires Level 20)\n"
             "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
             "  /history               - Show past conversations with timestamps\n"
             "  /clear                 - Clear the screen\n"
@@ -1449,6 +1491,11 @@ async def _run_with_busy_work(
                 grant = _progression.award_xp([], is_busy_work=True)
                 if grant.leveled_up:
                     print_level_up(grant, _progression.get_record().class_name)
+                    if telegram_send:
+                        try:
+                            await telegram_send(f"⚔ LEVEL UP (busy work) — now Level {grant.new_level}!")
+                        except Exception:
+                            pass
                 for ach in grant.new_achievements:
                     print_achievement_unlock(ach)
             if telegram_send:
@@ -1519,6 +1566,17 @@ async def _run_with_busy_work(
             except Exception:
                 pass
 
+    if _progression is not None:
+        milestone = _progression.check_birthday()
+        if milestone:
+            msg = _birthday_message(milestone)
+            console.print(Panel(msg, border_style="magenta"))
+            if telegram_send:
+                try:
+                    await telegram_send(msg)
+                except Exception:
+                    pass
+
     try:
         await _repl_loop(
             session, agent_holder, session_state,
@@ -1526,6 +1584,7 @@ async def _run_with_busy_work(
             audio_router=audio_router,
             agent_manager=agent_manager,
             busy_lock=agent_lock,
+            telegram_send=telegram_send,
         )
     finally:
         if runner:
@@ -1546,6 +1605,7 @@ async def _repl_loop(
     audio_router: "_AudioRouter | None" = None,
     agent_manager: "AgentManager | None" = None,
     busy_lock: asyncio.Lock | None = None,
+    telegram_send=None,
 ):
     """Inner REPL loop.
 
@@ -1678,6 +1738,9 @@ async def _repl_loop(
                             if chosen_class == "NightOwl" and not is_overnight_onboarded():
                                 await run_overnight_onboarding(agent_holder["agent"], console, prompt_session=session)
 
+                if session_state.pop("run_prestige", False):
+                    await _handle_prestige(session)
+
                 if session_state.pop("run_level", False) and agent_manager is not None:
                     await show_stats(agent_manager.get_active())
 
@@ -1711,9 +1774,21 @@ async def _repl_loop(
                 )
             if xp_grant and xp_grant.leveled_up and _progression is not None:
                 print_level_up(xp_grant, _progression.get_record().class_name)
+                if telegram_send:
+                    try:
+                        await telegram_send(f"⚔ LEVEL UP — now Level {xp_grant.new_level}!")
+                    except Exception:
+                        pass
             if xp_grant:
                 for ach in xp_grant.new_achievements:
                     print_achievement_unlock(ach)
+                    if telegram_send:
+                        try:
+                            await telegram_send(
+                                f"✦ Achievement unlocked: {ach.name} — {ach.description}"
+                            )
+                        except Exception:
+                            pass
             if response_future and not response_future.done():
                 response_future.set_result(full_response)
         except KeyboardInterrupt:
@@ -1743,9 +1818,21 @@ async def _repl_loop(
                         )
                     if xp_grant and xp_grant.leveled_up and _progression is not None:
                         print_level_up(xp_grant, _progression.get_record().class_name)
+                        if telegram_send:
+                            try:
+                                await telegram_send(f"⚔ LEVEL UP — now Level {xp_grant.new_level}!")
+                            except Exception:
+                                pass
                     if xp_grant:
                         for ach in xp_grant.new_achievements:
                             print_achievement_unlock(ach)
+                            if telegram_send:
+                                try:
+                                    await telegram_send(
+                                        f"✦ Achievement unlocked: {ach.name} — {ach.description}"
+                                    )
+                                except Exception:
+                                    pass
                     if response_future and not response_future.done():
                         response_future.set_result(full_response)
                 except Exception as retry_err:

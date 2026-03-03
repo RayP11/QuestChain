@@ -324,6 +324,11 @@ async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"[{bar}] {xp_display}",
         f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Busy-work: {record.busy_work_completed}",
     ]
+    if record.current_streak > 1:
+        streak_bonus = " (+50% XP)" if record.current_streak >= 7 else ""
+        lines.append(f"🔥 Streak: {record.current_streak} days{streak_bonus}")
+    if record.prestige:
+        lines.append(f"{'✦' * record.prestige} Prestige {record.prestige}")
     if top_tools:
         lines.append("\nTop tools:")
         for tool, count in top_tools:

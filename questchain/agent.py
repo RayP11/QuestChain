@@ -28,6 +28,7 @@ def create_questchain_agent(
     agent_name: str = "QuestChain",
     on_audio=None,
     injected_files=None,
+    personality_hint: str = "",
     # Legacy params accepted but unused (kept for call-site compatibility)
     checkpointer=None,
     store=None,
@@ -81,6 +82,7 @@ def create_questchain_agent(
         system_prompt=system_prompt,
         agent_name=agent_name,
         injected_files=injected_files,
+        personality_hint=personality_hint,
     )
 
 
@@ -91,6 +93,7 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     without creating a circular dependency through cli.py.
     """
     from pathlib import Path
+    from questchain.progression import ProgressionManager, level_personality
     skills_raw = agent_def.get("skills")  # None/"all" → all; list → filtered
     skills_filter = None if (skills_raw is None or skills_raw == "all") else skills_raw
 
@@ -100,6 +103,13 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     if agent_def.get("id") == "default":
         injected_files.append(memory_dir / "ABOUT.md")
 
+    pm = ProgressionManager(
+        agent_def.get("id", "default"),
+        agent_def.get("class_name", "Custom"),
+    )
+    record = pm.load()
+    hint = level_personality(record.level)
+
     return create_questchain_agent(
         model_name=agent_def.get("model"),
         on_audio=audio_router,
@@ -108,4 +118,5 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
         skills_filter=skills_filter,
         agent_name=agent_def.get("name", "QuestChain"),
         injected_files=injected_files,
+        personality_hint=hint,
     )

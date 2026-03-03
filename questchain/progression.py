@@ -31,6 +31,57 @@ def _build_level_table(base: int = 100, factor: float = 1.6, max_level: int = 20
 _LEVEL_TABLE: list[int] = _build_level_table()
 _MAX_LEVEL = 20
 
+# ── Level personalities ────────────────────────────────────────────────────────
+
+LEVEL_PERSONALITIES: list[str] = [
+    # 1
+    "You are just starting out. Be polite, careful, and ask clarifying questions when uncertain.",
+    # 2
+    "You are curious and eager. You take initiative but double-check your assumptions.",
+    # 3
+    "You are finding your footing. You complete tasks confidently and flag anything unclear.",
+    # 4
+    "You are developing good instincts. You propose solutions before asking for guidance.",
+    # 5
+    "You are growing in confidence. You handle multi-step tasks smoothly and verify results.",
+    # 6
+    "You are comfortable with a wide range of tasks. You work efficiently and stay focused.",
+    # 7
+    "You are fluent and reliable. You anticipate follow-up needs without being asked.",
+    # 8
+    "You are a dependable partner. You surface trade-offs clearly and prefer elegant solutions.",
+    # 9
+    "You are thorough and sharp. You catch edge cases and explain your reasoning concisely.",
+    # 10
+    "You are experienced and direct. You rarely hesitate and trust your tools.",
+    # 11
+    "You are assertive and decisive. You lead the work and let the user course-correct if needed.",
+    # 12
+    "You are seasoned and methodical. You structure complex tasks into clear phases.",
+    # 13
+    "You are confident and precise. You cut to the heart of a problem with minimal fuss.",
+    # 14
+    "You are highly capable and self-sufficient. You only ask when genuinely ambiguous.",
+    # 15
+    "You are sharp and a little witty. You enjoy showing off elegant solutions when the moment is right.",
+    # 16
+    "You are authoritative and opinionated. You recommend a clear path and explain why it's best.",
+    # 17
+    "You are a master craftsperson. You produce polished work on the first attempt.",
+    # 18
+    "You are boldly creative. You find unexpected approaches that save time and delight.",
+    # 19
+    "You are near-legendary. You handle anything thrown at you with calm efficiency and dry wit.",
+    # 20
+    "You are a legend. You speak with total authority and dry humor. You've seen everything.",
+]
+
+
+def level_personality(level: int) -> str:
+    """Return a formatted personality hint for the given level."""
+    text = LEVEL_PERSONALITIES[min(level, _MAX_LEVEL) - 1]
+    return f"## Personality\n{text}"
+
 
 def _level_from_xp(total_xp: int) -> int:
     """Return the level for the given cumulative XP."""
@@ -74,6 +125,10 @@ class ProgressionRecord:
     achievements: list[EarnedAchievement] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_active: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    current_streak: int = 0
+    last_streak_date: str = ""   # "YYYY-MM-DD"
+    prestige: int = 0
+    celebrated_birthdays: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -83,6 +138,7 @@ class XPGrant:
     new_level: int
     leveled_up: bool
     new_achievements: list[EarnedAchievement]
+    streak_days: int = 0
 
 
 # ── XP constants ──────────────────────────────────────────────────────────────
@@ -247,6 +303,10 @@ class ProgressionManager:
                     achievements=achievements,
                     created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
                     last_active=data.get("last_active", datetime.now(timezone.utc).isoformat()),
+                    current_streak=data.get("current_streak", 0),
+                    last_streak_date=data.get("last_streak_date", ""),
+                    prestige=data.get("prestige", 0),
+                    celebrated_birthdays=data.get("celebrated_birthdays", []),
                 )
                 return self._record
             except Exception:
@@ -277,8 +337,19 @@ class ProgressionManager:
         response_chars: int = 0,
     ) -> XPGrant:
         """Award XP, recalculate level, check achievements, persist."""
+        from datetime import date, timedelta
         record = self.get_record()
         old_level = record.level
+
+        # ── Streak update ──────────────────────────────────────────────────────
+        today = date.today().isoformat()
+        if record.last_streak_date == today:
+            pass  # already updated today
+        elif record.last_streak_date == (date.today() - timedelta(days=1)).isoformat():
+            record.current_streak += 1
+        else:
+            record.current_streak = 1
+        record.last_streak_date = today
 
         if is_busy_work:
             xp = _XP_BUSY_WORK
@@ -289,6 +360,10 @@ class ProgressionManager:
                 xp += _XP_CLAUDE_CODE_BONUS
             xp += response_chars // 50 * _XP_PER_50_RESPONSE_CHARS
             record.turns_completed += 1
+
+        # Apply streak multiplier
+        if record.current_streak >= 7:
+            xp = int(xp * 1.5)
 
         record.total_xp += xp
 
@@ -308,7 +383,35 @@ class ProgressionManager:
             new_level=new_level,
             leveled_up=new_level > old_level,
             new_achievements=new_achievements,
+            streak_days=record.current_streak,
         )
+
+    def can_prestige(self) -> bool:
+        """Return True if the agent is at max level and eligible for prestige."""
+        return self.get_record().level >= _MAX_LEVEL
+
+    def do_prestige(self) -> None:
+        """Reset level to 1, increment prestige counter, preserve achievements."""
+        record = self.get_record()
+        record.prestige += 1
+        record.total_xp = 0
+        record.level = 1
+        record.xp_this_level, record.xp_next_level = _xp_progress(0, 1)
+        record.last_active = datetime.now(timezone.utc).isoformat()
+        self._save()
+
+    def check_birthday(self) -> int | None:
+        """Return milestone days (30/100/365) if newly reached, else None."""
+        from datetime import date
+        record = self.get_record()
+        created = datetime.fromisoformat(record.created_at).date()
+        days = (date.today() - created).days
+        for milestone in (30, 100, 365):
+            if days >= milestone and milestone not in record.celebrated_birthdays:
+                record.celebrated_birthdays.append(milestone)
+                self._save()
+                return milestone
+        return None
 
     def update_class(self, class_name: str) -> None:
         """Sync class name after an agent edit."""

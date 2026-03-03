@@ -42,6 +42,7 @@ class Agent:
         system_prompt: str,
         agent_name: str = "QuestChain",
         injected_files: list[Path] | None = None,
+        personality_hint: str = "",
     ):
         self.model = model
         self.tools = tools
@@ -49,6 +50,7 @@ class Agent:
         self.agent_name = agent_name
         self._base_system_prompt = system_prompt
         self._injected_files: list[Path] = injected_files or []
+        self._personality_hint = personality_hint
         self.last_iterations: int = 0   # tool-loop depth of the most recent turn
         self.last_tool_errors: int = 0  # error count of the most recent turn
 
@@ -187,7 +189,13 @@ class Agent:
 
     def _build_system_prompt(self) -> str:
         now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-        parts = [self._base_system_prompt]
+        parts = []
+
+        # Personality hint is first so it sets the tone before everything else
+        if self._personality_hint:
+            parts.append(self._personality_hint)
+
+        parts.append(self._base_system_prompt)
 
         # Inject profile/about files from disk (always fresh)
         for path in self._injected_files:
