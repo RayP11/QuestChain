@@ -321,14 +321,11 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/busy",         "Show busy work scheduler status"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
-    ("/clear",        "Clear the screen"),
     ("/cron",         "List scheduled cron jobs"),
     ("/exit",         "Exit QuestChain"),
     ("/help",         "Show all available commands"),
-    ("/history",      "Show past conversations with timestamps"),
-    ("/instructions", "Show the agent's system prompt"),
+    ("/history",      "Browse and switch past conversations"),
     ("/level",        "Show agent level and achievements"),
-    ("/memory",       "Show your saved user profile"),
     ("/model",        "Show current model and list available ones"),
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
@@ -339,7 +336,6 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/quest",        "Manage quests — one-off tasks for the agent to complete"),
     ("/tavily",       "Set up Tavily web search API key"),
     ("/telegram",     "Set up Telegram bot credentials"),
-    ("/thread",       "Show current conversation thread ID"),
     ("/tools",        "List all available agent tools"),
 ]
 
@@ -431,9 +427,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         console.print("[dim]Goodbye![/dim]")
         return False
 
-    if cmd == "/clear":
-        console.clear()
-        return True
 
     if cmd == "/new":
         session_state["thread_id"] = str(uuid.uuid4())
@@ -449,9 +442,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
                 console.print(f"  - {m}")
         return True
 
-    if cmd == "/thread":
-        console.print(f"[cyan]Thread ID:[/cyan] {session_state['thread_id']}")
-        return True
 
     if cmd == "/busy":
         runner = session_state.get("busy_work_runner")
@@ -478,19 +468,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         console.print(Panel(text, title="Tools", border_style="cyan"))
         return True
 
-    if cmd == "/instructions":
-        from questchain.agent import SYSTEM_PROMPT
-        console.print(Panel(SYSTEM_PROMPT, title="System Instructions", border_style="cyan"))
-        return True
-
-    if cmd == "/memory":
-        from questchain.config import MEMORY_DIR
-        about = MEMORY_DIR / "ABOUT.md"
-        if about.exists():
-            console.print(Panel(about.read_text(encoding="utf-8"), title="Memory — ABOUT.md", border_style="cyan"))
-        else:
-            console.print("[dim]No memory file yet. Run /onboard to create one.[/dim]")
-        return True
 
     if cmd == "/quest":
         session_state["run_quest_menu"] = True
@@ -567,11 +544,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "[bold]Commands:[/bold]\n"
             "  /new                   - Start a new conversation\n"
             "  /model                 - Show current model and available models\n"
-            "  /thread                - Show current thread ID\n"
             "  /busy                  - Show busy work status\n"
             "  /tools                 - List available tools\n"
-            "  /instructions          - Show agent system prompt\n"
-            "  /memory                - Show your saved user profile\n"
             "  /quest                 - Manage quests (one-off agent tasks)\n"
             "  /cron                  - List scheduled cron jobs\n"
             "  /onboard               - Re-run the onboarding flow\n"
@@ -583,8 +557,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /level                 - Show agent level and achievements\n"
             "  /prestige              - Prestige reset (requires Level 20)\n"
             "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
-            "  /history               - Show past conversations with timestamps\n"
-            "  /clear                 - Clear the screen\n"
+            "  /history               - Browse and switch past conversations\n"
             "  /quit                  - Exit QuestChain\n"
             "  /help                  - Show this help message"
         )
@@ -1204,8 +1177,13 @@ async def _run_edit_wizard(
 
 
 async def show_history(session: PromptSession, session_state: dict) -> None:
-    """Display past conversations and optionally switch to one."""
-    from rich.table import Table
+    """Arrow-key dropdown to browse and switch past conversations."""
+    from prompt_toolkit import Application
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import HSplit, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
     from questchain.memory.store import get_thread_history
 
     rows = get_thread_history()
@@ -1214,46 +1192,82 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
         return
 
     current_tid = session_state.get("thread_id", "")
-    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 1))
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Thread", width=10)
-    table.add_column("Last Active", width=18)
-    table.add_column("First Message")
 
-    for i, entry in enumerate(rows, 1):
-        tid = entry["thread_id"]
-        tid_short = tid[:8]
+    def _fmt_row(entry) -> tuple[str, str, str]:
+        """Return (date_str, tid_short, preview) for display."""
         last_active = entry["last_active"]
         if last_active:
-            local_dt = last_active.astimezone()
-            ts_str = local_dt.strftime("%b %d  %I:%M %p")
+            ts_str = last_active.astimezone().strftime("%b %d  %I:%M %p")
         else:
             ts_str = "—"
-        first_msg = entry["first_message"] or "—"
-        if len(first_msg) > 58:
-            first_msg = first_msg[:55] + "…"
-        first_msg = first_msg.replace("[", "\\[")
-        is_current = tid == current_tid
-        tid_display = f"[bold blue]{tid_short} *[/bold blue]" if is_current else tid_short
-        table.add_row(str(i), tid_display, ts_str, first_msg)
+        tid_short = entry["thread_id"][:8]
+        preview = (entry["first_message"] or "—")[:60]
+        return ts_str, tid_short, preview
 
-    console.print(Panel(table, title="Conversation History", border_style="cyan"))
+    state = {"idx": 0, "chosen": None, "exit": False}
+    # Start cursor on the current thread if present
+    for i, row in enumerate(rows):
+        if row["thread_id"] == current_tid:
+            state["idx"] = i
+            break
 
-    raw = await _prompt_line(session, f"Switch to [1-{len(rows)}], Enter=cancel: ")
-    if not raw:
-        console.print("[dim]Cancelled.[/dim]")
-        return
-    if raw.isdigit():
-        idx = int(raw) - 1
-        if 0 <= idx < len(rows):
-            chosen = rows[idx]
-            session_state["thread_id"] = chosen["thread_id"]
-            preview = (chosen["first_message"] or "")[:50].replace("[", "\\[")
-            console.print(f"[blue]Switched to thread[/blue] [dim]{chosen['thread_id']}[/dim]")
-            if preview:
-                console.print(f"[dim]{preview}[/dim]")
-            return
-    console.print("[yellow]Invalid selection.[/yellow]")
+    def _render():
+        lines = [("class:header", " History   ↑↓ navigate   Enter select   Esc close\n")]
+        lines.append(("class:sep", " " + "─" * 52 + "\n"))
+        for i, entry in enumerate(rows):
+            ts, tid, preview = _fmt_row(entry)
+            is_current = entry["thread_id"] == current_tid
+            marker = " *" if is_current else "  "
+            label = f"{marker} {ts:<18}  {tid}  {preview}"
+            if i == state["idx"]:
+                lines.append(("class:selected", f" ▶{label}\n"))
+            else:
+                lines.append(("class:item", f"  {label}\n"))
+        return lines
+
+    content = FormattedTextControl(text=_render, focusable=True)
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _up(event):
+        if state["idx"] > 0:
+            state["idx"] -= 1
+            content.text = _render
+
+    @kb.add("down")
+    def _down(event):
+        if state["idx"] < len(rows) - 1:
+            state["idx"] += 1
+            content.text = _render
+
+    @kb.add("enter")
+    def _select(event):
+        state["chosen"] = rows[state["idx"]]
+        event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _close(event):
+        state["exit"] = True
+        event.app.exit()
+
+    layout = Layout(Window(content))
+    style = PTStyle.from_dict({
+        "header":   "bold #aaddff",
+        "sep":      "dim",
+        "selected": "bg:#004080 #ffffff bold",
+        "item":     "#cccccc",
+    })
+    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
+    await app.run_async()
+
+    if state["chosen"] is not None:
+        chosen = state["chosen"]
+        session_state["thread_id"] = chosen["thread_id"]
+        preview = (chosen["first_message"] or "")[:60]
+        console.print(f"[blue]Switched to thread[/blue] [dim]{chosen['thread_id']}[/dim]")
+        if preview:
+            console.print(f"[dim]{preview}[/dim]")
 
 
 async def run_agent_stream(
