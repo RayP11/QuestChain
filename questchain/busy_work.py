@@ -44,6 +44,7 @@ class BusyWorkRunner:
         self._busy_lock = busy_lock
         self._running = False
         self._task: asyncio.Task | None = None
+        self._current_tick_task: asyncio.Task | None = None
 
     @property
     def interval_minutes(self) -> int:
@@ -69,6 +70,20 @@ class BusyWorkRunner:
                     pass
                 self._task = None
             logger.info("Heartbeat stopped")
+
+    async def interrupt(self) -> None:
+        """Cancel the in-progress tick (if any) so the lock is released immediately.
+
+        The tick will not be retried — the next scheduled interval picks up normally.
+        Safe to call even when no tick is running.
+        """
+        task = self._current_tick_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def _run_loop(self) -> None:
         """Short initial delay, then tick at the configured interval forever."""
@@ -103,7 +118,14 @@ class BusyWorkRunner:
             return await agent.heartbeat(thread_id)
 
         try:
-            result = await asyncio.wait_for(_run_heartbeat(), timeout=HEARTBEAT_TIMEOUT)
+            self._current_tick_task = asyncio.create_task(
+                asyncio.wait_for(_run_heartbeat(), timeout=HEARTBEAT_TIMEOUT),
+                name="heartbeat_tick",
+            )
+            result = await self._current_tick_task
+        except asyncio.CancelledError:
+            logger.debug("Heartbeat tick interrupted by user input")
+            return
         except asyncio.TimeoutError:
             logger.warning("Heartbeat timed out after %ds", HEARTBEAT_TIMEOUT)
             try:
@@ -118,6 +140,8 @@ class BusyWorkRunner:
             except Exception:
                 logger.exception("Failed to deliver heartbeat error message")
             return
+        finally:
+            self._current_tick_task = None
 
         if result:
             await self._send_callback(result)
@@ -150,6 +174,7 @@ class OvernightRunner:
         self._interval_minutes = interval_minutes
         self._running = False
         self._task: asyncio.Task | None = None
+        self._current_tick_task: asyncio.Task | None = None
 
     @property
     def running(self) -> bool:
@@ -171,6 +196,16 @@ class OvernightRunner:
                     pass
                 self._task = None
             logger.info("OvernightRunner stopped")
+
+    async def interrupt(self) -> None:
+        """Cancel the in-progress tick (if any) so the lock is released immediately."""
+        task = self._current_tick_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def _run_loop(self) -> None:
         try:
@@ -222,12 +257,18 @@ class OvernightRunner:
                 chunks.append(token)
             return "".join(chunks).strip()
 
-        try:
+        async def _locked_run() -> str:
             if self._busy_lock:
                 async with self._busy_lock:
-                    result = await asyncio.wait_for(_run(), timeout=HEARTBEAT_TIMEOUT)
-            else:
-                result = await asyncio.wait_for(_run(), timeout=HEARTBEAT_TIMEOUT)
+                    return await asyncio.wait_for(_run(), timeout=HEARTBEAT_TIMEOUT)
+            return await asyncio.wait_for(_run(), timeout=HEARTBEAT_TIMEOUT)
+
+        try:
+            self._current_tick_task = asyncio.create_task(_locked_run(), name="overnight_tick")
+            result = await self._current_tick_task
+        except asyncio.CancelledError:
+            logger.debug("OvernightRunner tick interrupted by user input")
+            return
         except asyncio.TimeoutError:
             logger.warning("OvernightRunner timed out after %ds", HEARTBEAT_TIMEOUT)
             try:
@@ -242,6 +283,8 @@ class OvernightRunner:
             except Exception:
                 logger.exception("Failed to deliver overnight error message")
             return
+        finally:
+            self._current_tick_task = None
 
         if result and "OVERNIGHT_DONE" not in result:
             await self._send_callback(result)

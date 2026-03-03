@@ -1305,6 +1305,7 @@ async def _run_with_busy_work(
             busy_lock=agent_lock,
         )
         await overnight_runner.start()
+        session_state["overnight_runner"] = overnight_runner
         console.print("[dim]Overnight runner: active[/dim]")
 
     # First-run onboarding — guard with the lock so a fast heartbeat can't interfere
@@ -1498,6 +1499,12 @@ async def _repl_loop(
         active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
         try:
             console.print()
+            # Interrupt any in-progress busy work tick so the lock is freed promptly.
+            # asyncio's async-with guarantees the lock is released on cancellation.
+            for _rkey in ("busy_work_runner", "overnight_runner"):
+                _runner = session_state.get(_rkey)
+                if _runner is not None:
+                    await _runner.interrupt()
             async with busy_lock if busy_lock else asyncio.Lock():
                 full_response, xp_grant = await run_agent_stream(
                     agent_holder["agent"], user_input, agent_config,
