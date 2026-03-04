@@ -110,7 +110,8 @@ _HELP_TEXT = (
     "/new — Start a fresh conversation\n"
     "/model — Show current model\n"
     "/tools — List available tools\n"
-    "/tasks — Show pending quests\n"
+    "/quests — List pending quests with descriptions\n"
+    "/tasks — Show pending quests (filenames only)\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
     "/agents — Manage agents (list, switch, create, edit)\n"
@@ -198,6 +199,49 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     lines = [f.name for f in quest_files]
     await update.message.reply_text("Pending quests:\n" + "\n".join(f"• {l}" for l in lines))
+
+
+async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /quests command — list pending quests with titles and descriptions."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from questchain.config import WORKSPACE_DIR
+    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+    if not quests_dir.exists():
+        await update.message.reply_text("No quests pending.")
+        return
+    quest_files = sorted(quests_dir.glob("*.md"))
+    if not quest_files:
+        await update.message.reply_text("No quests pending.")
+        return
+
+    lines = [f"*Pending quests ({len(quest_files)}):*\n"]
+    for f in quest_files:
+        title = None
+        description = None
+        try:
+            for raw_line in f.read_text(encoding="utf-8").splitlines():
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                if title is None:
+                    title = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
+                elif description is None and not stripped.startswith("#"):
+                    description = stripped
+                    break
+        except Exception:
+            pass
+        title = title or f.stem
+        entry = f"• *{title}*"
+        if description:
+            entry += f"\n  _{description[:120]}{'…' if len(description) > 120 else ''}_"
+        lines.append(entry)
+
+    try:
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        await update.message.reply_text("\n".join(lines))
 
 
 async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -901,6 +945,7 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("tools", cmd_tools))
+    app.add_handler(CommandHandler("quests", cmd_quests))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
@@ -925,7 +970,8 @@ async def run_telegram_alongside_cli(
         BotCommand("new", "Start a fresh conversation"),
         BotCommand("model", "Show current model"),
         BotCommand("tools", "List available tools"),
-        BotCommand("tasks", "Show pending quests"),
+        BotCommand("quests", "List pending quests with descriptions"),
+        BotCommand("tasks", "Show pending quests (filenames)"),
         BotCommand("cron", "List scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
         BotCommand("agents", "Manage agents — list, switch, create, edit"),
