@@ -121,7 +121,7 @@ class ProgressionRecord:
     xp_next_level: int = 100  # = _LEVEL_TABLE[0]
     tool_counts: dict[str, int] = field(default_factory=dict)
     turns_completed: int = 0
-    busy_work_completed: int = 0
+    quests_completed: int = 0
     achievements: list[EarnedAchievement] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_active: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -146,7 +146,7 @@ class XPGrant:
 _XP_PER_TOOL_CALL = 2
 _XP_PER_TURN = 10
 _XP_CLAUDE_CODE_BONUS = 20
-_XP_BUSY_WORK = 25
+_XP_QUEST = 25
 _XP_PER_50_RESPONSE_CHARS = 1  # 1 XP per ~50 chars of response (~12 tokens)
 
 # ── Achievement definitions ───────────────────────────────────────────────────
@@ -174,8 +174,8 @@ _ACHIEVEMENT_DEFS: list[dict[str, Any]] = [
     {"id": "polymath",      "name": "Polymath",       "description": "Used 6 distinct tools"},
     {"id": "speed_demon",   "name": "Speed Demon",    "description": "Used 5+ tools in a single turn"},
     {"id": "centurion",     "name": "Centurion",      "description": "Earned 1,000 total XP"},
-    {"id": "busy_bee",      "name": "Busy Bee",       "description": "Completed 10 busy-work tasks"},
-    {"id": "road_runner",   "name": "Road Runner",    "description": "Completed 50 busy-work tasks"},
+    {"id": "busy_bee",      "name": "Busy Bee",       "description": "Completed 10 quests"},
+    {"id": "road_runner",   "name": "Road Runner",    "description": "Completed 50 quests"},
 ]
 
 TOTAL_ACHIEVEMENTS = len(_ACHIEVEMENT_DEFS)
@@ -248,9 +248,9 @@ def _check_achievements(
         _earn("speed_demon")
     if record.total_xp >= 1000:
         _earn("centurion")
-    if record.busy_work_completed >= 10:
+    if record.quests_completed >= 10:
         _earn("busy_bee")
-    if record.busy_work_completed >= 50:
+    if record.quests_completed >= 50:
         _earn("road_runner")
 
     return newly_earned
@@ -299,7 +299,7 @@ class ProgressionManager:
                     xp_next_level=xp_next,
                     tool_counts=data.get("tool_counts", {}),
                     turns_completed=data.get("turns_completed", 0),
-                    busy_work_completed=data.get("busy_work_completed", 0),
+                    quests_completed=data.get("quests_completed", data.get("busy_work_completed", 0)),
                     achievements=achievements,
                     created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
                     last_active=data.get("last_active", datetime.now(timezone.utc).isoformat()),
@@ -333,7 +333,7 @@ class ProgressionManager:
     def award_xp(
         self,
         tool_names_this_turn: list[str],
-        is_busy_work: bool = False,
+        is_quest: bool = False,
         response_chars: int = 0,
     ) -> XPGrant:
         """Award XP, recalculate level, check achievements, persist."""
@@ -351,9 +351,9 @@ class ProgressionManager:
             record.current_streak = 1
         record.last_streak_date = today
 
-        if is_busy_work:
-            xp = _XP_BUSY_WORK
-            record.busy_work_completed += 1
+        if is_quest:
+            xp = _XP_QUEST
+            record.quests_completed += 1
         else:
             xp = len(tool_names_this_turn) * _XP_PER_TOOL_CALL + _XP_PER_TURN
             if "claude_code" in tool_names_this_turn:

@@ -28,12 +28,11 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 - [Built for the Edge](#built-for-the-edge)
 - [The OpenClaw for Edge AI](#the-openclaw-for-edge-ai)
 - [It Codes Itself](#it-codes-itself)
-- [The Night Owl](#the-night-owl)
 - [Install](#install)
 - [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
-- [Busy Work](#busy-work)
+- [Quests](#quests)
 - [Configuration](#configuration)
 - [Model Presets](#model-presets)
 - [Built With](#built-with)
@@ -51,7 +50,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 - 📱 **Telegram Bot** — Access QuestChain remotely from your phone
 - 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
-- 🔄 **Busy Work** — Autonomously checks your task list and works in the background on a timer
+- 🔄 **Quests** — Autonomously checks your task list and works in the background on a timer
 - 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
 
 ---
@@ -64,14 +63,14 @@ QuestChain isn't just a tool. It's a companion you build over time. Every agent 
 - **10 XP per turn** — base award for each conversation exchange
 - **+2 XP per tool call** — reading files, searching the web, running commands, writing, planning
 - **+20 XP for Claude Code** — delegating a programming task earns a bonus
-- **+25 XP per busy-work task** — autonomous background tasks count toward progression
+- **+25 XP per quest** — autonomous background tasks count toward progression
 
 **How the experience works:**
 - **20 levels** — exponential curve; each level is ~1.6× harder than the last
 - **21 achievements** — milestones across leveling, tool mastery, and behavior
-- **7 agent classes** — each with its own identity, tool loadout, and independent progression
+- **6 agent classes** — each with its own identity, tool loadout, and independent progression
 
-Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster. Each agent tracks its own progression independently, so your Night Owl and your Architect each have their own story.
+Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster. Each agent tracks its own progression independently.
 
 ### Achievements
 
@@ -95,7 +94,6 @@ Pick a class when creating an agent. It sets the tool loadout, identity, and spe
 | Architect | ⚒️ | Code & systems | Claude Code |
 | Oracle | 🔮 | Planning & strategy | Web search |
 | Sentinel | ⏱️ | Automation | Cron scheduler |
-| Night Owl | 🌙 | Overnight work | Web search + browse + Claude Code |
 
 ---
 
@@ -142,16 +140,6 @@ QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/cod
 This creates a loop where the agent improves over time without you writing a line of code.
 
 > **No Claude Code?** Run a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
-
----
-
-## The Night Owl
-
-The **Night Owl** is a prepackaged agent built to work while you sleep. Every 30 minutes between midnight and 6 AM, it reads your `overnight.md` task file and gets to work: researching topics, writing reports, running code. Then it logs what it did before going quiet.
-
-When you first activate the Night Owl, it walks you through a short setup: what topics to research each night, what standing tasks to prepare for you each morning, and anything else you want done in the background. It generates a structured `overnight.md` from your answers and runs from it every night.
-
-Add one-off tasks at any time with `/overnight`. Type the command, enter your task, and it gets queued for tonight.
 
 ---
 
@@ -235,11 +223,11 @@ questchain start -t <thread-id>
 # Run without persistent memory
 questchain start --no-memory
 
-# Set the busy work interval (minutes)
-questchain start --busy-work 30
+# Set the quest runner interval (minutes)
+questchain start --quests 30
 
-# Disable background busy work
-questchain start --no-busy-work
+# Disable the quest runner
+questchain start --no-quests
 
 # List available model presets
 questchain start --list-models
@@ -255,7 +243,6 @@ questchain start --list-models
 | `/new` | Start a fresh conversation |
 | `/model` | Show current model and list available ones |
 | `/thread` | Show current conversation thread ID |
-| `/busy` | Show busy work scheduler status |
 | `/tools` | List all available agent tools |
 | `/instructions` | Show the agent's system prompt |
 | `/memory` | Show your saved user profile |
@@ -309,13 +296,11 @@ Use `/quest` to open the interactive quest manager — create, view, and delete 
 
 ```bash
 # Run with a custom interval (minutes)
-questchain start --busy-work 30
+questchain start --quests 30
 
-# Disable background work entirely
-questchain start --no-busy-work
+# Disable the quest runner
+questchain start --no-quests
 ```
-
-Use `/busy` to check scheduler status.
 
 ---
 

@@ -7,7 +7,7 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from questchain.config import WORKSPACE_DIR
+from questchain.config import PROJECT_DIR
 
 # Complexity → model + timeout mapping
 _COMPLEXITY_CONFIG = {
@@ -79,7 +79,7 @@ async def claude_code(
     if not claude_bin:
         return "Error: 'claude' CLI not found on PATH. Is Claude Code installed?"
 
-    cwd = str(WORKSPACE_DIR)
+    cwd = str(PROJECT_DIR)
 
     # Build structured prompt
     prompt_parts = [f"## Task\n{task}"]

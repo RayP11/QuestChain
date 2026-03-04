@@ -20,7 +20,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-from questchain.config import DEFAULT_BUSY_WORK_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
+from questchain.config import DEFAULT_QUEST_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
 
 
 def parse_args():
@@ -56,16 +56,16 @@ def parse_args():
         help="List available model presets and exit",
     )
     parser.add_argument(
-        "--busy-work",
+        "--quests",
         type=int,
-        default=DEFAULT_BUSY_WORK_MINUTES,
+        default=DEFAULT_QUEST_MINUTES,
         metavar="MINUTES",
-        help=f"Busy work interval in minutes (default: {DEFAULT_BUSY_WORK_MINUTES})",
+        help=f"Quest runner interval in minutes (default: {DEFAULT_QUEST_MINUTES})",
     )
     parser.add_argument(
-        "--no-busy-work",
+        "--no-quests",
         action="store_true",
-        help="Disable the periodic busy work check",
+        help="Disable the periodic quest runner",
     )
     return parser.parse_args()
 
@@ -80,7 +80,7 @@ def main():
             print(f"  {name:20s} {preset['description']}{marker}")
         return
 
-    busy_work_minutes = None if args.no_busy_work else args.busy_work
+    quest_minutes = None if args.no_quests else args.quests
 
     from questchain.cli import main as cli_main
 
@@ -88,7 +88,7 @@ def main():
         model_name=args.model,
         thread_id=args.thread,
         use_memory=not args.no_memory,
-        busy_work_minutes=busy_work_minutes,
+        quest_minutes=quest_minutes,
     )
 
 

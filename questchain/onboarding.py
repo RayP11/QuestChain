@@ -86,19 +86,9 @@ def _build_welcome_panel() -> Panel:
     return Panel(content, border_style="green", title="[bold green] Welcome [/bold green]", subtitle="[dim]Ctrl+C to skip[/dim]")
 
 
-def _overnight_md_path() -> Path:
-    from questchain.config import WORKSPACE_DIR
-    return WORKSPACE_DIR / "workspace" / "overnight.md"
-
-
 def is_onboarded() -> bool:
     """Check if the user has completed onboarding."""
     return get_onboarded_marker_path().exists()
-
-
-def is_overnight_onboarded() -> bool:
-    """True when overnight.md has been created (Night Owl onboarding done)."""
-    return _overnight_md_path().exists()
 
 
 def mark_onboarded() -> None:
@@ -424,82 +414,5 @@ Output ONLY the markdown. No extra commentary."""
     await _run_integration_setup(console, prompt_session)
     return True
 
-
-async def run_overnight_onboarding(agent, console, prompt_session=None) -> bool:
-    """Set up the Night Owl agent — asks what to do each night and writes overnight.md.
-
-    Returns True if completed, False if skipped.
-    """
-    from questchain.config import WORKSPACE_DIR
-    import re
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from questchain.models import get_model
-    from questchain.config import OLLAMA_MODEL
-
-    console.print()
-    console.print(Panel(
-        "  🌙  [bold blue]Night Owl[/bold blue] — Autonomous overnight worker\n\n"
-        "  I'll work while you sleep! Answer a few questions so I know what to do\n"
-        "  each night. You can always edit [cyan]/workspace/overnight.md[/cyan] or\n"
-        "  use [cyan]/overnight <task>[/cyan] to add one-off tasks.",
-        border_style="blue",
-        title="[bold blue] Night Owl Setup [/bold blue]",
-        subtitle="[dim]Enter to skip[/dim]",
-    ))
-
-    NIGHT_QUESTIONS = [
-        ("research",  "What topics or areas should I research each night?"),
-        ("standing",  "Any standing tasks to prepare for you each morning? (summaries, reports, etc.)"),
-        ("extra",     "Anything else you'd like me to do while you sleep? (Enter to skip)"),
-    ]
-    answers: dict[str, str] = {}
-    for key, question in NIGHT_QUESTIONS:
-        console.print(f"\n[bold blue]Night Owl[/bold blue]")
-        console.print(question)
-        answer = await _prompt_user(prompt_session, console)
-        if answer is None:
-            return False
-        answers[key] = answer or "(none)"
-
-    console.print(f"\n[bold blue]Night Owl[/bold blue]")
-    console.print("[dim]Building overnight.md…[/dim]")
-
-    profile_prompt = f"""\
-Write a task configuration file for a Night Owl overnight AI agent.
-Use EXACTLY this markdown structure (preserve all section headers):
-
-# Night Owl — Task Configuration
-
-## Standing Tasks (run every night)
-<!-- Things the Night Owl always does, generated from your answers below -->
-
-## Tonight's Queue
-<!-- One-off tasks for tonight. Mark [x] when done. Add new tasks here. -->
-
-## Completed Archive
-<!-- Agent moves done items here with timestamps -->
-
-Fill in the Standing Tasks section based on the user's answers below.
-Leave Tonight's Queue and Completed Archive empty.
-Each standing task should be a bullet point starting with "- ".
-
-Research topics: {answers['research']}
-Morning preparation tasks: {answers['standing']}
-Other overnight tasks: {answers['extra']}
-
-Output ONLY the markdown. No extra commentary."""
-
-    model = get_model(OLLAMA_MODEL)
-    response = await model.ainvoke([
-        SystemMessage(content="You write clean, structured markdown task files for AI agents."),
-        HumanMessage(content=profile_prompt),
-    ])
-    content = re.sub(r"<think>.*?</think>", "", response.content, flags=re.DOTALL).strip()
-
-    overnight_path = _overnight_md_path()
-    overnight_path.parent.mkdir(parents=True, exist_ok=True)
-    overnight_path.write_text(content + "\n", encoding="utf-8")
-    console.print("[dim]overnight.md saved.[/dim]")
-    return True
 
 

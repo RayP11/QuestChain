@@ -15,6 +15,10 @@ load_dotenv(_data_env)
 #    Falls back to the package directory only when not installed as a uv tool
 #    (i.e. running directly from a source checkout).
 WORKSPACE_DIR = Path(os.getenv("QUESTCHAIN_WORKSPACE_DIR", Path(__file__).resolve().parent.parent))
+
+# Root of the source checkout — always the parent of the questchain package,
+# regardless of QUESTCHAIN_WORKSPACE_DIR. Used by tools that operate on code.
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 
 # 3. Workspace .env — project/API-key settings, overrides data-dir .env.
@@ -165,5 +169,5 @@ def get_metrics_dir() -> Path:
     return d
 
 
-# --- Busy work settings ---
-DEFAULT_BUSY_WORK_MINUTES = 60
+# --- Quest runner settings ---
+DEFAULT_QUEST_MINUTES = 60

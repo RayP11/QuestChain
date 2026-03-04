@@ -25,7 +25,7 @@ from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant, level_personality
 from questchain.stats import MetricsManager
 from questchain.config import (
-    DEFAULT_BUSY_WORK_MINUTES,
+    DEFAULT_QUEST_MINUTES,
     OLLAMA_MODEL,
     TAVILY_API_KEY,
     get_history_path,
@@ -33,7 +33,6 @@ from questchain.config import (
 from questchain.onboarding import (
     QUESTCHAIN_ART, TAGLINES,
     clear_onboarded, is_onboarded, run_onboarding,
-    is_overnight_onboarded, run_overnight_onboarding,
     run_setup_claude_code,
 )
 from questchain.memory.store import get_thread_history
@@ -250,7 +249,7 @@ async def show_stats(agent_def: dict) -> None:
     lines: list[str] = [
         f"[bold]{agent_def.get('name', 'QuestChain')}[/bold]  ·  {class_display}  ·  [bold cyan]Level {record.level}[/bold cyan]{prestige_badge}",
         f"  [{bar}]  {xp_display}",
-        f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Busy-work: [cyan]{record.busy_work_completed}[/cyan]",
+        f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Quests: [cyan]{record.quests_completed}[/cyan]",
     ]
     if record.current_streak > 1:
         streak_bonus = " [bold yellow](+50% XP)[/bold yellow]" if record.current_streak >= 7 else ""
@@ -330,7 +329,6 @@ def show_metrics(mm: MetricsManager) -> None:
 # Sorted list of (command, description) pairs shown in the autocomplete dropdown.
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
-    ("/busy",         "Show busy work scheduler status"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
     ("/cron",         "List scheduled cron jobs"),
     ("/exit",         "Exit QuestChain"),
@@ -340,7 +338,6 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/model",        "Show current model and list available ones"),
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
-    ("/overnight",    "Add a task to tonight's Night Owl queue (prompts for task)"),
     ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
     ("/quit",         "Exit QuestChain"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
@@ -454,14 +451,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
 
-    if cmd == "/busy":
-        runner = session_state.get("busy_work_runner")
-        if runner and runner.running:
-            console.print(f"[blue]Busy work:[/blue] active (every {runner.interval_minutes} min)")
-        else:
-            console.print("[yellow]Busy work:[/yellow] disabled")
-        return True
-
     if cmd == "/tools":
         from questchain.config import TAVILY_API_KEY
         text = (
@@ -525,15 +514,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         session_state["run_agent_menu"] = True
         return True
 
-    if cmd == "/overnight":
-        from questchain.config import WORKSPACE_DIR
-        overnight_path = WORKSPACE_DIR / "workspace" / "overnight.md"
-        if not overnight_path.exists():
-            console.print("[yellow]overnight.md not found — switch to Night Owl first to set up.[/yellow]")
-            return True
-        session_state["run_overnight_queue"] = True
-        return True
-
     if cmd == "/prestige":
         session_state["run_prestige"] = True
         return True
@@ -555,12 +535,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "[bold]Commands:[/bold]\n"
             "  /new                   - Start a new conversation\n"
             "  /model                 - Show current model and available models\n"
-            "  /busy                  - Show busy work status\n"
             "  /tools                 - List available tools\n"
             "  /quest                 - Manage quests (one-off agent tasks)\n"
             "  /cron                  - List scheduled cron jobs\n"
             "  /onboard               - Re-run the onboarding flow\n"
-            "  /overnight             - Add a task to Night Owl's queue\n"
             "  /tavily                - Set up Tavily web search API key\n"
             "  /claudecode            - Set up Claude Code CLI integration\n"
             "  /telegram              - Set up Telegram bot credentials\n"
@@ -1336,7 +1314,7 @@ async def run_agent_stream(
     config: dict,
     agent_name: str = "QuestChain",
     progression: ProgressionManager | None = None,
-    is_busy_work: bool = False,
+    is_quest: bool = False,
 ) -> tuple[str, XPGrant | None]:
     """Stream agent response to the console, returning (full_text, xp_grant)."""
     from rich.live import Live
@@ -1404,10 +1382,10 @@ async def run_agent_stream(
     if progression is not None:
         xp_grant = progression.award_xp(
             tools_this_turn,
-            is_busy_work=is_busy_work,
+            is_quest=is_quest,
             response_chars=len(full_response),
         )
-    if _metrics is not None and not is_busy_work:
+    if _metrics is not None and not is_quest:
         _metrics.record_turn(
             response_chars=len(full_response),
             tool_errors=agent.last_tool_errors,
@@ -1440,7 +1418,7 @@ async def repl(
     model_name: str,
     thread_id: str | None = None,
     use_memory: bool = True,
-    busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
+    quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
 ):
     """Run the main REPL loop."""
     # Check Ollama connection — retry for a few seconds in case it's still starting
@@ -1523,8 +1501,8 @@ async def repl(
     if telegram_send:
         console.print("[dim]Telegram: bot active[/dim]")
     try:
-        await _run_with_busy_work(
-            session, agent_holder, session_state, busy_work_minutes,
+        await _run_with_quests(
+            session, agent_holder, session_state, quest_minutes,
             telegram_send=telegram_send,
             telegram_queue=telegram_queue,
             telegram_set_runner=telegram_set_runner,
@@ -1536,38 +1514,37 @@ async def repl(
             await telegram_stop()
 
 
-async def _run_with_busy_work(
+async def _run_with_quests(
     session: PromptSession,
     agent_holder: dict,
     session_state: dict,
-    busy_work_minutes: int | None,
+    quest_minutes: int | None,
     telegram_send=None,
     telegram_queue=None,
     telegram_set_runner=None,
     audio_router=None,
     agent_manager: "AgentManager | None" = None,
 ):
-    """Start busy work (if enabled), run the REPL, then clean up."""
-    from questchain.busy_work import BusyWorkRunner, OvernightRunner
+    """Start the quest runner (if enabled), run the REPL, then clean up."""
+    from questchain.quest_runner import QuestRunner
 
-    runner: BusyWorkRunner | None = None
+    runner: QuestRunner | None = None
     scheduler = None
-    overnight_runner: OvernightRunner | None = None
     # Shared lock: held by the REPL while running agent; quest runner checks before ticking.
     agent_lock = asyncio.Lock()
 
-    if busy_work_minutes is not None:
+    if quest_minutes is not None:
         async def merged_callback(text: str) -> None:
             console.print()
-            console.print(Panel(text, title="[bold blue]Busy Work[/bold blue]", border_style="blue"))
+            console.print(Panel(text, title="[bold blue]Quest[/bold blue]", border_style="blue"))
             console.print()
             if _progression is not None:
-                grant = _progression.award_xp([], is_busy_work=True)
+                grant = _progression.award_xp([], is_quest=True)
                 if grant.leveled_up:
                     print_level_up(grant, _progression.get_record().class_name)
                     if telegram_send:
                         try:
-                            await telegram_send(f"⚔ LEVEL UP (busy work) — now Level {grant.new_level}!")
+                            await telegram_send(f"⚔ LEVEL UP (quest) — now Level {grant.new_level}!")
                         except Exception:
                             pass
                 for ach in grant.new_achievements:
@@ -1578,17 +1555,17 @@ async def _run_with_busy_work(
                 except Exception:
                     pass
 
-        runner = BusyWorkRunner(
+        runner = QuestRunner(
             agent_holder=agent_holder,
             send_callback=merged_callback,
-            interval_minutes=busy_work_minutes,
+            interval_minutes=quest_minutes,
             busy_lock=agent_lock,
         )
         await runner.start()
-        session_state["busy_work_runner"] = runner
+        session_state["quest_runner"] = runner
         if telegram_set_runner is not None:
             telegram_set_runner(runner)
-        console.print(f"[dim]Busy work: every {busy_work_minutes} min[/dim]")
+        console.print(f"[dim]Quest runner: every {quest_minutes} min[/dim]")
 
     # CronScheduler — enabled in CLI mode (Telegram mode creates its own instance)
     # Guard against double-initialization when Telegram is active.
@@ -1614,16 +1591,6 @@ async def _run_with_busy_work(
         set_scheduler(scheduler)
         await scheduler.start()
         console.print("[dim]Scheduler: active[/dim]")
-
-        # OvernightRunner — runs Night Owl agent every 30 min during 12 AM–6 AM
-        overnight_runner = OvernightRunner(
-            agent_manager=agent_manager,
-            send_callback=cron_callback,
-            busy_lock=agent_lock,
-        )
-        await overnight_runner.start()
-        session_state["overnight_runner"] = overnight_runner
-        console.print("[dim]Overnight runner: active[/dim]")
 
     # First-run onboarding — guard with the lock so a fast quest tick can't interfere
     if not is_onboarded():
@@ -1663,8 +1630,6 @@ async def _run_with_busy_work(
     finally:
         if runner:
             await runner.stop()
-        if overnight_runner:
-            await overnight_runner.stop()
         if scheduler:
             from questchain.scheduler import set_scheduler
             await scheduler.stop()
@@ -1774,26 +1739,6 @@ async def _repl_loop(
                 if session_state.pop("run_quest_menu", False):
                     await _quest_menu(session)
 
-                if session_state.pop("run_overnight_queue", False):
-                    task_text = await _prompt_line(session, "Task for tonight: ")
-                    if task_text.strip():
-                        from questchain.config import WORKSPACE_DIR
-                        overnight_path = WORKSPACE_DIR / "workspace" / "overnight.md"
-                        content = overnight_path.read_text(encoding="utf-8")
-                        new_item = f"- [ ] {task_text.strip()}"
-                        if "## Tonight's Queue" in content:
-                            content = content.replace(
-                                "## Tonight's Queue",
-                                f"## Tonight's Queue\n{new_item}",
-                                1,
-                            )
-                        else:
-                            content = content.rstrip() + f"\n\n## Tonight's Queue\n{new_item}\n"
-                        overnight_path.write_text(content, encoding="utf-8")
-                        console.print(f"[blue]Added to tonight's queue:[/blue] {task_text.strip()}")
-                    else:
-                        console.print("[dim]Cancelled.[/dim]")
-
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)
                     if chosen is not None:
@@ -1806,11 +1751,6 @@ async def _repl_loop(
                             _init_metrics(chosen, new_agent)
                         except Exception as e:
                             console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
-                        else:
-                            # Per-agent first-run onboarding for preset agents
-                            chosen_class = chosen.get("class_name", "")
-                            if chosen_class == "NightOwl" and not is_overnight_onboarded():
-                                await run_overnight_onboarding(agent_holder["agent"], console, prompt_session=session)
 
                 if session_state.pop("run_prestige", False):
                     await _handle_prestige(session)
@@ -1835,9 +1775,9 @@ async def _repl_loop(
         active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
         try:
             console.print()
-            # Interrupt any in-progress busy work tick so the lock is freed promptly.
+            # Interrupt any in-progress quest tick so the lock is freed promptly.
             # asyncio's async-with guarantees the lock is released on cancellation.
-            for _rkey in ("busy_work_runner", "overnight_runner"):
+            for _rkey in ("quest_runner",):
                 _runner = session_state.get(_rkey)
                 if _runner is not None:
                     await _runner.interrupt()
@@ -1923,8 +1863,8 @@ def main(
     model_name: str | None = None,
     thread_id: str | None = None,
     use_memory: bool = True,
-    busy_work_minutes: int | None = DEFAULT_BUSY_WORK_MINUTES,
+    quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
 ):
     """Entry point for the QuestChain CLI."""
     model_name = model_name or OLLAMA_MODEL
-    asyncio.run(repl(model_name, thread_id, use_memory, busy_work_minutes))
+    asyncio.run(repl(model_name, thread_id, use_memory, quest_minutes))

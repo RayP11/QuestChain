@@ -89,7 +89,7 @@ def create_questchain_agent(
 def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     """Create a QuestChain agent from an agent definition dict.
 
-    Moved here from cli.py so busy_work.py and scheduler.py can import it
+    Moved here from cli.py so quest_runner.py and scheduler.py can import it
     without creating a circular dependency through cli.py.
     """
     from pathlib import Path

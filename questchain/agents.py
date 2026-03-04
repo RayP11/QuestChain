@@ -13,7 +13,6 @@ AGENT_CLASSES: list[tuple[str, str, str]] = [
     ("Architect", "⚒️",  "Builder and coder"),
     ("Oracle",    "🔮", "Planner and strategist"),
     ("Sentinel",  "⏱️",  "Scheduler and automation specialist"),
-    ("NightOwl",  "🌙", "Autonomous overnight task worker"),
 ]
 DEFAULT_CLASS = "Custom"
 
@@ -25,7 +24,6 @@ CLASS_COLORS: dict[str, str] = {
     "Architect": "orange3",
     "Oracle":    "magenta",
     "Sentinel":  "green",
-    "NightOwl":  "magenta",
 }
 
 # Tool presets applied when creating an agent of each class.
@@ -38,7 +36,6 @@ CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Architect": ["claude_code"],
     "Oracle":    ["web_search"],
     "Sentinel":  ["cron"],
-    "NightOwl":  ["web_search", "web_browse", "claude_code"],
 }
 
 # Skill presets applied when creating an agent of each class.
@@ -50,7 +47,6 @@ CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
     "Architect": None,
     "Oracle":    None,
     "Sentinel":  ["cron-jobs"],
-    "NightOwl":  ["overnight-agent"],
 }
 
 # Maps each skill dir-name to the tool(s) that must be present for it to be useful.
@@ -62,9 +58,7 @@ SKILL_REQUIRED_TOOLS: dict[str, list[str]] = {
 
 # Maps skills that are exclusive to specific agent classes.
 # A skill listed here will only appear for agents of those classes.
-SKILL_CLASS_RESTRICTIONS: dict[str, list[str]] = {
-    "overnight-agent": ["NightOwl"],
-}
+SKILL_CLASS_RESTRICTIONS: dict[str, list[str]] = {}
 
 # Migrate old class names from saved agent JSON to the current names.
 _CLASS_MIGRATIONS: dict[str, str] = {
@@ -124,20 +118,6 @@ You are {agent_name}, a scheduling and automation specialist running locally via
 - Be precise with timing; state cron expressions clearly.
 """
 
-OVERNIGHT_SYSTEM_PROMPT = """\
-You are {agent_name}, an autonomous overnight AI worker running locally via Ollama.
-
-## Rules
-- Your task list is at /workspace/overnight.md — always read it first.
-- Complete all Standing Tasks, then items under Tonight's Queue.
-- Mark queue items [x] when done and move them to Completed Archive.
-- Append a brief timestamped LOG entry at the end of the file when done.
-- For research tasks: use web_search then web_browse for depth.
-- For coding tasks: use claude_code.
-- When ALL tasks are done, reply: OVERNIGHT_DONE
-- Confirm before any destructive file operations.
-"""
-
 PRESET_AGENTS = [
     {
         "name": "Sage",
@@ -178,14 +158,6 @@ PRESET_AGENTS = [
         "tools": ["cron"],
         "skills": ["cron-jobs"],
         "class_name": "Sentinel",
-    },
-    {
-        "name": "Night Owl",
-        "model": None,
-        "system_prompt": OVERNIGHT_SYSTEM_PROMPT,
-        "tools": ["web_search", "web_browse", "claude_code"],
-        "skills": ["overnight-agent"],
-        "class_name": "NightOwl",
     },
 ]
 
@@ -318,7 +290,7 @@ class AgentManager:
         )
 
     def seed_preset_agents(self) -> None:
-        """Add preset agents (NightOwl) if not already present.
+        """Add preset agents if not already present.
 
         Seeding is idempotent — identified by class_name.  If the user later
         deletes a preset agent it will NOT be re-added (class_name gone too).

@@ -109,7 +109,6 @@ _HELP_TEXT = (
     "Commands:\n"
     "/new — Start a fresh conversation\n"
     "/model — Show current model\n"
-    "/busy — Show busy work status\n"
     "/tools — List available tools\n"
     "/tasks — Show pending quests\n"
     "/cron — List scheduled cron jobs\n"
@@ -158,20 +157,6 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     model_name = context.bot_data.get("model_name", OLLAMA_MODEL)
     await update.message.reply_text(f"Current model: {model_name}")
 
-
-
-async def cmd_busy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /busy command — show busy work status."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    runner = context.bot_data.get("busy_work_runner")
-    if runner and runner.running:
-        await update.message.reply_text(
-            f"Busy work: active (every {runner.interval_minutes} min)"
-        )
-    else:
-        await update.message.reply_text("Busy work: disabled")
 
 
 async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -283,7 +268,7 @@ async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = [
         f"📊 {active.get('name', 'QuestChain')} · Level {record.level}",
         f"[{bar}] {xp_display}",
-        f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Busy-work: {record.busy_work_completed}",
+        f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Quests: {record.quests_completed}",
     ]
     if record.current_streak > 1:
         streak_bonus = " (+50% XP)" if record.current_streak >= 7 else ""
@@ -915,7 +900,6 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("model", cmd_model))
-    app.add_handler(CommandHandler("busy", cmd_busy))
     app.add_handler(CommandHandler("tools", cmd_tools))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
@@ -940,7 +924,6 @@ async def run_telegram_alongside_cli(
     await app.bot.set_my_commands([
         BotCommand("new", "Start a fresh conversation"),
         BotCommand("model", "Show current model"),
-        BotCommand("busy", "Show busy work status"),
         BotCommand("tools", "List available tools"),
         BotCommand("tasks", "Show pending quests"),
         BotCommand("cron", "List scheduled cron jobs"),
@@ -962,7 +945,7 @@ async def run_telegram_alongside_cli(
         await app.shutdown()
 
     def set_runner(runner) -> None:
-        """Called by the CLI after the BusyWorkRunner is started."""
-        app.bot_data["busy_work_runner"] = runner
+        """Called by the CLI after the QuestRunner is started."""
+        app.bot_data["quest_runner"] = runner
 
     return send_to_owner, stop_fn, set_runner
