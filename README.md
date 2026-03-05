@@ -12,11 +12,13 @@
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20Community-%235865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/C8Rc3u7KKx)
 
+<img src="assets/QuestChain-short-demo.gif" alt="QuestChain demo" width="800"/>
+
 </div>
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No subscriptions, no usage limits, no data leaving your hardware. It remembers who you are, works with your files and terminal, and keeps running in the background, checking your task list, working through the night, sending you updates on Telegram, whether you're at the keyboard or not.
+QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits — just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
 
 ---
 
@@ -26,15 +28,15 @@ QuestChain is an AI assistant that runs entirely on your machine. No subscriptio
 - [RPG Progression](#rpg-progression)
 - [Secure by Design](#secure-by-design)
 - [Built for the Edge](#built-for-the-edge)
-- [The OpenClaw for Edge AI](#the-openclaw-for-edge-ai)
 - [It Codes Itself](#it-codes-itself)
 - [Install](#install)
 - [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
-- [Quests](#quests)
+- [Autonomous Work](#autonomous-work)
 - [Configuration](#configuration)
 - [Model Presets](#model-presets)
+- [Contributing](#contributing)
 - [Built With](#built-with)
 
 ---
@@ -111,7 +113,7 @@ Most AI agents are built around cloud connections, online marketplaces, and shar
 
 ## Built for the Edge
 
-Most AI tools assume cloud infrastructure: fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own.
+Most AI tools assume cloud infrastructure: fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters**.
 
 > *"All the power of AI, none of the cloud bills."*
 
@@ -120,20 +122,17 @@ The engine is purpose-built for small models and constrained hardware:
 - **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
 - **Context is managed automatically.** Each model runs with a tuned memory budget. When it fills up, QuestChain summarizes older conversation into a single block and keeps going — no crashes, no cutoffs.
 - **Tools run in parallel.** When the agent needs to search the web, read a file, and run a command at once, it does all three simultaneously.
-
----
-
-## The OpenClaw for Edge AI
-
-Most AI agent frameworks are built for cloud servers: large models, massive memory, always-online. QuestChain delivers the same agentic capability on hardware you already own, running reliably on models as small as **3B parameters**.
-
-It's faster because it's lean: no framework overhead, no bloated prompts, no unnecessary round-trips. Your data never leaves your machine, so there's nothing to intercept. Because the whole stack is local and open, you stay in control with no accounts or API keys required to get started.
+- **No accounts required.** Your data never leaves your machine. There's nothing to intercept, no keys to lose, no service to go down.
 
 Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
 
 ---
 
 ## It Codes Itself
+
+<div align="center">
+<img src="assets/QuestChain-coding.png" alt="QuestChain coding" width="300"/>
+</div>
 
 QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back. Features in QuestChain were written by QuestChain itself.
 
@@ -274,6 +273,10 @@ Restart QuestChain and the bot starts alongside the CLI. The same conversation t
 
 ## Autonomous Work
 
+<div align="center">
+<img src="assets/Overnight-Worker-Quest.png" alt="QuestChain working overnight" width="300"/>
+</div>
+
 QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
 
 **Quests** are individual `.md` files in `workspace/quests/` — one file per task. Write whatever you want the agent to do:
@@ -326,6 +329,9 @@ All settings via environment variables or a `.env` file in the project root:
 
 Any Ollama model works. These are pre-tuned for the best agentic experience on edge hardware:
 
+<details>
+<summary>Show all presets</summary>
+
 | Model | VRAM | Notes |
 |---|---|---|
 | `qwen3:8b` | ~6 GB | **Default** — Fast, excellent tool calling, native thinking |
@@ -346,6 +352,8 @@ Any Ollama model works. These are pre-tuned for the best agentic experience on e
 | `phi4-mini:3.8b` | ~3 GB | Microsoft Phi-4 Mini — punches above its size |
 | `gemma3:4b` | ~3 GB | Google Gemma 3 4B — efficient, good instruction following |
 
+</details>
+
 ```bash
 questchain start --list-models   # see all presets with descriptions
 questchain start -m <any-model>  # use any model installed in Ollama
@@ -353,6 +361,15 @@ questchain start -m <any-model>  # use any model installed in Ollama
 
 ---
 
+## Contributing
+
+Contributions are welcome. Bug reports, feature requests, and pull requests all help.
+
+- **Issues:** [github.com/RayP11/QuestChain/issues](https://github.com/RayP11/QuestChain/issues)
+- **Discussion & ideas:** [Join the Discord](https://discord.gg/C8Rc3u7KKx)
+- **Self-hosted development:** QuestChain can write and test its own code — see [It Codes Itself](#it-codes-itself)
+
+---
 
 ## Built With
 
