@@ -6,6 +6,8 @@
 
 ### Your AI assistant, running on your hardware, working for you around the clock.
 
+[![Stars](https://img.shields.io/github/stars/RayP11/QuestChain?style=social)](https://github.com/RayP11/QuestChain/stargazers)
+
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
 [![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/RayP11/QuestChain/blob/master/LICENSE)
@@ -27,9 +29,9 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 - [Why QuestChain?](#why-questchain)
 - [RPG Progression](#rpg-progression)
 - [Quests](#quests)
+- [Install](#install)
 - [What It Can Do](#what-it-can-do)
 - [Built for the Edge — Securely](#built-for-the-edge--securely)
-- [Install](#install)
 - [It Codes Itself](#it-codes-itself)
 - [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
@@ -113,43 +115,6 @@ questchain start --no-quests
 
 ---
 
-## What It Can Do
-
-- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily *(optional)*
-- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
-- 💻 **Shell Commands** — Run terminal commands and scripts directly
-- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
-- 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
-- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
-- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
-- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
-- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
-- 🔄 **Quests** — Autonomously checks your task list and works in the background on a timer
-- 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
-
----
-
-## Built for the Edge — Securely
-
-Most AI tools assume cloud infrastructure and always-online connections. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters** — and is built so that nothing has to leave your machine.
-
-> *"All the power of AI, none of the cloud bills."*
-
-**Performance on constrained hardware:**
-- **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
-- **Context is managed automatically.** When memory fills up, QuestChain summarizes older conversation and keeps going — no crashes, no cutoffs.
-- **Tools run in parallel.** Web search, file reads, and shell commands execute simultaneously when needed.
-
-**Private by design:**
-- **Nothing reachable from outside** — runs only on your computer, never exposed to the internet.
-- **No store, no strangers' code** — Skills are plain text files on your hard drive. No online marketplace.
-- **No accounts, nothing to steal** — Optional API keys stay in a local file and go nowhere else.
-- **Works with no internet at all** — Disconnect your machine and QuestChain keeps working.
-
-Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
-
----
-
 ## Install
 
 ### Step 1: Install Ollama
@@ -210,6 +175,43 @@ python -m questchain
 ```
 
 > Ollama must still be running before starting QuestChain. See Step 1 above.
+
+---
+
+## What It Can Do
+
+- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily *(optional)*
+- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
+- 💻 **Shell Commands** — Run terminal commands and scripts directly
+- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
+- 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
+- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
+- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
+- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
+- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
+- 🔄 **Quests** — Autonomously checks your task list and works in the background on a timer
+- 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
+
+---
+
+## Built for the Edge — Securely
+
+Most AI tools assume cloud infrastructure and always-online connections. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters** — and is built so that nothing has to leave your machine.
+
+> *"All the power of AI, none of the cloud bills."*
+
+**Performance on constrained hardware:**
+- **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
+- **Context is managed automatically.** When memory fills up, QuestChain summarizes older conversation and keeps going — no crashes, no cutoffs.
+- **Tools run in parallel.** Web search, file reads, and shell commands execute simultaneously when needed.
+
+**Private by design:**
+- **Nothing reachable from outside** — runs only on your computer, never exposed to the internet.
+- **No store, no strangers' code** — Skills are plain text files on your hard drive. No online marketplace.
+- **No accounts, nothing to steal** — Optional API keys stay in a local file and go nowhere else.
+- **Works with no internet at all** — Disconnect your machine and QuestChain keeps working.
+
+Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
 
 ---
 
