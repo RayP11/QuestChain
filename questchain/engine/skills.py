@@ -32,8 +32,8 @@ class SkillsManager:
     """
 
     _SKILL_DIRS: list[Path] = [
-        QUESTCHAIN_DATA_DIR / "skills",   # lower priority — scanned first
-        WORKSPACE_DIR / "skills",         # higher priority — overwrites
+        QUESTCHAIN_DATA_DIR / "skills",            # lower priority — scanned first
+        WORKSPACE_DIR / "workspace" / "skills",    # higher priority — overwrites
     ]
 
     def __init__(self, skills_filter: list[str] | None = None):
