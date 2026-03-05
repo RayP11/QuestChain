@@ -159,6 +159,41 @@ def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> obje
     return make_agent_from_def(agent_def, audio_router)
 
 
+def _robot_face() -> Text:
+    """3-line pixel-art face of the QuestChain mascot (hooded knight, glowing eyes)."""
+    S = (180, 190, 205)  # silver trim
+    D = (18, 12, 38)     # dark hood
+    E = (64, 200, 255)   # glowing blue eye
+    _ = None             # transparent
+
+    pixels = [
+        [_, S, S, S, S, S, S, S, _],
+        [S, D, D, D, D, D, D, D, S],
+        [S, D, E, E, D, E, E, D, S],
+        [S, D, D, D, D, D, D, D, S],
+        [_, S, S, S, S, S, S, S, _],
+    ]
+
+    RESET = "\x1b[0m"
+    lines = []
+    for y in range(0, len(pixels), 2):
+        top_row = pixels[y]
+        bot_row = pixels[y + 1] if y + 1 < len(pixels) else [None] * len(top_row)
+        row = []
+        for x in range(len(top_row)):
+            t, b = top_row[x], bot_row[x]
+            if t is None and b is None:
+                row.append(" ")
+            elif t is not None and b is None:
+                row.append(f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m\u2580{RESET}")
+            elif t is None and b is not None:
+                row.append(f"\x1b[38;2;{b[0]};{b[1]};{b[2]}m\u2584{RESET}")
+            else:
+                row.append(f"\x1b[48;2;{t[0]};{t[1]};{t[2]}m\x1b[38;2;{b[0]};{b[1]};{b[2]}m\u2584{RESET}")
+        lines.append("".join(row))
+    return Text.from_ansi("\n".join(lines))
+
+
 def print_banner(model_name: str):
     """Display the QuestChain welcome banner."""
     from rich.align import Align
@@ -197,7 +232,7 @@ def print_banner(model_name: str):
     meta.append("\n")
     meta.append("Type /help for commands, Ctrl+D to exit", style="dim")
 
-    console.print(Panel(Group(Align.center(art), meta), border_style="blue", padding=(1, 2)))
+    console.print(Panel(Group(Align.center(art), Align.center(_robot_face()), meta), border_style="blue", padding=(1, 2)))
 
 
 def print_tool_call(tool_name: str, tool_input: dict):
