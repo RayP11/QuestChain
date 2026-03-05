@@ -24,20 +24,92 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 ## Contents
 
-- [What It Can Do](#what-it-can-do)
+- [Why QuestChain?](#why-questchain)
 - [RPG Progression](#rpg-progression)
-- [Secure by Design](#secure-by-design)
-- [Built for the Edge](#built-for-the-edge)
-- [It Codes Itself](#it-codes-itself)
+- [Quests](#quests)
+- [What It Can Do](#what-it-can-do)
+- [Built for the Edge — Securely](#built-for-the-edge--securely)
 - [Install](#install)
+- [It Codes Itself](#it-codes-itself)
 - [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
-- [Autonomous Work](#autonomous-work)
 - [Configuration](#configuration)
 - [Model Presets](#model-presets)
 - [Contributing](#contributing)
 - [Built With](#built-with)
+
+---
+
+## Why QuestChain?
+
+I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot of fun playing around with it. However, I couldn't afford the api token cost and I wasn't able to run local models quickly without having to buy even more expensive hardware. So I was inspired to create a framework which could run models as small as 3B autonomously and productively. 
+
+QuestChain is that framework: a party of micro agents all jam-packed with tool loadouts for specific tasks, fully autonomous, and with a twist of gamification.
+
+---
+
+## RPG Progression
+
+QuestChain isn't just a tool. It's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
+
+Each agent has:
+
+- Levels (1-20)
+- A class
+- Achievements
+- Progression
+- Behavior
+- Tools
+
+### Classes
+
+Pick a class when creating an agent. It sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
+
+| Class | Icon | Specialty | Tool Preset |
+|---|---|---|---|
+| Custom | 🌀 | You decide | You configure |
+| Sage | 📚 | Files & knowledge | Built-in tools only |
+| Explorer | 🔭 | Research & discovery | Web search + browse |
+| Architect | ⚒️ | Code & systems | Claude Code |
+| Oracle | 🔮 | Planning & strategy | Web search |
+| Sentinel | ⏱️ | Automation | Cron scheduler |
+
+---
+
+## Quests
+
+<div align="center">
+<img src="assets/Overnight-Worker-Quest.png" alt="QuestChain working overnight" width="300"/>
+</div>
+
+QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
+
+**Quests** are individual `.md` files in `workspace/quests/` — one file per task. Write whatever you want the agent to do:
+
+```markdown
+# workspace/quests/find-api-docs.md
+Find the REST API docs for the weather service and save a summary to /workspace/memory/weather-api.md
+```
+
+The agent reads the quest, uses all the tools at its disposal to complete the task, then deletes the file automatically. Results are shown in the terminal and on Telegram if configured.
+
+Use `/quest` to open the interactive quest manager — create, view, and delete quests with arrow keys:
+
+```
+ Quests   [n] new  [d] delete  [Esc] close
+ ──────────────────────────────────────────
+ ▶ find-api-docs.md
+   refactor-auth-module.md
+```
+
+```bash
+# Run with a custom interval (minutes)
+questchain start --quests 30
+
+# Disable the quest runner
+questchain start --no-quests
+```
 
 ---
 
@@ -57,88 +129,24 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 ---
 
-## RPG Progression
+## Built for the Edge — Securely
 
-QuestChain isn't just a tool. It's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
-
-**How XP is earned:**
-- **10 XP per turn** — base award for each conversation exchange
-- **+2 XP per tool call** — reading files, searching the web, running commands, writing, planning
-- **+20 XP for Claude Code** — delegating a programming task earns a bonus
-- **+25 XP per quest** — autonomous background tasks count toward progression
-
-**How the experience works:**
-- **20 levels** — exponential curve; each level is ~1.6× harder than the last
-- **21 achievements** — milestones across leveling, tool mastery, and behavior
-- **6 agent classes** — each with its own identity, tool loadout, and independent progression
-
-Use `/level` to see your agent's XP bar, progress to next level, top tools, and full achievement history. Use `/agents` to build a roster. Each agent tracks its own progression independently.
-
-### Achievements
-
-21 milestones unlock across three categories:
-
-**Progression** — *First Strike*, *Awakening*, *Seasoned*, *Veteran*, *Legend* (max level)
-
-**Tool Mastery** — *Bibliophile* (50 files read), *Web Walker* (50 searches), *Globe Trotter* (25 pages browsed), *Blacksmith* (25 Claude Code tasks), *Demolition* (50 shell commands), *Archivist* (25 files written), *Grand Planner* (10 task lists written)
-
-**Behavior** — *Polymath* (6 distinct tools used), *Speed Demon* (5+ tools in one turn), *Centurion* (1,000 XP earned), *Busy Bee* (10 background tasks), *Road Runner* (50 background tasks)
-
-### Classes
-
-Pick a class when creating an agent. It sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
-
-| Class | Icon | Specialty | Tool Preset |
-|---|---|---|---|
-| Custom | 🌀 | You decide | You configure |
-| Sage | 📚 | Files & knowledge | Built-in tools only |
-| Explorer | 🔭 | Research & discovery | Web search + browse |
-| Architect | ⚒️ | Code & systems | Claude Code |
-| Oracle | 🔮 | Planning & strategy | Web search |
-| Sentinel | ⏱️ | Automation | Cron scheduler |
-
----
-
-## Secure by Design
-
-Most AI agents are built around cloud connections, online marketplaces, and shared services. Every one of those is a door someone can try to kick in. QuestChain is built the other way around:
-
-- **Nothing reachable from outside** — QuestChain runs only on your own computer and is never accessible over the internet. There's no login page to attack, no server to break into.
-- **No store, no strangers' code** — Skills are plain text files that live on your hard drive. There's no online marketplace where someone could slip in something malicious.
-- **No accounts, nothing to steal** — You don't need to create an account or hand over credentials. If you add optional keys for web search or Telegram, they stay in a file on your machine and go nowhere else.
-- **Only reads what you point it at** — The agent takes instructions from you and the files you give it. It doesn't pull hidden commands from the internet or external networks.
-- **Works with no internet at all** — Everything runs locally. Disconnect your machine and QuestChain keeps working.
-
----
-
-## Built for the Edge
-
-Most AI tools assume cloud infrastructure: fast servers, huge memory, unlimited compute. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters**.
+Most AI tools assume cloud infrastructure and always-online connections. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters** — and is built so that nothing has to leave your machine.
 
 > *"All the power of AI, none of the cloud bills."*
 
-The engine is purpose-built for small models and constrained hardware:
-
+**Performance on constrained hardware:**
 - **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
-- **Context is managed automatically.** Each model runs with a tuned memory budget. When it fills up, QuestChain summarizes older conversation into a single block and keeps going — no crashes, no cutoffs.
-- **Tools run in parallel.** When the agent needs to search the web, read a file, and run a command at once, it does all three simultaneously.
-- **No accounts required.** Your data never leaves your machine. There's nothing to intercept, no keys to lose, no service to go down.
+- **Context is managed automatically.** When memory fills up, QuestChain summarizes older conversation and keeps going — no crashes, no cutoffs.
+- **Tools run in parallel.** Web search, file reads, and shell commands execute simultaneously when needed.
+
+**Private by design:**
+- **Nothing reachable from outside** — runs only on your computer, never exposed to the internet.
+- **No store, no strangers' code** — Skills are plain text files on your hard drive. No online marketplace.
+- **No accounts, nothing to steal** — Optional API keys stay in a local file and go nowhere else.
+- **Works with no internet at all** — Disconnect your machine and QuestChain keeps working.
 
 Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
-
----
-
-## It Codes Itself
-
-<div align="center">
-<img src="assets/QuestChain-coding.png" alt="QuestChain coding" width="300"/>
-</div>
-
-QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back. Features in QuestChain were written by QuestChain itself.
-
-This creates a loop where the agent improves over time without you writing a line of code.
-
-> **No Claude Code?** Run a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
 
 ---
 
@@ -167,8 +175,6 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Ray
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
 ```
-
-Takes ~5 minutes depending on your internet speed (the model download is the slow part).
 
 ### Step 3: Run
 
@@ -207,6 +213,20 @@ python -m questchain
 
 ---
 
+## It Ships
+
+<div align="center">
+<img src="assets/QuestChain-coding.png" alt="QuestChain coding" width="300"/>
+</div>
+
+QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back.
+
+My own QuestChain agent Jarvis has actually started vibing its own features and pushing code.
+
+> **No Claude Code?** Try running a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
+
+---
+
 ## Usage
 
 ```bash
@@ -214,7 +234,7 @@ python -m questchain
 questchain start
 
 # Use a specific model
-questchain start -m qwen2.5:14b-instruct
+questchain start -m qwen3:4b
 
 # Resume a previous conversation by thread ID
 questchain start -t <thread-id>
@@ -252,7 +272,6 @@ questchain start --list-models
 | `/onboard` | Re-run the onboarding conversation |
 | `/tavily` | Set up Tavily web search API key |
 | `/telegram` | Set up Telegram bot credentials |
-| `/clear` | Clear the screen |
 | **Ctrl+D** | Exit QuestChain |
 
 ---
@@ -268,42 +287,6 @@ Run `/telegram` inside QuestChain and it walks you through the setup:
 3. Paste both into the `/telegram` wizard. Credentials are saved automatically.
 
 Restart QuestChain and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram. Switch between them mid-conversation.
-
----
-
-## Autonomous Work
-
-<div align="center">
-<img src="assets/Overnight-Worker-Quest.png" alt="QuestChain working overnight" width="300"/>
-</div>
-
-QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
-
-**Quests** are individual `.md` files in `workspace/quests/` — one file per task. Write whatever you want the agent to do:
-
-```markdown
-# workspace/quests/find-api-docs.md
-Find the REST API docs for the weather service and save a summary to /workspace/memory/weather-api.md
-```
-
-The agent reads the quest, uses all its tools to complete the task, then deletes the file automatically. Results are shown in the terminal and on Telegram if configured.
-
-Use `/quest` to open the interactive quest manager — create, view, and delete quests with arrow keys:
-
-```
- Quests   [n] new  [d] delete  [Esc] close
- ──────────────────────────────────────────
- ▶ find-api-docs.md
-   refactor-auth-module.md
-```
-
-```bash
-# Run with a custom interval (minutes)
-questchain start --quests 30
-
-# Disable the quest runner
-questchain start --no-quests
-```
 
 ---
 
