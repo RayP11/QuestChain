@@ -221,7 +221,7 @@ python -m questchain
 
 QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back.
 
-My own QuestChain agent Jarvis has actually started vibing its own features and pushing code.
+My own QuestChain agent Jarvis has actually started vibing its own features and pushing code to this repo.
 
 > **No Claude Code?** Try running a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
 
