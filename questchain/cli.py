@@ -374,7 +374,6 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
     ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
-    ("/quit",         "Exit QuestChain"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
     ("/quest",        "Manage quests — one-off tasks for the agent to complete"),
     ("/tavily",       "Set up Tavily web search API key"),
@@ -466,7 +465,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     """
     cmd = command.strip().lower()
 
-    if cmd == "/quit" or cmd == "/exit":
+    if cmd == "/exit":
         console.print("[dim]Goodbye![/dim]")
         return False
 
@@ -582,7 +581,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /prestige              - Prestige reset (requires Level 20)\n"
             "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
             "  /history               - Browse and switch past conversations\n"
-            "  /quit                  - Exit QuestChain\n"
+            "  /exit                  - Exit QuestChain\n"
             "  /help                  - Show this help message"
         )
         console.print(Panel(help_text, title="Help", border_style="blue"))
