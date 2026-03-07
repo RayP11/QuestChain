@@ -129,14 +129,16 @@ async def serve_ui() -> HTMLResponse:
 @app.get("/agent-image")
 async def serve_agent_image(level: int = Query(default=1, ge=1, le=20)) -> Response:
     """Serve the evolution image for the given agent level."""
-    assets = Path(__file__).parent.parent.parent / "assets"
     if level <= 5:
         name = "Pixel_idle.png"
     elif level <= 10:
         name = "evolve2.png"
     else:
         name = "draft-evolve-3.png"
-    p = assets / name
+    # Images are package data inside questchain/static/ — works in both dev
+    # checkouts and installed packages (uv tool install / pip install).
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    p = static_dir / name
     if p.exists():
         return FileResponse(str(p), media_type="image/png")
     return Response(status_code=404)
