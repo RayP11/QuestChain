@@ -477,6 +477,20 @@ def _settings_payload() -> dict:
 # ── Cron job helpers ──────────────────────────────────────────────────────────
 
 def _delete_cron_job(cron_id: str) -> None:
+    # If the live scheduler is running, remove via it — this updates both the
+    # in-memory job list and persists to disk atomically, preventing the deleted
+    # job from being resurrected when the scheduler next calls _save_jobs().
+    try:
+        from questchain.scheduler import get_scheduler
+        get_scheduler().remove_job(cron_id)
+        return
+    except (RuntimeError, KeyError):
+        # RuntimeError = scheduler not running; KeyError = job not found in it
+        pass
+    except Exception:
+        pass
+
+    # Fallback: scheduler not running — edit the file directly.
     import json as _json
     from questchain.config import get_cron_jobs_path
     jobs_path = get_cron_jobs_path()
