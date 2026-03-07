@@ -1382,6 +1382,12 @@ async def run_agent_stream(
             else:
                 console.print(f"[bold blue]{agent_name}[/bold blue]")
 
+    try:
+        from questchain.gateway.events import get_bus as _get_bus
+        _bus = _get_bus()
+    except Exception:
+        _bus = None
+
     async def _on_tool_call(tool_name: str, tool_args: dict) -> None:
         _stop_spinner()
         console.print()
@@ -1389,6 +1395,8 @@ async def run_agent_stream(
         tools_this_turn.append(tool_name)
         if progression is not None:
             progression.record_tool_call(tool_name)
+        if _bus:
+            _bus.publish_nowait({"type": "tool_call", "name": tool_name})
 
     # Stream tokens into a Live Markdown display that updates in-place.
     live_md: Live | None = None
@@ -1405,12 +1413,16 @@ async def run_agent_stream(
             live_md.start(refresh=True)
         full_response += token
         live_md.update(Markdown(full_response))
+        if _bus:
+            _bus.publish_nowait({"type": "token", "content": token})
 
     if live_md is not None:
         live_md.stop()
 
     _stop_spinner()  # no-op if already stopped; handles the zero-token edge case
     console.print()
+    if _bus:
+        _bus.publish_nowait({"type": "assistant_done", "content": full_response})
 
     xp_grant: XPGrant | None = None
     if progression is not None:
@@ -1425,6 +1437,9 @@ async def run_agent_stream(
             tool_errors=agent.last_tool_errors,
             chain_depth=agent.last_iterations,
         )
+    if _bus:
+        from questchain.gateway.server import _stats_payload
+        _bus.publish_nowait({"type": "stats", **_stats_payload()})
     return full_response, xp_grant
 
 
@@ -1453,6 +1468,9 @@ async def repl(
     thread_id: str | None = None,
     use_memory: bool = True,
     quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
+    enable_web: bool = False,
+    web_host: str = "127.0.0.1",
+    web_port: int = 8765,
 ):
     """Run the main REPL loop."""
     # Check Ollama connection — retry for a few seconds in case it's still starting
@@ -1534,6 +1552,19 @@ async def repl(
     )
     if telegram_send:
         console.print("[dim]Telegram: bot active[/dim]")
+
+    web_queue: asyncio.Queue | None = None
+    if enable_web:
+        try:
+            from questchain.gateway.server import setup as _gw_setup, start_gateway_server
+            web_queue = asyncio.Queue()
+            _gw_setup(agent_manager, _progression, _metrics, web_queue, effective_model)
+            await start_gateway_server(host=web_host, port=web_port)
+            console.print(f"[dim]Web UI: http://{web_host}:{web_port}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Web UI: failed to start ({e})[/yellow]")
+            web_queue = None
+
     try:
         await _run_with_quests(
             session, agent_holder, session_state, quest_minutes,
@@ -1542,6 +1573,7 @@ async def repl(
             telegram_set_runner=telegram_set_runner,
             audio_router=audio_router,
             agent_manager=agent_manager,
+            web_queue=web_queue,
         )
     finally:
         if telegram_stop:
@@ -1558,6 +1590,7 @@ async def _run_with_quests(
     telegram_set_runner=None,
     audio_router=None,
     agent_manager: "AgentManager | None" = None,
+    web_queue: asyncio.Queue | None = None,
 ):
     """Start the quest runner (if enabled), run the REPL, then clean up."""
     from questchain.quest_runner import QuestRunner
@@ -1583,6 +1616,12 @@ async def _run_with_quests(
                             pass
                 for ach in grant.new_achievements:
                     print_achievement_unlock(ach)
+                try:
+                    from questchain.gateway.events import get_bus as _get_bus
+                    from questchain.gateway.server import _stats_payload
+                    _get_bus().publish_nowait({"type": "stats", **_stats_payload()})
+                except Exception:
+                    pass
             if telegram_send:
                 try:
                     await telegram_send(text)
@@ -1660,6 +1699,7 @@ async def _run_with_quests(
             agent_manager=agent_manager,
             busy_lock=agent_lock,
             telegram_send=telegram_send,
+            web_queue=web_queue,
         )
     finally:
         if runner:
@@ -1679,6 +1719,7 @@ async def _repl_loop(
     agent_manager: "AgentManager | None" = None,
     busy_lock: asyncio.Lock | None = None,
     telegram_send=None,
+    web_queue: asyncio.Queue | None = None,
 ):
     """Inner REPL loop.
 
@@ -1700,13 +1741,12 @@ async def _repl_loop(
         if agent_manager is not None:
             _agent_label = _build_agent_label(agent_manager.get_active(), _progression)
 
-        if telegram_queue is not None:
+        if telegram_queue is not None or web_queue is not None:
             prompt_task = asyncio.create_task(_user_prompt(session, agent_label=_agent_label))
-            queue_task = asyncio.create_task(telegram_queue.get())
-            done, pending = await asyncio.wait(
-                [prompt_task, queue_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            tg_task = asyncio.create_task(telegram_queue.get()) if telegram_queue else None
+            wb_task = asyncio.create_task(web_queue.get()) if web_queue else None
+            race = [t for t in [prompt_task, tg_task, wb_task] if t]
+            done, pending = await asyncio.wait(race, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
                 try:
@@ -1726,11 +1766,16 @@ async def _repl_loop(
                 except Exception:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
-            else:
-                user_text, agent_config, response_future, telegram_update = queue_task.result()
+            elif tg_task and tg_task in done:
+                user_text, agent_config, response_future, telegram_update = tg_task.result()
                 user_input = user_text
                 source = "telegram"
                 console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
+            elif wb_task and wb_task in done:
+                user_text, response_future = wb_task.result()
+                user_input = user_text
+                source = "web"
+                console.print(f"\n[bold cyan]🌐 Web[/bold cyan] > {user_input}")
         else:
             try:
                 user_input = await _user_prompt(session, agent_label=_agent_label)
@@ -1746,6 +1791,13 @@ async def _repl_loop(
             if response_future and not response_future.done():
                 response_future.set_result("")
             continue
+
+        # Broadcast user message to web UI
+        try:
+            from questchain.gateway.events import get_bus as _get_bus
+            _get_bus().publish_nowait({"type": "user_message", "content": user_input, "source": source})
+        except Exception:
+            pass
 
         # Slash commands are CLI-only
         if source == "cli" and user_input.startswith("/"):
@@ -1893,12 +1945,34 @@ async def _repl_loop(
                     response_future.set_exception(e)
 
 
+async def web_only(host: str = "127.0.0.1", port: int = 8765) -> None:
+    """Start the web UI gateway without the CLI REPL."""
+    from questchain.gateway.server import setup as _gw_setup, start_gateway_server
+
+    agent_manager = AgentManager()
+    agent_manager.seed_preset_agents()
+
+    web_queue: asyncio.Queue = asyncio.Queue()
+    _gw_setup(agent_manager, None, None, web_queue)
+    await start_gateway_server(host=host, port=port)
+    console.print(f"[bold green]QuestChain Web UI[/bold green] → [cyan]http://{host}:{port}[/cyan]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    try:
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+
+
 def main(
     model_name: str | None = None,
     thread_id: str | None = None,
     use_memory: bool = True,
     quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
+    enable_web: bool = False,
+    web_host: str = "127.0.0.1",
+    web_port: int = 8765,
 ):
     """Entry point for the QuestChain CLI."""
     model_name = model_name or OLLAMA_MODEL
-    asyncio.run(repl(model_name, thread_id, use_memory, quest_minutes))
+    asyncio.run(repl(model_name, thread_id, use_memory, quest_minutes, enable_web, web_host, web_port))

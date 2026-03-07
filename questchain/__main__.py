@@ -31,9 +31,9 @@ def parse_args():
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["start"],
+        choices=["start", "web"],
         default="start",
-        help="Command to run (default: start)",
+        help="Command to run: 'start' (default) launches the CLI, 'web' starts only the web UI",
     )
     parser.add_argument(
         "-m", "--model",
@@ -67,6 +67,24 @@ def parse_args():
         action="store_true",
         help="Disable the periodic quest runner",
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Start the web UI alongside the CLI",
+    )
+    parser.add_argument(
+        "--web-host",
+        default="127.0.0.1",
+        metavar="HOST",
+        help="Web UI host (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=8765,
+        metavar="PORT",
+        help="Web UI port (default: 8765)",
+    )
     return parser.parse_args()
 
 
@@ -80,6 +98,12 @@ def main():
             print(f"  {name:20s} {preset['description']}{marker}")
         return
 
+    if args.command == "web":
+        import asyncio
+        from questchain.cli import web_only
+        asyncio.run(web_only(host=args.web_host, port=args.web_port))
+        return
+
     quest_minutes = None if args.no_quests else args.quests
 
     from questchain.cli import main as cli_main
@@ -89,6 +113,9 @@ def main():
         thread_id=args.thread,
         use_memory=not args.no_memory,
         quest_minutes=quest_minutes,
+        enable_web=args.web,
+        web_host=args.web_host,
+        web_port=args.web_port,
     )
 
 

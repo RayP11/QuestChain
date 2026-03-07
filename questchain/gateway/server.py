@@ -1,0 +1,412 @@
+"""FastAPI WebSocket gateway server for the QuestChain web UI."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, FileResponse, Response
+
+from questchain.gateway.events import get_bus
+
+if TYPE_CHECKING:
+    from questchain.agents import AgentManager
+    from questchain.progression import ProgressionManager
+    from questchain.stats import MetricsManager
+
+app = FastAPI(docs_url=None, redoc_url=None)
+
+_MAX_WS_MSG_BYTES = 512_000  # 512 KB per WebSocket message
+_MAX_CHAT_CHARS   = 16_000   # max characters in a single chat message
+
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self' ws: wss:;"
+)
+
+# Set by start_gateway_server() so validators know what the server is bound to.
+_LOCALHOST_NAMES: frozenset[str] = frozenset(("127.0.0.1", "localhost", "::1"))
+_bound_host: str = "127.0.0.1"
+_bound_port: int = 8765
+
+
+def _is_loopback_bind() -> bool:
+    return _bound_host in _LOCALHOST_NAMES
+
+
+def _host_allowed(hostname: str) -> bool:
+    """Return True if a Host/Origin hostname is permitted to reach this server."""
+    hostname = hostname.lower().strip("[]")  # normalise IPv6 brackets
+    if _is_loopback_bind():
+        return hostname in _LOCALHOST_NAMES
+    if _bound_host == "0.0.0.0":
+        return True  # user explicitly exposed the server on all interfaces
+    return hostname in (*_LOCALHOST_NAMES, _bound_host)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next) -> Response:
+    # DNS rebinding protection: reject requests whose Host header doesn't match
+    # the address this server is bound to.
+    host_header = request.headers.get("host", "")
+    hostname = host_header.split(":")[0]
+    if not _host_allowed(hostname):
+        return Response("Misdirected Request", status_code=421)
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = _CSP
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+# Shared state — set by CLI at startup via setup()
+_agent_manager: "AgentManager | None" = None
+_progression: "ProgressionManager | None" = None
+_metrics: "MetricsManager | None" = None
+_web_queue: asyncio.Queue | None = None
+_model_name: str = ""
+
+
+def setup(
+    agent_manager: "AgentManager",
+    progression: "ProgressionManager | None",
+    metrics: "MetricsManager | None",
+    web_queue: asyncio.Queue,
+    model_name: str = "",
+) -> None:
+    global _agent_manager, _progression, _metrics, _web_queue, _model_name
+    _agent_manager = agent_manager
+    _progression = progression
+    _metrics = metrics
+    _web_queue = web_queue
+    _model_name = model_name
+
+
+def update_progression(progression: "ProgressionManager | None") -> None:
+    global _progression
+    _progression = progression
+
+
+def update_metrics(metrics: "MetricsManager | None") -> None:
+    global _metrics
+    _metrics = metrics
+
+
+# ── HTML serving ──────────────────────────────────────────────────────────────
+
+def _get_html() -> str:
+    # Bundled static (installed package)
+    bundled = Path(__file__).parent.parent / "static" / "index.html"
+    if bundled.exists():
+        return bundled.read_text(encoding="utf-8")
+    # Dev fallback: repo root / web / index.html
+    dev = Path(__file__).parent.parent.parent / "web" / "index.html"
+    if dev.exists():
+        return dev.read_text(encoding="utf-8")
+    return "<h1>QuestChain UI — index.html not found</h1>"
+
+
+@app.get("/")
+async def serve_ui() -> HTMLResponse:
+    return HTMLResponse(_get_html())
+
+
+@app.get("/agent-image")
+async def serve_agent_image(level: int = Query(default=1, ge=1, le=20)) -> Response:
+    """Serve the evolution image for the given agent level."""
+    assets = Path(__file__).parent.parent.parent / "assets"
+    if level <= 5:
+        name = "Pixel_idle.png"
+    elif level <= 10:
+        name = "evolve2.png"
+    else:
+        name = "draft-evolve-3.png"
+    p = assets / name
+    if p.exists():
+        return FileResponse(str(p), media_type="image/png")
+    return Response(status_code=404)
+
+
+# ── WebSocket endpoint ─────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket) -> None:
+    # Block cross-site WebSocket hijacking: browsers always send Origin.
+    # Non-browser clients (CLI tools) omit it — those are allowed through.
+    origin = ws.headers.get("origin")
+    if origin is not None:
+        hostname = urlparse(origin).hostname or ""
+        if not _host_allowed(hostname):
+            await ws.close(code=1008)
+            return
+
+    await ws.accept()
+    bus = get_bus()
+    event_q = bus.subscribe()
+
+    async def _send_loop() -> None:
+        while True:
+            event = await event_q.get()
+            try:
+                await ws.send_json(event)
+            except Exception:
+                break
+
+    async def _recv_loop() -> None:
+        while True:
+            try:
+                raw = await ws.receive_text()
+            except WebSocketDisconnect:
+                break
+            if len(raw) > _MAX_WS_MSG_BYTES:
+                continue
+            try:
+                msg = json.loads(raw)
+                await _handle_inbound(ws, msg)
+            except Exception:
+                pass
+
+    # Push current state to the new client immediately
+    await _push_initial_state(ws)
+
+    send_task = asyncio.create_task(_send_loop())
+    recv_task = asyncio.create_task(_recv_loop())
+    try:
+        done, pending = await asyncio.wait(
+            [send_task, recv_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+    except (asyncio.CancelledError, Exception):
+        pass
+    finally:
+        for t in [send_task, recv_task]:
+            if not t.done():
+                t.cancel()
+        bus.unsubscribe(event_q)
+
+
+# ── Initial state push ────────────────────────────────────────────────────────
+
+async def _push_initial_state(ws: WebSocket) -> None:
+    try:
+        await ws.send_json({"type": "agents", **_agents_payload()})
+        await ws.send_json({"type": "stats", **_stats_payload()})
+        await ws.send_json({"type": "quests", "quests": _list_quests()})
+    except Exception:
+        pass
+
+
+# ── Inbound message handlers ──────────────────────────────────────────────────
+
+async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
+    t = msg.get("type")
+
+    if t == "chat":
+        text = (msg.get("message") or "").strip()[:_MAX_CHAT_CHARS]
+        if text and _web_queue is not None:
+            fut: asyncio.Future = asyncio.get_event_loop().create_future()
+            await _web_queue.put((text, fut))
+
+    elif t == "get_agents":
+        await ws.send_json({"type": "agents", **_agents_payload()})
+
+    elif t == "switch_agent":
+        if _agent_manager:
+            agent_id = msg.get("agent_id", "")
+            _agent_manager.set_active(agent_id)
+            get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+
+    elif t == "get_stats":
+        await ws.send_json({"type": "stats", **_stats_payload(msg.get("agent_id"))})
+
+    elif t == "get_quests":
+        await ws.send_json({"type": "quests", "quests": _list_quests()})
+
+    elif t == "create_quest":
+        name = (msg.get("name") or "").strip()
+        content = msg.get("content") or ""
+        if name:
+            _save_quest(name, content)
+            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
+
+    elif t == "update_quest":
+        name = msg.get("name") or ""
+        content = msg.get("content") or ""
+        if name:
+            _save_quest(name, content)
+            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
+
+    elif t == "delete_quest":
+        name = msg.get("name") or ""
+        if name:
+            _delete_quest(name)
+            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
+
+
+# ── Payload builders ──────────────────────────────────────────────────────────
+
+def _agents_payload() -> dict:
+    if _agent_manager is None:
+        return {"agents": [], "active_id": ""}
+    agents = _agent_manager.all_agents()
+    active = _agent_manager.get_active()
+    active_id = active.get("id", "") if active else ""
+
+    # Attach level from each agent's progression file
+    from questchain.progression import ProgressionManager
+    enriched = []
+    for agent in agents:
+        a = dict(agent)
+        try:
+            pm = ProgressionManager(agent["id"], agent.get("class_name", "Custom"))
+            rec = pm.load()
+            a["level"] = rec.level
+        except Exception:
+            a["level"] = 1
+        enriched.append(a)
+
+    return {"agents": enriched, "active_id": active_id}
+
+
+def _stats_payload(agent_id: str | None = None) -> dict:
+    prog_data: dict = {}
+    metrics_data: dict = {}
+
+    # Resolve which agent we're looking at
+    if agent_id and _agent_manager is not None:
+        agent_def = _agent_manager.get(agent_id)
+    else:
+        agent_def = _agent_manager.get_active() if _agent_manager else None
+        if agent_id is None and _agent_manager is not None:
+            agent_id = _agent_manager.get_active_id()
+
+    effective_agent_id = agent_def["id"] if agent_def else None
+    active_id = _agent_manager.get_active_id() if _agent_manager else None
+
+    # Always load progression fresh from disk — it's the source of truth
+    if agent_def is not None:
+        from questchain.progression import ProgressionManager
+        pm = ProgressionManager(agent_def["id"], agent_def.get("class_name", "Custom"))
+        rec = pm.load()
+        prog_data = {
+            "level": rec.level,
+            "xp_this_level": rec.xp_this_level,
+            "xp_next_level": rec.xp_next_level,
+            "class_name": rec.class_name,
+            "achievements": [a.name for a in rec.achievements],
+            "prestige": rec.prestige,
+            "turns_completed": rec.turns_completed,
+        }
+
+    # Metrics: live manager for active agent, disk for others
+    if _metrics is not None and effective_agent_id == active_id:
+        m = _metrics.get_record()
+        metrics_data = {
+            "prompt_count": m.prompt_count,
+            "tokens_used": m.tokens_used,
+            "total_errors": m.total_errors,
+            "highest_chain": m.highest_chain,
+            "num_tools": m.num_tools,
+            "num_skills": m.num_skills,
+            "model_name": m.model_name or _model_name,
+        }
+    elif effective_agent_id:
+        from questchain.stats import MetricsManager
+        mm = MetricsManager(effective_agent_id)
+        m = mm.load()
+        metrics_data = {
+            "prompt_count": m.prompt_count,
+            "tokens_used": m.tokens_used,
+            "total_errors": m.total_errors,
+            "highest_chain": m.highest_chain,
+            "num_tools": m.num_tools,
+            "num_skills": m.num_skills,
+            "model_name": m.model_name or (agent_def.get("model") or _model_name if agent_def else _model_name),
+        }
+    else:
+        metrics_data["model_name"] = _model_name
+
+    metrics_data["agent_name"] = agent_def.get("name", "QuestChain") if agent_def else "QuestChain"
+    metrics_data["agent_id"] = effective_agent_id or ""
+
+    return {"progression": prog_data, "metrics": metrics_data}
+
+
+# ── Quest file helpers ────────────────────────────────────────────────────────
+
+def _quests_dir() -> Path:
+    from questchain.config import WORKSPACE_DIR
+    d = WORKSPACE_DIR / "workspace" / "quests"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _list_quests() -> list[dict]:
+    quests = []
+    for f in sorted(_quests_dir().glob("*.md")):
+        try:
+            content = f.read_text(encoding="utf-8")
+            # Pull title from first # heading or filename
+            title = f.stem
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith("#"):
+                    title = line.lstrip("#").strip()
+                    break
+            quests.append({"name": f.name, "title": title, "content": content})
+        except Exception:
+            pass
+    return quests
+
+
+def _save_quest(name: str, content: str) -> None:
+    if not name.endswith(".md"):
+        name = name + ".md"
+    # Sanitize filename
+    name = "".join(c for c in name if c.isalnum() or c in "-_. ")
+    (_quests_dir() / name).write_text(content, encoding="utf-8")
+
+
+def _delete_quest(name: str) -> None:
+    quests_dir = _quests_dir().resolve()
+    path = (quests_dir / name).resolve()
+    if quests_dir not in path.parents:
+        return  # path traversal attempt
+    if path.exists() and path.suffix == ".md":
+        path.unlink()
+
+
+# ── Uvicorn launcher ──────────────────────────────────────────────────────────
+
+async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> None:
+    """Start uvicorn in the current event loop as a background task."""
+    global _bound_host, _bound_port
+    _bound_host = host
+    _bound_port = port
+
+    import uvicorn
+
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        loop="none",
+        log_level="critical",
+        access_log=False,
+    )
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None  # don't steal SIGINT from CLI
+    asyncio.create_task(server.serve())

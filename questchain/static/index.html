@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuestChain</title>
+<style>
+/* ── Reset & base ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:         #0b0d1a;
+  --surface:    #111427;
+  --surface2:   #181c32;
+  --surface3:   #1f2440;
+  --border:     #252844;
+  --border2:    #303660;
+  --accent:     #3cb8ff;
+  --accent-dim: rgba(60,184,255,0.12);
+  --accent-glow:rgba(60,184,255,0.3);
+  --gold:       #ffb81c;
+  --gold-dim:   rgba(255,184,28,0.15);
+  --text:       #c8d4f0;
+  --text-dim:   #5a6890;
+  --text-muted: #3a4468;
+  --red:        #ff4c6e;
+  --green:      #3cffa0;
+  --radius:     8px;
+  --radius-lg:  14px;
+  --font:       -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono:       'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; overflow: hidden; }
+
+/* ── Layout ────────────────────────────────────────────────── */
+#app { display: flex; height: 100vh; }
+
+/* ── Sidebar nav ───────────────────────────────────────────── */
+#nav {
+  width: 64px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 4px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+.nav-logo {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px;
+  font-size: 22px;
+}
+.nav-btn {
+  width: 44px; height: 44px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: var(--radius);
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  gap: 3px;
+  font-size: 11px;
+  padding: 6px 4px;
+}
+.nav-btn svg { width: 20px; height: 20px; }
+.nav-btn:hover { background: var(--surface2); color: var(--text); }
+.nav-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(60,184,255,0.2);
+}
+.nav-spacer { flex: 1; }
+.connection-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  margin-bottom: 12px;
+  transition: background 0.3s;
+}
+.connection-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.connection-dot.error { background: var(--red); }
+
+/* ── Pages ─────────────────────────────────────────────────── */
+#pages { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.page { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.page.active { display: flex; }
+
+/* ── PAGE 1: CHAT ───────────────────────────────────────────── */
+#page-chat { position: relative; }
+
+#chat-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+#chat-agent-name { font-weight: 600; color: var(--text); }
+#chat-agent-level { font-size: 11px; color: var(--accent); padding: 2px 8px; background: var(--accent-dim); border-radius: 20px; }
+#chat-model { margin-left: auto; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+#messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scroll-behavior: smooth;
+}
+#messages::-webkit-scrollbar { width: 4px; }
+#messages::-webkit-scrollbar-track { background: transparent; }
+#messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.msg { display: flex; gap: 10px; max-width: 80%; }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg.assistant { align-self: flex-start; }
+
+.msg-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+.msg.user .msg-avatar { background: var(--accent-dim); color: var(--accent); }
+.msg.assistant .msg-avatar { background: var(--gold-dim); color: var(--gold); }
+
+.msg-bubble {
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  line-height: 1.55;
+  font-size: 13.5px;
+}
+.msg.user .msg-bubble {
+  background: var(--accent-dim);
+  border: 1px solid rgba(60,184,255,0.2);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+.msg.assistant .msg-bubble {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.msg-source-label {
+  font-size: 10px; color: var(--text-muted); margin-bottom: 4px;
+  display: flex; align-items: center; gap: 4px;
+}
+
+.tool-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface3); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 10px; font-size: 11px;
+  color: var(--text-dim); font-family: var(--mono);
+  align-self: flex-start;
+}
+.tool-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); animation: pulse 1s infinite; }
+
+.typing-indicator {
+  display: flex; align-items: center; gap: 5px;
+  padding: 10px 14px; background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg); border-bottom-left-radius: 4px;
+  align-self: flex-start; margin-left: 40px;
+}
+.typing-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim); animation: typing 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* streaming cursor */
+.stream-cursor::after {
+  content: '▋';
+  animation: blink 0.8s step-end infinite;
+  color: var(--accent);
+}
+
+#chat-input-wrap {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; gap: 10px; align-items: flex-end;
+  flex-shrink: 0;
+}
+#chat-input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13.5px;
+  resize: none;
+  outline: none;
+  max-height: 140px;
+  transition: border-color 0.15s;
+  line-height: 1.5;
+}
+#chat-input:focus { border-color: var(--border2); }
+#chat-input::placeholder { color: var(--text-muted); }
+#send-btn {
+  width: 38px; height: 38px; border-radius: var(--radius);
+  border: none; background: var(--accent); color: #000;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+#send-btn:hover { background: #5dc8ff; }
+#send-btn:disabled { background: var(--surface3); color: var(--text-muted); cursor: not-allowed; }
+#send-btn svg { width: 16px; height: 16px; }
+
+/* ── PAGE 2: AGENT STATS ────────────────────────────────────── */
+#page-agent {
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* Main stats area */
+#agent-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 24px;
+  gap: 20px;
+}
+#agent-main::-webkit-scrollbar { width: 4px; }
+#agent-main::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Agent card */
+#agent-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+.agent-card-top {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+#agent-image-wrap {
+  position: relative;
+  width: 280px; height: 280px;
+  flex-shrink: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+#agent-image {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 12px;
+}
+.agent-info { flex: 1; padding-bottom: 8px; }
+.agent-class-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: 20px; padding: 3px 10px; font-size: 11px;
+  color: var(--text-dim); margin-bottom: 8px;
+}
+#agent-name-display {
+  font-size: 28px; font-weight: 700;
+  color: var(--text); letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+#agent-level-display {
+  font-size: 15px; color: var(--accent);
+  font-weight: 600; margin-bottom: 16px;
+}
+/* XP bar */
+.xp-label {
+  font-size: 11px; color: var(--text-dim);
+  display: flex; justify-content: space-between;
+  margin-bottom: 5px;
+}
+.xp-bar-track {
+  height: 6px; background: var(--surface3);
+  border-radius: 3px; overflow: hidden;
+}
+.xp-bar-fill {
+  height: 100%; background: linear-gradient(90deg, var(--accent), #88ddff);
+  border-radius: 3px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 20px;
+}
+.stat-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color 0.15s;
+}
+.stat-card:hover { border-color: var(--border2); }
+.stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--text); font-family: var(--mono); }
+.stat-value.accent { color: var(--accent); }
+.stat-value.gold { color: var(--gold); }
+
+/* Achievements */
+#achievements-wrap {
+  padding: 0 20px 20px;
+}
+.section-title {
+  font-size: 11px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.achievements-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.achievement-badge {
+  background: var(--gold-dim);
+  border: 1px solid rgba(255,184,28,0.2);
+  border-radius: 20px; padding: 4px 10px;
+  font-size: 11px; color: var(--gold);
+}
+.no-achievements { font-size: 12px; color: var(--text-muted); }
+
+/* Agent roster sidebar */
+#agent-roster {
+  width: 240px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.roster-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.roster-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.roster-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.roster-list::-webkit-scrollbar { width: 3px; }
+.roster-list::-webkit-scrollbar-thumb { background: var(--border2); }
+.roster-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+.roster-item:hover { background: var(--surface2); border-color: var(--border); }
+.roster-item.active {
+  background: var(--accent-dim);
+  border-color: rgba(60,184,255,0.25);
+}
+.roster-item-icon { font-size: 16px; flex-shrink: 0; }
+.roster-item-info { flex: 1; min-width: 0; }
+.roster-item-name { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster-item-level { font-size: 10px; color: var(--text-dim); }
+.roster-item-active-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 5px var(--accent);
+  flex-shrink: 0;
+}
+
+/* ── PAGE 3: QUESTS ─────────────────────────────────────────── */
+#page-quests { flex-direction: row; }
+
+#quests-sidebar {
+  width: 280px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.quests-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.quests-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.btn-new {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border2);
+  background: transparent; color: var(--accent);
+  font-size: 12px; cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-new:hover { background: var(--accent-dim); border-color: rgba(60,184,255,0.3); }
+.quest-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.quest-list::-webkit-scrollbar { width: 3px; }
+.quest-list::-webkit-scrollbar-thumb { background: var(--border2); }
+.quest-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+.quest-item:hover { background: var(--surface2); border-color: var(--border); }
+.quest-item.active { background: var(--accent-dim); border-color: rgba(60,184,255,0.2); }
+.quest-item-icon { font-size: 14px; flex-shrink: 0; }
+.quest-item-title { font-size: 12.5px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quest-item-del {
+  width: 22px; height: 22px; border-radius: 5px;
+  border: none; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; opacity: 0; transition: all 0.15s;
+  flex-shrink: 0;
+}
+.quest-item:hover .quest-item-del { opacity: 1; }
+.quest-item-del:hover { background: rgba(255,76,110,0.15); color: var(--red); }
+
+.quest-empty {
+  padding: 32px 16px; text-align: center;
+  color: var(--text-muted); font-size: 12px; line-height: 1.6;
+}
+
+#quest-editor {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.editor-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); flex-shrink: 0;
+}
+#quest-name-input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 15px; font-weight: 600;
+  font-family: var(--font);
+}
+#quest-name-input::placeholder { color: var(--text-muted); }
+.btn-save {
+  padding: 6px 14px; border-radius: var(--radius);
+  border: 1px solid rgba(60,184,255,0.3);
+  background: var(--accent-dim); color: var(--accent);
+  font-size: 12px; cursor: pointer; transition: all 0.15s;
+}
+.btn-save:hover { background: rgba(60,184,255,0.2); }
+#quest-content-input {
+  flex: 1; background: var(--bg); border: none; outline: none;
+  color: var(--text); font-family: var(--mono); font-size: 13px;
+  padding: 20px; resize: none; line-height: 1.7;
+}
+.quest-placeholder {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  color: var(--text-muted); font-size: 13px;
+}
+
+/* ── Animations ─────────────────────────────────────────────── */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+@keyframes typing { 0%,60%,100%{opacity:0.3; transform:translateY(0)} 30%{opacity:1; transform:translateY(-3px)} }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+@keyframes fadeIn { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+
+.msg { animation: fadeIn 0.2s ease; }
+
+/* ── Scrollbar global ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Sidebar nav ── -->
+  <nav id="nav">
+    <div class="nav-logo">⛓</div>
+
+    <button class="nav-btn active" data-page="chat" title="Chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+
+    <button class="nav-btn" data-page="agent" title="Agent">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+    </button>
+
+    <button class="nav-btn" data-page="quests" title="Quests">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    </button>
+
+    <div class="nav-spacer"></div>
+    <div class="connection-dot" id="conn-dot" title="Disconnected"></div>
+  </nav>
+
+  <!-- ── Pages ── -->
+  <div id="pages">
+
+    <!-- PAGE 1: CHAT -->
+    <div class="page active" id="page-chat">
+      <div id="chat-header">
+        <span id="chat-agent-name">QuestChain</span>
+        <span id="chat-agent-level">Lv. 1</span>
+        <span id="chat-model"></span>
+      </div>
+
+      <div id="messages">
+        <div class="msg assistant">
+          <div class="msg-avatar">⚔</div>
+          <div>
+            <div class="msg-source-label">QuestChain</div>
+            <div class="msg-bubble">Ready for your quest. What shall we do?</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="chat-input-wrap">
+        <textarea id="chat-input" rows="1" placeholder="Send a message…"></textarea>
+        <button id="send-btn" title="Send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- PAGE 2: AGENT STATS -->
+    <div class="page" id="page-agent">
+      <div id="agent-main">
+
+        <div id="agent-card">
+          <div class="agent-card-top">
+            <div id="agent-image-wrap">
+              <img id="agent-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3C/svg%3E" alt="Agent">
+            </div>
+            <div class="agent-info">
+              <div class="agent-class-badge">
+                <span id="agent-class-icon">🌀</span>
+                <span id="agent-class-name">Custom</span>
+              </div>
+              <div id="agent-name-display">QuestChain</div>
+              <div id="agent-level-display">Level 1</div>
+              <div class="xp-label">
+                <span>XP</span>
+                <span id="xp-label-val">0 / 100</span>
+              </div>
+              <div class="xp-bar-track">
+                <div class="xp-bar-fill" id="xp-bar" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Prompts</div>
+              <div class="stat-value accent" id="stat-prompts">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Tokens Used</div>
+              <div class="stat-value" id="stat-tokens">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Longest Chain</div>
+              <div class="stat-value gold" id="stat-chain">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Errors</div>
+              <div class="stat-value" id="stat-errors">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Tools</div>
+              <div class="stat-value" id="stat-tools">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Skills</div>
+              <div class="stat-value" id="stat-skills">0</div>
+            </div>
+          </div>
+
+          <div id="achievements-wrap">
+            <div class="section-title">Achievements</div>
+            <div class="achievements-list" id="achievements-list">
+              <span class="no-achievements">No achievements yet — start a quest!</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Roster sidebar -->
+      <div id="agent-roster">
+        <div class="roster-header">
+          <span class="roster-title">Agents</span>
+        </div>
+        <div class="roster-list" id="roster-list"></div>
+      </div>
+    </div>
+
+    <!-- PAGE 3: QUESTS -->
+    <div class="page" id="page-quests">
+      <div id="quests-sidebar">
+        <div class="quests-header">
+          <span class="quests-title">Quests</span>
+          <button class="btn-new" id="btn-new-quest">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New
+          </button>
+        </div>
+        <div class="quest-list" id="quest-list">
+          <div class="quest-empty">No quests yet.<br>Create one to get started.</div>
+        </div>
+      </div>
+
+      <div id="quest-editor">
+        <div class="editor-header">
+          <input type="text" id="quest-name-input" placeholder="Quest filename (e.g. find-api-docs)">
+          <button class="btn-save" id="btn-save-quest">Save</button>
+        </div>
+        <textarea id="quest-content-input" placeholder="Describe the quest in plain language or Markdown…&#10;&#10;Example:&#10;Find the REST API docs for the weather service and save a summary to workspace/memory/weather-api.md"></textarea>
+      </div>
+    </div>
+
+  </div><!-- /pages -->
+</div><!-- /app -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────
+const State = {
+  ws: null,
+  connected: false,
+  streaming: false,
+  streamEl: null,        // current streaming bubble DOM element
+  typingEl: null,        // typing indicator
+  agents: [],
+  activeAgentId: '',
+  viewingAgentId: '',    // agent currently shown in stats view (may differ from active)
+  quests: [],
+  selectedQuestName: null,
+  page: 'chat',
+};
+
+// ── WebSocket ─────────────────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  State.ws = ws;
+
+  ws.onopen = () => {
+    State.connected = true;
+    document.getElementById('conn-dot').className = 'connection-dot connected';
+    ws.send(JSON.stringify({ type: 'get_agents' }));
+    ws.send(JSON.stringify({ type: 'get_stats' }));
+    ws.send(JSON.stringify({ type: 'get_quests' }));
+  };
+
+  ws.onclose = () => {
+    State.connected = false;
+    document.getElementById('conn-dot').className = 'connection-dot error';
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    handleEvent(msg);
+  };
+}
+
+function send(obj) {
+  if (State.ws && State.connected) State.ws.send(JSON.stringify(obj));
+}
+
+// ── Event router ──────────────────────────────────────────────
+function handleEvent(msg) {
+  switch (msg.type) {
+    case 'user_message':  onUserMessage(msg); break;
+    case 'token':         onToken(msg); break;
+    case 'tool_call':     onToolCall(msg); break;
+    case 'assistant_done':onDone(msg); break;
+    case 'agents':        onAgents(msg); break;
+    case 'stats':         onStats(msg); break;
+    case 'quests':        onQuests(msg); break;
+  }
+}
+
+// ── Chat events ───────────────────────────────────────────────
+function onUserMessage(msg) {
+  removeTyping();
+  appendMessage('user', msg.content, msg.source !== 'web' ? msg.source : null);
+}
+
+function onToken(msg) {
+  removeTyping();
+  if (!State.streaming || !State.streamEl) {
+    State.streaming = true;
+    const wrap = appendMessage('assistant', '', null, true);
+    State.streamEl = wrap.querySelector('.msg-bubble');
+  }
+  State.streamEl.textContent += msg.content;
+  State.streamEl.classList.add('stream-cursor');
+  scrollToBottom();
+}
+
+function onToolCall(msg) {
+  removeTyping();
+  const el = document.createElement('div');
+  el.className = 'tool-pill';
+  el.innerHTML = `<span class="dot"></span>${escHtml(msg.name)}`;
+  document.getElementById('messages').appendChild(el);
+  scrollToBottom();
+}
+
+function onDone(msg) {
+  if (State.streamEl) {
+    State.streamEl.classList.remove('stream-cursor');
+  }
+  State.streaming = false;
+  State.streamEl = null;
+  removeTyping();
+  document.getElementById('send-btn').disabled = false;
+  // refresh stats after response
+  send({ type: 'get_stats' });
+}
+
+function onAgents(msg) {
+  State.agents = msg.agents || [];
+  State.activeAgentId = msg.active_id || '';
+  if (!State.viewingAgentId) State.viewingAgentId = State.activeAgentId;
+  renderRoster();
+  updateChatHeader();
+}
+
+function onStats(msg) {
+  renderStats(msg);
+}
+
+function onQuests(msg) {
+  State.quests = msg.quests || [];
+  renderQuestList();
+}
+
+// ── Chat rendering ────────────────────────────────────────────
+function appendMessage(role, text, sourceLabel, streaming) {
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = role === 'user' ? '👤' : '⚔';
+
+  const inner = document.createElement('div');
+
+  if (sourceLabel) {
+    const lbl = document.createElement('div');
+    lbl.className = 'msg-source-label';
+    lbl.textContent = sourceLabel === 'telegram' ? '📱 Telegram' : sourceLabel;
+    inner.appendChild(lbl);
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = text;
+  inner.appendChild(bubble);
+
+  wrap.appendChild(avatar);
+  wrap.appendChild(inner);
+  document.getElementById('messages').appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+function showTyping() {
+  if (State.typingEl) return;
+  const el = document.createElement('div');
+  el.className = 'typing-indicator';
+  el.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+  State.typingEl = el;
+  document.getElementById('messages').appendChild(el);
+  scrollToBottom();
+}
+
+function removeTyping() {
+  if (State.typingEl) {
+    State.typingEl.remove();
+    State.typingEl = null;
+  }
+}
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateChatHeader() {
+  const active = State.agents.find(a => a.id === State.activeAgentId);
+  if (!active) return;
+  document.getElementById('chat-agent-name').textContent = active.name || 'QuestChain';
+  document.getElementById('chat-agent-level').textContent = `Lv. ${active.level || 1}`;
+}
+
+// ── Agent stats rendering ─────────────────────────────────────
+const CLASS_ICONS = { Custom:'🌀', Sage:'📚', Explorer:'🔭', Architect:'⚒️', Oracle:'🔮', Sentinel:'⏱️' };
+// Use the bundled character image (served relative to the page)
+const AGENT_IMAGE_SRC = 'data:image/png;base64,'; // placeholder; real image injected below
+
+function updateAgentImage(level) {
+  const img = document.getElementById('agent-image');
+  img.style.display = '';
+  img.src = `/agent-image?level=${encodeURIComponent(level || 1)}`;
+  img.onerror = function() { this.style.display = 'none'; };
+}
+
+function renderStats(msg) {
+  const prog = msg.progression || {};
+  const metrics = msg.metrics || {};
+
+  // Update header level
+  const level = prog.level || 1;
+  const className = prog.class_name || 'Custom';
+
+  updateAgentImage(level);
+
+  document.getElementById('chat-agent-level').textContent = `Lv. ${level}`;
+  document.getElementById('agent-name-display').textContent = metrics.agent_name || 'QuestChain';
+  document.getElementById('agent-level-display').textContent = `Level ${level}`;
+  document.getElementById('agent-class-icon').textContent = CLASS_ICONS[className] || '🌀';
+  document.getElementById('agent-class-name').textContent = className;
+  document.getElementById('chat-model').textContent = metrics.model_name || '';
+
+  const xpThis = prog.xp_this_level || 0;
+  const xpLeft = prog.xp_next_level || 100;
+  const xpTotal = xpThis + xpLeft;
+  const pct = xpTotal > 0 ? Math.min(100, Math.round(xpThis / xpTotal * 100)) : 100;
+  document.getElementById('xp-bar').style.width = pct + '%';
+  document.getElementById('xp-label-val').textContent = `${xpThis} / ${xpTotal} XP`;
+
+  document.getElementById('stat-prompts').textContent = fmt(metrics.prompt_count);
+  document.getElementById('stat-tokens').textContent = fmtLarge(metrics.tokens_used);
+  document.getElementById('stat-chain').textContent = fmt(metrics.highest_chain);
+  document.getElementById('stat-errors').textContent = fmt(metrics.total_errors);
+  document.getElementById('stat-tools').textContent = fmt(metrics.num_tools);
+  document.getElementById('stat-skills').textContent = fmt(metrics.num_skills);
+
+  // Achievements
+  const achs = prog.achievements || [];
+  const achWrap = document.getElementById('achievements-list');
+  if (achs.length === 0) {
+    achWrap.innerHTML = '<span class="no-achievements">No achievements yet — start a quest!</span>';
+  } else {
+    achWrap.innerHTML = achs.map(a =>
+      `<span class="achievement-badge">${escHtml(a)}</span>`
+    ).join('');
+  }
+}
+
+function renderRoster() {
+  const list = document.getElementById('roster-list');
+  if (!State.agents.length) {
+    list.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:12px;">No agents</div>';
+    return;
+  }
+  list.innerHTML = State.agents.map(a => {
+    const isViewing = a.id === State.viewingAgentId;
+    const isActive = a.id === State.activeAgentId;
+    const icon = CLASS_ICONS[a.class_name] || '🌀';
+    return `
+      <div class="roster-item ${isViewing ? 'active' : ''}" data-id="${escAttr(a.id)}">
+        <span class="roster-item-icon">${icon}</span>
+        <div class="roster-item-info">
+          <div class="roster-item-name">${escHtml(a.name || 'Agent')}</div>
+          <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(a.class_name || 'Custom')}</div>
+        </div>
+        ${isActive ? '<div class="roster-item-active-dot" title="Active in CLI"></div>' : ''}
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.roster-item').forEach(el => {
+    el.addEventListener('click', () => {
+      State.viewingAgentId = el.dataset.id;
+      renderRoster();
+      send({ type: 'get_stats', agent_id: el.dataset.id });
+    });
+  });
+
+  // Update agent image based on viewing agent's level
+  const viewing = State.agents.find(a => a.id === (State.viewingAgentId || State.activeAgentId));
+  if (viewing) updateAgentImage(viewing.level || 1);
+}
+
+// ── Quest rendering ───────────────────────────────────────────
+function renderQuestList() {
+  const list = document.getElementById('quest-list');
+  if (!State.quests.length) {
+    list.innerHTML = '<div class="quest-empty">No quests yet.<br>Create one to get started.</div>';
+    return;
+  }
+  list.innerHTML = State.quests.map(q => `
+    <div class="quest-item ${q.name === State.selectedQuestName ? 'active' : ''}" data-name="${escAttr(q.name)}">
+      <span class="quest-item-icon">⚔</span>
+      <span class="quest-item-title">${escHtml(q.title || q.name)}</span>
+      <button class="quest-item-del" data-name="${escAttr(q.name)}" title="Delete">✕</button>
+    </div>`).join('');
+
+  list.querySelectorAll('.quest-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.quest-item-del')) return;
+      selectQuest(el.dataset.name);
+    });
+  });
+  list.querySelectorAll('.quest-item-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      if (confirm(`Delete quest "${name}"?`)) {
+        send({ type: 'delete_quest', name });
+        if (State.selectedQuestName === name) clearEditor();
+      }
+    });
+  });
+}
+
+function selectQuest(name) {
+  State.selectedQuestName = name;
+  const q = State.quests.find(x => x.name === name);
+  if (q) {
+    document.getElementById('quest-name-input').value = q.name.replace(/\.md$/, '');
+    document.getElementById('quest-content-input').value = q.content;
+  }
+  renderQuestList();
+}
+
+function clearEditor() {
+  State.selectedQuestName = null;
+  document.getElementById('quest-name-input').value = '';
+  document.getElementById('quest-content-input').value = '';
+  renderQuestList();
+}
+
+// ── Navigation ────────────────────────────────────────────────
+document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const page = btn.dataset.page;
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`page-${page}`).classList.add('active');
+    State.page = page;
+    if (page === 'agent') send({ type: 'get_stats' });
+    if (page === 'quests') send({ type: 'get_quests' });
+  });
+});
+
+// ── Chat input ────────────────────────────────────────────────
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    doSend();
+  }
+});
+
+sendBtn.addEventListener('click', doSend);
+
+function doSend() {
+  const text = chatInput.value.trim();
+  if (!text || !State.connected || State.streaming) return;
+
+  // Don't append locally — the server echoes it back as a user_message event
+  showTyping();
+  send({ type: 'chat', message: text });
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  sendBtn.disabled = true;
+}
+
+// ── Quest buttons ─────────────────────────────────────────────
+document.getElementById('btn-new-quest').addEventListener('click', () => {
+  State.selectedQuestName = null;
+  document.getElementById('quest-name-input').value = '';
+  document.getElementById('quest-content-input').value = '';
+  document.getElementById('quest-name-input').focus();
+  renderQuestList();
+});
+
+document.getElementById('btn-save-quest').addEventListener('click', () => {
+  const name = document.getElementById('quest-name-input').value.trim();
+  const content = document.getElementById('quest-content-input').value;
+  if (!name) { document.getElementById('quest-name-input').focus(); return; }
+
+  if (State.selectedQuestName) {
+    send({ type: 'update_quest', name: State.selectedQuestName, content });
+  } else {
+    send({ type: 'create_quest', name, content });
+    State.selectedQuestName = name.endsWith('.md') ? name : name + '.md';
+  }
+});
+
+// ── Helpers ───────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) { return escHtml(s); }
+function fmt(n) { return (n || 0).toLocaleString(); }
+function fmtLarge(n) {
+  n = n || 0;
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+// ── Boot ──────────────────────────────────────────────────────
+connect();
+</script>
+</body>
+</html>

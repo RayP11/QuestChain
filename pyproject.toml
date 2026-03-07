@@ -16,6 +16,8 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "kokoro-onnx",
     "sounddevice",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 
 [project.scripts]
@@ -29,6 +31,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["questchain*"]
+
+[tool.setuptools.package-data]
+questchain = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
