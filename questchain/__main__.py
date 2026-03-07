@@ -2,6 +2,10 @@
 
 import argparse
 import logging
+import os
+import platform
+import subprocess
+import sys
 import warnings
 
 # Suppress noisy output from the deepagents SummarizationMiddleware — it
@@ -85,11 +89,37 @@ def parse_args():
         metavar="PORT",
         help="Web UI port (default: 8765)",
     )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Update QuestChain to the latest version and exit",
+    )
     return parser.parse_args()
+
+
+def do_update() -> None:
+    """Re-run the appropriate installer to update QuestChain."""
+    _WIN  = "https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1"
+    _UNIX = "https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh"
+
+    print("Updating QuestChain...")
+
+    if platform.system() == "Windows":
+        cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-c",
+               f"irm {_WIN} | iex"]
+    else:
+        cmd = ["bash", "-c", f"curl -fsSL {_UNIX} | bash"]
+
+    result = subprocess.run(cmd)
+    sys.exit(result.returncode)
 
 
 def main():
     args = parse_args()
+
+    if args.update:
+        do_update()
+        return
 
     if args.list_models:
         print("Model presets:")
