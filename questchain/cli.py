@@ -473,6 +473,11 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     if cmd == "/new":
         session_state["thread_id"] = str(uuid.uuid4())
         console.print(f"[blue]New session started.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
+        try:
+            from questchain.gateway.server import update_thread_id
+            update_thread_id(session_state["thread_id"])
+        except Exception:
+            pass
         return True
 
     if cmd == "/model":
@@ -1561,6 +1566,8 @@ async def repl(
             _gw_setup(agent_manager, _progression, _metrics, web_queue, effective_model)
             await start_gateway_server(host=web_host, port=web_port)
             console.print(f"[dim]Web UI: http://{web_host}:{web_port}[/dim]")
+            from questchain.gateway.server import update_thread_id
+            update_thread_id(session_state.get("thread_id", ""))
         except Exception as e:
             console.print(f"[yellow]Web UI: failed to start ({e})[/yellow]")
             web_queue = None
@@ -1773,6 +1780,17 @@ async def _repl_loop(
                 console.print(f"\n[bold blue]📱 Telegram[/bold blue] > {user_input}")
             elif wb_task and wb_task in done:
                 user_text, response_future = wb_task.result()
+                if user_text == "__new_thread__":
+                    session_state["thread_id"] = str(uuid.uuid4())
+                    if response_future and not response_future.done():
+                        response_future.set_result("")
+                    try:
+                        from questchain.gateway.server import update_thread_id
+                        update_thread_id(session_state["thread_id"])
+                    except Exception:
+                        pass
+                    console.print(f"[blue]New thread started from web.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
+                    continue
                 user_input = user_text
                 source = "web"
                 console.print(f"\n[bold cyan]🌐 Web[/bold cyan] > {user_input}")

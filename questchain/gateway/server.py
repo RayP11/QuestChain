@@ -73,6 +73,13 @@ _progression: "ProgressionManager | None" = None
 _metrics: "MetricsManager | None" = None
 _web_queue: asyncio.Queue | None = None
 _model_name: str = ""
+_thread_id: str = ""
+
+
+def update_thread_id(tid: str) -> None:
+    global _thread_id
+    _thread_id = tid
+    get_bus().publish_nowait({"type": "settings", **_settings_payload()})
 
 
 def setup(
@@ -205,6 +212,7 @@ async def _push_initial_state(ws: WebSocket) -> None:
         await ws.send_json({"type": "agents", **_agents_payload()})
         await ws.send_json({"type": "stats", **_stats_payload()})
         await ws.send_json({"type": "quests", "quests": _list_quests()})
+        await ws.send_json({"type": "settings", **_settings_payload()})
     except Exception:
         pass
 
@@ -254,6 +262,64 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         if name:
             _delete_quest(name)
             get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
+
+    elif t == "get_settings":
+        await ws.send_json({"type": "settings", **_settings_payload()})
+
+    elif t == "delete_cron":
+        cron_id = msg.get("cron_id", "")
+        if cron_id:
+            _delete_cron_job(cron_id)
+            get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+
+    elif t == "new_thread":
+        if _web_queue is not None:
+            fut: asyncio.Future = asyncio.get_event_loop().create_future()
+            await _web_queue.put(("__new_thread__", fut))
+
+    elif t == "create_agent":
+        if _agent_manager:
+            name = (msg.get("name") or "").strip()
+            if name:
+                from questchain.agents import CLASS_TOOL_PRESETS, CLASS_SKILL_PRESETS
+                class_name = msg.get("class_name") or "Custom"
+                # Use same class presets as the CLI /agents wizard
+                tools: list | str = CLASS_TOOL_PRESETS.get(class_name, []) or []
+                skills = CLASS_SKILL_PRESETS.get(class_name)  # None = all; [] = none
+                _agent_manager.add(
+                    name=name,
+                    model=msg.get("model") or None,
+                    system_prompt=msg.get("system_prompt") or None,
+                    tools=tools,
+                    skills=skills,
+                    class_name=class_name,
+                )
+                get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+
+    elif t == "update_agent":
+        if _agent_manager:
+            agent_id = msg.get("agent_id", "")
+            allowed = {"name", "model", "system_prompt", "class_name"}
+            kwargs = {k: v for k, v in msg.items() if k in allowed}
+            if agent_id and kwargs:
+                try:
+                    _agent_manager.update(agent_id, **kwargs)
+                    get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                    get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+                except Exception:
+                    pass
+
+    elif t == "delete_agent":
+        if _agent_manager:
+            agent_id = msg.get("agent_id", "")
+            if agent_id:
+                try:
+                    _agent_manager.remove(agent_id)
+                    get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                    get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+                except Exception:
+                    pass
 
 
 # ── Payload builders ──────────────────────────────────────────────────────────
@@ -311,8 +377,16 @@ def _stats_payload(agent_id: str | None = None) -> dict:
             "turns_completed": rec.turns_completed,
         }
 
-    # Metrics: live manager for active agent, disk for others
-    if _metrics is not None and effective_agent_id == active_id:
+    # Metrics: use in-memory manager only when it's tracking the same agent
+    # that is both active AND the one being queried.  After a web switch_agent
+    # the server's _metrics still points to the previous agent's manager, so we
+    # must guard against returning stale data for the wrong agent.
+    metrics_agent_matches = (
+        _metrics is not None
+        and effective_agent_id == active_id
+        and getattr(_metrics, "_agent_id", None) == effective_agent_id
+    )
+    if metrics_agent_matches:
         m = _metrics.get_record()
         metrics_data = {
             "prompt_count": m.prompt_count,
@@ -343,6 +417,75 @@ def _stats_payload(agent_id: str | None = None) -> dict:
     metrics_data["agent_id"] = effective_agent_id or ""
 
     return {"progression": prog_data, "metrics": metrics_data}
+
+
+# ── Settings payload ──────────────────────────────────────────────────────────
+
+def _settings_payload() -> dict:
+    import json as _json
+    from questchain.config import (
+        TAVILY_API_KEY, TELEGRAM_BOT_TOKEN, MODEL_PRESETS, get_cron_jobs_path,
+    )
+    from questchain.tools import is_claude_code_available
+    from questchain.agents import AGENT_CLASSES
+
+    try:
+        from questchain.models import list_available_models
+        available_models = list_available_models()
+    except Exception:
+        available_models = []
+
+    cron_jobs: list = []
+    jobs_path = get_cron_jobs_path()
+    if jobs_path.exists():
+        try:
+            cron_jobs = _json.loads(jobs_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    agents: list[dict] = []
+    if _agent_manager:
+        for a in _agent_manager.all_agents():
+            agents.append({
+                "id": a["id"],
+                "name": a.get("name", ""),
+                "class_name": a.get("class_name", "Custom"),
+                "model": a.get("model") or "",
+                "system_prompt": a.get("system_prompt") or "",
+            })
+
+    agent_classes = [{"name": c[0], "icon": c[1], "description": c[2]} for c in AGENT_CLASSES]
+
+    return {
+        "thread_id": _thread_id,
+        "model_name": _model_name,
+        "available_models": available_models,
+        "model_presets": list(MODEL_PRESETS.keys()),
+        "agents": agents,
+        "agent_classes": agent_classes,
+        "cron_jobs": cron_jobs,
+        "integrations": {
+            "tavily": bool(TAVILY_API_KEY),
+            "claude_code": is_claude_code_available(),
+            "telegram": bool(TELEGRAM_BOT_TOKEN),
+        },
+    }
+
+
+# ── Cron job helpers ──────────────────────────────────────────────────────────
+
+def _delete_cron_job(cron_id: str) -> None:
+    import json as _json
+    from questchain.config import get_cron_jobs_path
+    jobs_path = get_cron_jobs_path()
+    if not jobs_path.exists():
+        return
+    try:
+        jobs = _json.loads(jobs_path.read_text(encoding="utf-8"))
+        jobs = [j for j in jobs if j.get("id") != cron_id]
+        jobs_path.write_text(_json.dumps(jobs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 # ── Quest file helpers ────────────────────────────────────────────────────────

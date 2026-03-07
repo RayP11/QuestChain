@@ -101,7 +101,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 #chat-agent-name { font-weight: 600; color: var(--text); }
 #chat-agent-level { font-size: 11px; color: var(--accent); padding: 2px 8px; background: var(--accent-dim); border-radius: 20px; }
-#chat-model { margin-left: auto; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+#chat-model { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+#btn-new-chat { margin-left: auto; display: flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: var(--radius); border: 1px solid var(--border2); background: transparent; color: var(--text-dim); font-size: 11px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
+#btn-new-chat:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
 #messages {
   flex: 1;
@@ -479,6 +481,80 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   color: var(--text-muted); font-size: 13px;
 }
 
+/* ── PAGE 4: SETTINGS ───────────────────────────────────────── */
+#page-settings { overflow-y: auto; padding: 28px; flex-direction: column; gap: 24px; }
+.settings-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+  flex-shrink: 0;
+}
+.settings-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+.settings-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-dim); text-transform: uppercase; }
+.settings-section-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+/* session */
+.thread-id-row { display: flex; align-items: center; gap: 10px; }
+.thread-id-val { font-family: var(--mono); font-size: 11px; color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* model */
+.model-current { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.model-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.model-chip { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 12px; background: var(--surface3); border: 1px solid var(--border2); color: var(--text-dim); }
+.model-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+/* integrations */
+.integration-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.integration-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.integration-badge.ok { background: rgba(60,255,160,0.15); color: var(--green); }
+.integration-badge.missing { background: rgba(255,76,110,0.12); color: var(--red); }
+.integration-label { color: var(--text-dim); min-width: 110px; }
+
+/* cron */
+.cron-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.cron-row:last-child { border-bottom: none; }
+.cron-name { flex: 1; color: var(--text); font-weight: 500; }
+.cron-expr { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.cron-status { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; }
+.cron-status.on { background: rgba(60,255,160,0.12); color: var(--green); }
+.cron-status.off { background: var(--surface3); color: var(--text-muted); }
+.cron-empty { color: var(--text-muted); font-size: 12px; }
+
+/* agent table */
+.agent-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.agent-table th { text-align: left; color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 8px 8px; }
+.agent-table td { padding: 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+.agent-table tr:first-child td { border-top: none; }
+.agent-tbl-name { font-weight: 600; color: var(--text); }
+.agent-tbl-class { color: var(--text-dim); }
+.agent-tbl-model { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+.agent-tbl-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.btn-icon { background: none; border: 1px solid var(--border2); border-radius: var(--radius); padding: 4px 8px; color: var(--text-dim); cursor: pointer; font-size: 11px; transition: all 0.15s; }
+.btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+.btn-icon.danger:hover { border-color: var(--red); color: var(--red); }
+
+/* agent form */
+.agent-form { display: none; flex-direction: column; gap: 10px; padding: 16px; background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border); }
+.agent-form.open { display: flex; }
+.form-row { display: flex; gap: 10px; }
+.form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.form-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.form-input { background: var(--surface3); border: 1px solid var(--border2); border-radius: var(--radius); padding: 7px 10px; color: var(--text); font-size: 13px; font-family: var(--font); outline: none; transition: border 0.15s; }
+.form-input:focus { border-color: var(--accent); }
+.form-input.mono { font-family: var(--mono); font-size: 12px; }
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-select { background: var(--surface3); border: 1px solid var(--border2); border-radius: var(--radius); padding: 7px 10px; color: var(--text); font-size: 13px; font-family: var(--font); outline: none; }
+.form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn-primary { padding: 7px 16px; border-radius: var(--radius); border: 1px solid rgba(60,184,255,0.4); background: var(--accent-dim); color: var(--accent); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.btn-primary:hover { background: rgba(60,184,255,0.25); }
+.btn-ghost { padding: 7px 16px; border-radius: var(--radius); border: 1px solid var(--border2); background: none; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.btn-ghost:hover { border-color: var(--text-dim); color: var(--text); }
+.btn-danger { padding: 7px 16px; border-radius: var(--radius); border: 1px solid rgba(255,76,110,0.3); background: rgba(255,76,110,0.08); color: var(--red); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.btn-danger:hover { background: rgba(255,76,110,0.18); }
+
 /* ── Animations ─────────────────────────────────────────────── */
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 @keyframes typing { 0%,60%,100%{opacity:0.3; transform:translateY(0)} 30%{opacity:1; transform:translateY(-3px)} }
@@ -512,6 +588,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     </button>
 
+    <button class="nav-btn" data-page="settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+
     <div class="nav-spacer"></div>
     <div class="connection-dot" id="conn-dot" title="Disconnected"></div>
   </nav>
@@ -525,6 +605,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         <span id="chat-agent-name">QuestChain</span>
         <span id="chat-agent-level">Lv. 1</span>
         <span id="chat-model"></span>
+        <button id="btn-new-chat" title="New conversation">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Chat
+        </button>
       </div>
 
       <div id="messages">
@@ -641,6 +725,115 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
+    <!-- PAGE 4: SETTINGS -->
+    <div class="page" id="page-settings">
+
+      <!-- Session -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <span class="settings-section-title">Session</span>
+        </div>
+        <div class="settings-section-body">
+          <div class="thread-id-row">
+            <span class="form-label" style="white-space:nowrap">Thread ID</span>
+            <span class="thread-id-val" id="settings-thread-id">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <span class="settings-section-title">Model</span>
+        </div>
+        <div class="settings-section-body">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="form-label">Current</span>
+            <span class="model-current" id="settings-model-current">—</span>
+          </div>
+          <div>
+            <span class="form-label" style="display:block;margin-bottom:6px">Available on Ollama</span>
+            <div class="model-list" id="settings-model-list"><span class="model-chip">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <span class="settings-section-title">Agents</span>
+          <button class="btn-primary" id="btn-new-agent">+ New Agent</button>
+        </div>
+        <div class="settings-section-body">
+          <table class="agent-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>Class</th><th>Model</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="settings-agent-tbody"></tbody>
+          </table>
+          <!-- Inline agent form -->
+          <div class="agent-form" id="agent-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Name</label>
+                <input class="form-input" id="af-name" type="text" placeholder="e.g. Research Bot">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Class</label>
+                <select class="form-select" id="af-class"></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Model (leave blank to use default)</label>
+              <input class="form-input mono" id="af-model" type="text" placeholder="e.g. qwen2.5:7b">
+            </div>
+            <div class="form-group">
+              <label class="form-label">System Prompt (optional)</label>
+              <textarea class="form-input form-textarea" id="af-prompt" placeholder="You are…"></textarea>
+            </div>
+            <div class="form-actions">
+              <button class="btn-ghost" id="af-cancel">Cancel</button>
+              <button class="btn-primary" id="af-save">Save Agent</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cron Jobs -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <span class="settings-section-title">Cron Jobs</span>
+        </div>
+        <div class="settings-section-body" id="settings-cron-body">
+          <span class="cron-empty">No cron jobs configured.</span>
+        </div>
+      </div>
+
+      <!-- Integrations -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <span class="settings-section-title">Integrations</span>
+        </div>
+        <div class="settings-section-body" id="settings-integrations-body">
+          <div class="integration-row">
+            <span class="integration-label">Tavily Web Search</span>
+            <span class="integration-badge missing" id="intg-tavily">Not configured</span>
+          </div>
+          <div class="integration-row">
+            <span class="integration-label">Claude Code</span>
+            <span class="integration-badge missing" id="intg-claude">Not found</span>
+          </div>
+          <div class="integration-row">
+            <span class="integration-label">Telegram Bot</span>
+            <span class="integration-badge missing" id="intg-telegram">Not configured</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /page-settings -->
+
   </div><!-- /pages -->
 </div><!-- /app -->
 
@@ -658,6 +851,8 @@ const State = {
   quests: [],
   selectedQuestName: null,
   page: 'chat',
+  settings: null,
+  editingAgentId: null,
 };
 
 // ── WebSocket ─────────────────────────────────────────────────
@@ -703,6 +898,7 @@ function handleEvent(msg) {
     case 'agents':        onAgents(msg); break;
     case 'stats':         onStats(msg); break;
     case 'quests':        onQuests(msg); break;
+    case 'settings':      onSettings(msg); break;
   }
 }
 
@@ -756,12 +952,125 @@ function onAgents(msg) {
 }
 
 function onStats(msg) {
-  renderStats(msg);
+  const statsAgentId = msg.metrics?.agent_id || '';
+  // Always update chat header (shows active agent level)
+  const level = msg.progression?.level || 1;
+  document.getElementById('chat-agent-level').textContent = `Lv. ${level}`;
+  document.getElementById('chat-model').textContent = msg.metrics?.model_name || '';
+  // Only render full stats panel if this data is for the agent being viewed
+  if (!statsAgentId || !State.viewingAgentId || statsAgentId === State.viewingAgentId) {
+    renderStats(msg);
+  }
 }
 
 function onQuests(msg) {
   State.quests = msg.quests || [];
   renderQuestList();
+}
+
+function onSettings(msg) {
+  State.settings = msg;
+  if (State.page === 'settings') renderSettings();
+}
+
+// ── Settings rendering ────────────────────────────────────────
+function renderSettings() {
+  const s = State.settings;
+  if (!s) return;
+
+  // Session
+  document.getElementById('settings-thread-id').textContent = s.thread_id || '—';
+
+  // Model
+  document.getElementById('settings-model-current').textContent = s.model_name || '—';
+  const modelList = document.getElementById('settings-model-list');
+  if (s.available_models && s.available_models.length) {
+    modelList.innerHTML = s.available_models.map(m =>
+      `<span class="model-chip${m === s.model_name ? ' active' : ''}">${escHtml(m)}</span>`
+    ).join('');
+  } else {
+    modelList.innerHTML = '<span class="model-chip" style="color:var(--text-muted)">None found</span>';
+  }
+
+  // Agents table
+  const tbody = document.getElementById('settings-agent-tbody');
+  tbody.innerHTML = (s.agents || []).map(a => `
+    <tr>
+      <td class="agent-tbl-name">${escHtml(a.name)}</td>
+      <td class="agent-tbl-class">${escHtml(a.class_name)}</td>
+      <td class="agent-tbl-model">${escHtml(a.model || '—')}</td>
+      <td><div class="agent-tbl-actions">
+        <button class="btn-icon" onclick="editAgent('${escAttr(a.id)}')">Edit</button>
+        ${a.id !== 'default' ? `<button class="btn-icon danger" onclick="deleteAgent('${escAttr(a.id)}')">Delete</button>` : ''}
+      </div></td>
+    </tr>
+  `).join('');
+
+  // Populate class <select> once
+  const sel = document.getElementById('af-class');
+  if (sel && !sel.options.length && s.agent_classes) {
+    s.agent_classes.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = `${c.icon} ${c.name}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Cron jobs
+  const cronBody = document.getElementById('settings-cron-body');
+  if (s.cron_jobs && s.cron_jobs.length) {
+    cronBody.innerHTML = s.cron_jobs.map(j => `
+      <div class="cron-row">
+        <span class="cron-name">${escHtml(j.name || j.id)}</span>
+        <span class="cron-expr">${escHtml(j.cron_expression || '')}</span>
+        <span class="cron-status ${j.enabled !== false ? 'on' : 'off'}">${j.enabled !== false ? 'ON' : 'OFF'}</span>
+        <button class="btn-icon danger" onclick="deleteCronJob('${escAttr(j.id)}')">Remove</button>
+      </div>
+    `).join('');
+  } else {
+    cronBody.innerHTML = '<span class="cron-empty">No cron jobs configured.</span>';
+  }
+
+  // Integrations
+  const intg = s.integrations || {};
+  const intRows = [
+    { id: 'intg-tavily',   key: 'tavily',      ok: 'Configured', fail: 'Not configured' },
+    { id: 'intg-claude',   key: 'claude_code', ok: 'Found',       fail: 'Not found' },
+    { id: 'intg-telegram', key: 'telegram',    ok: 'Configured', fail: 'Not configured' },
+  ];
+  intRows.forEach(r => {
+    const el = document.getElementById(r.id);
+    if (!el) return;
+    const ok = intg[r.key];
+    el.className = `integration-badge ${ok ? 'ok' : 'missing'}`;
+    el.textContent = ok ? r.ok : r.fail;
+  });
+}
+
+function openAgentForm(agent) {
+  State.editingAgentId = agent ? agent.id : null;
+  document.getElementById('af-name').value = agent ? agent.name : '';
+  document.getElementById('af-model').value = agent ? (agent.model || '') : '';
+  document.getElementById('af-prompt').value = agent ? (agent.system_prompt || '') : '';
+  if (agent) document.getElementById('af-class').value = agent.class_name;
+  document.getElementById('agent-form').classList.add('open');
+  document.getElementById('af-name').focus();
+}
+
+function editAgent(id) {
+  const agent = (State.settings?.agents || []).find(a => a.id === id);
+  if (agent) openAgentForm(agent);
+}
+
+function deleteAgent(id) {
+  if (!confirm('Delete this agent? This cannot be undone.')) return;
+  send({ type: 'delete_agent', agent_id: id });
+}
+
+function deleteCronJob(id) {
+  if (!confirm('Remove this cron job?')) return;
+  send({ type: 'delete_cron', cron_id: id });
 }
 
 // ── Chat rendering ────────────────────────────────────────────
@@ -972,6 +1281,10 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
     State.page = page;
     if (page === 'agent') send({ type: 'get_stats' });
     if (page === 'quests') send({ type: 'get_quests' });
+    if (page === 'settings') {
+      send({ type: 'get_settings' });
+      renderSettings();
+    }
   });
 });
 
@@ -1025,6 +1338,40 @@ document.getElementById('btn-save-quest').addEventListener('click', () => {
     send({ type: 'create_quest', name, content });
     State.selectedQuestName = name.endsWith('.md') ? name : name + '.md';
   }
+});
+
+// ── New Chat button ───────────────────────────────────────────
+document.getElementById('btn-new-chat').addEventListener('click', () => {
+  send({ type: 'new_thread' });
+  document.getElementById('messages').innerHTML = '';
+});
+
+// ── Settings buttons ──────────────────────────────────────────
+document.getElementById('btn-new-agent').addEventListener('click', () => {
+  openAgentForm(null);
+});
+
+document.getElementById('af-cancel').addEventListener('click', () => {
+  document.getElementById('agent-form').classList.remove('open');
+  State.editingAgentId = null;
+});
+
+document.getElementById('af-save').addEventListener('click', () => {
+  const name = document.getElementById('af-name').value.trim();
+  if (!name) { document.getElementById('af-name').focus(); return; }
+  const payload = {
+    name,
+    class_name: document.getElementById('af-class').value,
+    model: document.getElementById('af-model').value.trim() || null,
+    system_prompt: document.getElementById('af-prompt').value.trim() || null,
+  };
+  if (State.editingAgentId) {
+    send({ type: 'update_agent', agent_id: State.editingAgentId, ...payload });
+  } else {
+    send({ type: 'create_agent', ...payload });
+  }
+  document.getElementById('agent-form').classList.remove('open');
+  State.editingAgentId = null;
 });
 
 // ── Helpers ───────────────────────────────────────────────────
