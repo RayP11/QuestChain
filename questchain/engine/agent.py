@@ -26,7 +26,6 @@ from questchain.engine.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-QUEST_DONE = "QUEST_DONE"
 _MAX_ITERATIONS = 30
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -151,8 +150,8 @@ class Agent:
     async def run_quest(self, thread_id: str) -> str | None:
         """Pick and complete the alphabetically-first quest in workspace/quests/.
 
-        Returns the agent's response, or None if there are no quests.
-        Deletes the quest file when the response contains QUEST_DONE.
+        Returns the agent's summary response, or None if there are no quests.
+        Deletes the quest file on completion.
         """
         from questchain.config import WORKSPACE_DIR
 
@@ -169,7 +168,8 @@ class Agent:
 
         prompt = (
             f"QUEST: Complete the task in /workspace/quests/{quest_name}. "
-            f"Reply {QUEST_DONE} when finished."
+            f"When finished, present your actual findings, results, or produced content directly "
+            f"in your response — not a description of steps taken."
         )
 
         tokens: list[str] = []
@@ -178,8 +178,7 @@ class Agent:
 
         response = _THINK_RE.sub("", "".join(tokens)).strip()
 
-        if QUEST_DONE in response:
-            await asyncio.to_thread(quest_path.unlink, True)
+        await asyncio.to_thread(quest_path.unlink, True)
 
         return response or None
 

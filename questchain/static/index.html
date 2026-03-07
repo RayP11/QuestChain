@@ -741,6 +741,8 @@ function onDone(msg) {
   State.streamEl = null;
   removeTyping();
   document.getElementById('send-btn').disabled = false;
+  // Stop all tool pill dots from pulsing
+  document.querySelectorAll('.tool-pill .dot').forEach(d => d.style.animation = 'none');
   // refresh stats after response
   send({ type: 'get_stats' });
 }
