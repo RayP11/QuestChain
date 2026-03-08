@@ -668,10 +668,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
               <div class="stat-label">Tools</div>
               <div class="stat-value" id="stat-tools">0</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Skills</div>
-              <div class="stat-value" id="stat-skills">0</div>
-            </div>
           </div>
 
           <div id="achievements-wrap">
@@ -1165,7 +1161,6 @@ function renderStats(msg) {
   document.getElementById('stat-chain').textContent = fmt(metrics.highest_chain);
   document.getElementById('stat-errors').textContent = fmt(metrics.total_errors);
   document.getElementById('stat-tools').textContent = fmt(metrics.num_tools);
-  document.getElementById('stat-skills').textContent = fmt(metrics.num_skills);
 
   // Achievements
   const achs = prog.achievements || [];

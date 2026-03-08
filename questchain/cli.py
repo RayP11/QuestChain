@@ -351,7 +351,6 @@ def show_metrics(mm: MetricsManager) -> None:
         f"[bold]Model[/bold]         {model_line}",
         f"[bold]Context[/bold]       {rec.context_window:,} tokens",
         f"[bold]Tools[/bold]         {rec.num_tools} registered",
-        f"[bold]Skills[/bold]        {rec.num_skills} available",
         "",
         f"[bold]Prompts[/bold]          {rec.prompt_count}",
         f"[bold]Tokens used[/bold]      ~{rec.tokens_used:,}",
