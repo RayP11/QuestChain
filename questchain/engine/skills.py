@@ -1,6 +1,10 @@
 """Lazy skill loader for the QuestChain engine.
 
-Skills live in workspace/skills/ and ~/.questchain/skills/.
+Skills are discovered from three locations (lowest → highest priority):
+  1. questchain/skills/            — bundled skills shipped with the package
+  2. ~/.questchain/skills/         — user-installed skills
+  3. ~/questchain/workspace/skills/ — session/project skills (highest priority)
+
 Only name + one-line description are injected into the system prompt.
 The agent calls read_skill(name) to fetch full instructions on demand.
 """
@@ -13,6 +17,10 @@ from pathlib import Path
 
 from questchain.config import QUESTCHAIN_DATA_DIR, WORKSPACE_DIR
 from questchain.engine.tools import ToolDef, _build_schema, tool
+
+# Built-in skills bundled inside the package (questchain/skills/).
+# Path(__file__) = questchain/engine/skills.py → parent.parent = questchain/
+_BUNDLED_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
 
 @dataclass
@@ -27,13 +35,15 @@ class SkillsManager:
     """Discovers and lazily loads SKILL.md files from skill directories.
 
     Directory precedence (highest wins on name collision):
-      1. workspace/skills/          — session/project skills
-      2. ~/.questchain/skills/      — user-installed skills
+      1. questchain/skills/          — bundled package skills (lowest priority)
+      2. ~/.questchain/skills/       — user-installed skills
+      3. workspace/skills/           — session/project skills (highest priority)
     """
 
     _SKILL_DIRS: list[Path] = [
-        QUESTCHAIN_DATA_DIR / "skills",            # lower priority — scanned first
-        WORKSPACE_DIR / "workspace" / "skills",    # higher priority — overwrites
+        _BUNDLED_SKILLS_DIR,                       # lowest priority — bundled with package
+        QUESTCHAIN_DATA_DIR / "skills",            # user-installed skills
+        WORKSPACE_DIR / "workspace" / "skills",    # highest priority — project skills
     ]
 
     def __init__(self, skills_filter: list[str] | None = None):

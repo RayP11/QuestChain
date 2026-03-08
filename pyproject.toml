@@ -33,7 +33,7 @@ dev = [
 include = ["questchain*"]
 
 [tool.setuptools.package-data]
-questchain = ["static/*"]
+questchain = ["static/*", "skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
