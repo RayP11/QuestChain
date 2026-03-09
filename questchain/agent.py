@@ -5,7 +5,7 @@ from questchain.engine.agent import Agent
 from questchain.engine.model import OllamaModel
 from questchain.engine.tools import make_registry, wrap_lc_tool
 from questchain.engine.skills import SkillsManager
-from questchain.engine.builtins import filesystem, shell, planning
+from questchain.engine.builtins import filesystem, shell
 
 SYSTEM_PROMPT = """\
 You are {agent_name}, a capable AI assistant running locally via Ollama.
@@ -48,24 +48,23 @@ def create_questchain_agent(
 
     ensure_memory_dir()
 
-    # Built-in tools
-    builtin_fns = [
-        filesystem.read_file,
-        filesystem.write_file,
-        filesystem.edit_file,
-        filesystem.ls,
-        filesystem.glob,
-        filesystem.grep,
-        shell.execute,
-        planning.write_todos,
-        planning.read_todos,
-    ]
-
     # Skills (lazy-loaded on demand by the agent; filtered per agent def)
     skills = SkillsManager(skills_filter=skills_filter)
 
-    # Registry: builtins + read_skill
-    registry = make_registry(*builtin_fns, skills.make_read_skill_tool())
+    # read_skill is always available; everything else is gated by tools_filter.
+    # tools_filter=None means "all" — include everything.
+    registry = make_registry(skills.make_read_skill_tool())
+
+    def _want(name: str) -> bool:
+        return tools_filter is None or name in tools_filter
+
+    for fn in (filesystem.read_file, filesystem.write_file, filesystem.edit_file,
+               filesystem.ls, filesystem.glob, filesystem.grep):
+        if _want(fn._tool_def.name):
+            registry.register(fn._tool_def)
+
+    if _want("shell"):
+        registry.register(shell.execute._tool_def)
 
     # Custom tools (web, claude_code, speak, cron) — bridged from LangChain
     from questchain.tools import get_custom_tools

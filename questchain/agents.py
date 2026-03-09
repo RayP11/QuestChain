@@ -28,14 +28,16 @@ CLASS_COLORS: dict[str, str] = {
 
 # Tool presets applied when creating an agent of each class.
 # None = user configures manually (Custom only).
-# list = selectable tool names; [] = built-in tools only.
+# list = explicit tool names; [] = only read_skill (always-on).
+_FILE_TOOLS = ["read_file", "write_file", "edit_file", "ls", "glob", "grep"]
+
 CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Custom":    None,
-    "Sage":      [],
+    "Sage":      [*_FILE_TOOLS],
     "Explorer":  ["web_search", "web_browse"],
-    "Architect": ["claude_code"],
-    "Oracle":    ["web_search"],
-    "Scheduler":  ["cron"],
+    "Architect": [*_FILE_TOOLS, "shell", "claude_code"],
+    "Oracle":    [*_FILE_TOOLS],
+    "Scheduler": ["cron"],
 }
 
 # Skill presets applied when creating an agent of each class.
@@ -123,7 +125,7 @@ PRESET_AGENTS = [
         "name": "Sage",
         "model": None,
         "system_prompt": SAGE_SYSTEM_PROMPT,
-        "tools": [],
+        "tools": [*_FILE_TOOLS],
         "skills": None,
         "class_name": "Sage",
     },
@@ -139,7 +141,7 @@ PRESET_AGENTS = [
         "name": "Architect",
         "model": None,
         "system_prompt": ARCHITECT_SYSTEM_PROMPT,
-        "tools": ["claude_code"],
+        "tools": [*_FILE_TOOLS, "shell", "claude_code"],
         "skills": None,
         "class_name": "Architect",
     },
@@ -147,7 +149,7 @@ PRESET_AGENTS = [
         "name": "Oracle",
         "model": None,
         "system_prompt": ORACLE_SYSTEM_PROMPT,
-        "tools": ["web_search"],
+        "tools": [*_FILE_TOOLS],
         "skills": None,
         "class_name": "Oracle",
     },
@@ -162,6 +164,13 @@ PRESET_AGENTS = [
 ]
 
 SELECTABLE_TOOLS = [
+    ("read_file",   "Read a file"),
+    ("write_file",  "Write a file"),
+    ("edit_file",   "Edit a file"),
+    ("ls",          "List directory contents"),
+    ("glob",        "Find files by pattern"),
+    ("grep",        "Search file contents"),
+    ("shell",       "Run terminal commands"),
     ("web_search",  "Web search via Tavily"),
     ("web_browse",  "Full page content via Tavily"),
     ("claude_code", "Delegate coding to Claude Code"),

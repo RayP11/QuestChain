@@ -492,9 +492,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
     if cmd == "/tools":
         from questchain.config import TAVILY_API_KEY
         text = (
-            "[bold]Built-in tools[/bold] (filesystem, shell, planning, sub-agents):\n"
-            "  read_file, write_file, edit_file, ls, glob, grep\n"
-            "  execute, write_todos, read_todos, task\n"
+            "[bold]Built-in tools[/bold] (always available):\n"
+            "  read_file, write_file, edit_file, ls, glob, grep, execute\n"
             "\n[bold]Custom tools:[/bold]\n"
             "  claude_code — delegate coding tasks to Claude Code\n"
             "  cron_add, cron_list, cron_remove — scheduled jobs (Telegram)\n"
@@ -1135,7 +1134,7 @@ async def _run_create_wizard(
     if preset is None:
         # Custom: user configures tools manually
         console.print()
-        console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+        console.print("[bold]Custom tools[/bold] (filesystem tools always available):")
         for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
             tag = _tool_availability_tag(tool_name)
             console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
@@ -1199,7 +1198,7 @@ async def _run_edit_wizard(
     )
 
     console.print()
-    console.print("[bold]Custom tools[/bold] (filesystem/shell/planning always included):")
+    console.print("[bold]Custom tools[/bold] (filesystem tools always available):")
     if _preset_hint:
         console.print(_preset_hint)
     for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):

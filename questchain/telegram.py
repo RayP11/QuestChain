@@ -167,9 +167,8 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     from questchain.config import TAVILY_API_KEY
     text = (
-        "Built-in tools (filesystem, shell, planning, sub-agents):\n"
-        "  read_file, write_file, edit_file, ls, glob, grep\n"
-        "  execute, write_todos, read_todos, task\n\n"
+        "Built-in tools (always available):\n"
+        "  read_file, write_file, edit_file, ls, glob, grep, execute\n\n"
         "Custom tools:\n"
         "  claude_code — delegate coding tasks to Claude Code\n"
         "  cron_add, cron_list, cron_remove — scheduled jobs\n"
@@ -567,7 +566,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
             )
             await update.message.reply_text(
-                f"Step 4/5 — Which tools? (filesystem/shell/planning always included)\n\n"
+                f"Step 4/5 — Which tools? (filesystem tools always available)\n\n"
                 f"{tool_lines}\n\n"
                 f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
             )
