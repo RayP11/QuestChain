@@ -934,27 +934,32 @@ function onDone(msg) {
 function onAgents(msg) {
   State.agents = msg.agents || [];
   State.activeAgentId = msg.active_id || '';
-  if (!State.viewingAgentId) State.viewingAgentId = State.activeAgentId;
+  // Always update viewing to match active when agents list refreshes
+  State.viewingAgentId = State.activeAgentId;
   renderRoster();
   updateChatHeader();
-  // Fetch fresh stats for the viewed agent (stats panel + image)
-  send({ type: 'get_stats', agent_id: State.viewingAgentId || State.activeAgentId });
-  // If viewing a different agent, also fetch active agent stats for the chat header
-  if (State.viewingAgentId && State.viewingAgentId !== State.activeAgentId) {
-    send({ type: 'get_stats', agent_id: State.activeAgentId });
-  }
+  // Render stats panel directly from enriched agents data — no extra roundtrip
+  renderStatsFromAgents();
 }
 
 function onStats(msg) {
+  // Stats events arrive after turns (EventBus push) or explicit get_stats.
+  // Update the stored enriched data in State.agents so renderStats stays consistent.
   const statsAgentId = msg.metrics?.agent_id || '';
-  // Update chat header only for active agent stats
+  const agent = State.agents.find(a => a.id === statsAgentId);
+  if (agent) {
+    agent.progression = msg.progression || agent.progression;
+    agent.metrics = msg.metrics || agent.metrics;
+    agent.level = msg.progression?.level || agent.level;
+  }
+  // Update chat header for active agent
   if (!statsAgentId || statsAgentId === State.activeAgentId) {
     document.getElementById('chat-agent-name').textContent = msg.metrics?.agent_name || 'QuestChain';
     document.getElementById('chat-agent-level').textContent = `Lv. ${msg.progression?.level || 1}`;
     document.getElementById('chat-model').textContent = msg.metrics?.model_name || '';
   }
-  // Only render full stats panel if this data is for the agent being viewed
-  if (!statsAgentId || !State.viewingAgentId || statsAgentId === State.viewingAgentId) {
+  // Render stats panel if this is for the agent being viewed
+  if (!statsAgentId || statsAgentId === State.viewingAgentId) {
     renderStats(msg);
   }
 }
@@ -1125,6 +1130,8 @@ function updateChatHeader() {
   const active = State.agents.find(a => a.id === State.activeAgentId);
   if (!active) return;
   document.getElementById('chat-agent-name').textContent = active.name || 'QuestChain';
+  document.getElementById('chat-agent-level').textContent = `Lv. ${active.progression?.level || active.level || 1}`;
+  document.getElementById('chat-model').textContent = active.metrics?.model_name || active.model || '';
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
@@ -1137,6 +1144,14 @@ function updateAgentImage(agentId) {
   img.style.display = '';
   img.src = `/agent-image?agent_id=${encodeURIComponent(agentId || '')}`;
   img.onerror = function() { this.style.display = 'none'; };
+}
+
+// Render the stats panel from the enriched agent data already in State.agents
+function renderStatsFromAgents() {
+  const id = State.viewingAgentId || State.activeAgentId;
+  const agent = State.agents.find(a => a.id === id);
+  if (!agent) return;
+  renderStats({ progression: agent.progression || {}, metrics: agent.metrics || {} });
 }
 
 function renderStats(msg) {
@@ -1202,9 +1217,15 @@ function renderRoster() {
 
   list.querySelectorAll('.roster-item').forEach(el => {
     el.addEventListener('click', () => {
-      State.viewingAgentId = el.dataset.id;
+      const id = el.dataset.id;
+      State.viewingAgentId = id;
+      State.activeAgentId = id;
+      send({ type: 'switch_agent', agent_id: id });
+      // Render stats immediately from cached agents data; server will broadcast
+      // a fresh agents payload once the CLI rebuilds the agent.
       renderRoster();
-      send({ type: 'get_stats', agent_id: el.dataset.id });
+      renderStatsFromAgents();
+      updateChatHeader();
     });
   });
 
@@ -1269,7 +1290,11 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
     btn.classList.add('active');
     document.getElementById(`page-${page}`).classList.add('active');
     State.page = page;
-    if (page === 'agent') send({ type: 'get_stats', agent_id: State.viewingAgentId || State.activeAgentId });
+    if (page === 'agent') {
+      renderStatsFromAgents();
+      // Also pull a fresh agents payload so data is up-to-date
+      send({ type: 'get_agents' });
+    }
     if (page === 'quests') send({ type: 'get_quests' });
     if (page === 'settings') {
       send({ type: 'get_settings' });

@@ -1789,6 +1789,31 @@ async def _repl_loop(
                         pass
                     console.print(f"[blue]New thread started from web.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
                     continue
+                if user_text.startswith("__switch_agent__:") and agent_manager is not None:
+                    new_id = user_text.split(":", 1)[1]
+                    if response_future and not response_future.done():
+                        response_future.set_result("")
+                    new_def = agent_manager.get(new_id)
+                    if new_def:
+                        try:
+                            new_agent = _make_agent_from_def(new_def, audio_router)
+                            agent_holder["agent"] = new_agent
+                            _init_progression(new_def)
+                            _init_metrics(new_def, new_agent)
+                            _agent_label = _build_agent_label(new_def, _progression)
+                            # Sync server module refs so _stats_payload stays correct
+                            try:
+                                from questchain.gateway.server import update_metrics, update_progression, _agents_payload as _ap
+                                from questchain.gateway.events import get_bus as _get_bus
+                                update_metrics(_metrics)
+                                update_progression(_progression)
+                                _get_bus().publish_nowait({"type": "agents", **_ap()})
+                            except Exception:
+                                pass
+                            console.print(f"[blue]Switched to agent '[bold]{new_def['name']}[/bold]' from web.[/blue]")
+                        except Exception as e:
+                            console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
+                    continue
                 user_input = user_text
                 source = "web"
                 console.print(f"\n[bold cyan]🌐 Web[/bold cyan] > {user_input}")

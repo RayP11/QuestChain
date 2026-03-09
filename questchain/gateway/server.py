@@ -254,6 +254,9 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             agent_id = msg.get("agent_id", "")
             _agent_manager.set_active(agent_id)
             get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+            if _web_queue is not None:
+                fut: asyncio.Future = asyncio.get_event_loop().create_future()
+                await _web_queue.put((f"__switch_agent__:{agent_id}", fut))
 
     elif t == "get_stats":
         await ws.send_json({"type": "stats", **_stats_payload(msg.get("agent_id"))})
@@ -349,17 +352,65 @@ def _agents_payload() -> dict:
     active = _agent_manager.get_active()
     active_id = active.get("id", "") if active else ""
 
-    # Attach level from each agent's progression file
+    # Enrich each agent with full progression + metrics so the UI can render
+    # the agent page entirely from this payload without a separate get_stats call.
     from questchain.progression import ProgressionManager
+    from questchain.stats import MetricsManager
     enriched = []
     for agent in agents:
         a = dict(agent)
+        agent_id = agent["id"]
+        class_name = agent.get("class_name", "Custom")
+        # Progression
         try:
-            pm = ProgressionManager(agent["id"], agent.get("class_name", "Custom"))
+            pm = ProgressionManager(agent_id, class_name)
             rec = pm.load()
-            a["level"] = rec.level
+            a["progression"] = {
+                "level": rec.level,
+                "xp_this_level": rec.xp_this_level,
+                "xp_next_level": rec.xp_next_level,
+                "class_name": rec.class_name,
+                "achievements": [ach.name for ach in rec.achievements],
+                "prestige": rec.prestige,
+            }
+            a["level"] = rec.level  # keep top-level for roster display
         except Exception:
+            a["progression"] = {"level": 1, "xp_this_level": 0, "xp_next_level": 100, "class_name": class_name, "achievements": [], "prestige": 0}
             a["level"] = 1
+        # Metrics — use in-memory manager if it matches this agent, else disk
+        metrics_src = None
+        if (
+            _metrics is not None
+            and getattr(_metrics, "_agent_id", None) == agent_id
+            and agent_id == active_id
+        ):
+            metrics_src = _metrics.get_record()
+        else:
+            try:
+                mm = MetricsManager(agent_id)
+                metrics_src = mm.load()
+            except Exception:
+                pass
+        if metrics_src:
+            a["metrics"] = {
+                "agent_id": agent_id,
+                "agent_name": agent.get("name", "QuestChain"),
+                "model_name": metrics_src.model_name or (agent.get("model") or _model_name),
+                "num_tools": metrics_src.num_tools,
+                "num_skills": metrics_src.num_skills,
+                "prompt_count": metrics_src.prompt_count,
+                "tokens_used": metrics_src.tokens_used,
+                "total_errors": metrics_src.total_errors,
+                "highest_chain": metrics_src.highest_chain,
+            }
+        else:
+            a["metrics"] = {
+                "agent_id": agent_id,
+                "agent_name": agent.get("name", "QuestChain"),
+                "model_name": agent.get("model") or _model_name,
+                "num_tools": 0, "num_skills": 0, "prompt_count": 0,
+                "tokens_used": 0, "total_errors": 0, "highest_chain": 0,
+            }
         enriched.append(a)
 
     return {"agents": enriched, "active_id": active_id}
