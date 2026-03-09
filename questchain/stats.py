@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from questchain.config import get_metrics_dir
@@ -17,7 +17,6 @@ class MetricsRecord:
     model_size_gb: float = 0.0
     model_params: str = ""
     num_tools: int = 0
-    num_skills: int = 0
     context_window: int = 0
     # All-time counters
     prompt_count: int = 0
@@ -37,7 +36,6 @@ class MetricsManager:
         if self._path.exists():
             try:
                 data = json.loads(self._path.read_text(encoding="utf-8"))
-                # Only load known fields to handle forward-compat
                 known = {f for f in MetricsRecord.__dataclass_fields__}
                 filtered = {k: v for k, v in data.items() if k in known}
                 self._record = MetricsRecord(**{"agent_id": self._agent_id, **filtered})
@@ -54,14 +52,12 @@ class MetricsManager:
         self,
         model_name: str,
         num_tools: int,
-        num_skills: int,
         context_window: int,
     ) -> None:
         """Refresh static fields each session start. Does NOT reset counters."""
         rec = self._record
         rec.model_name = model_name
         rec.num_tools = num_tools
-        rec.num_skills = num_skills
         rec.context_window = context_window
         self._save()
 

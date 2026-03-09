@@ -40,28 +40,6 @@ CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Scheduler": ["cron"],
 }
 
-# Skill presets applied when creating an agent of each class.
-# None = all available skills; [] = no skills; list = specific skills by dir-name.
-CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
-    "Custom":    None,
-    "Sage":      None,
-    "Explorer":  None,
-    "Architect": None,
-    "Oracle":    None,
-    "Scheduler":  ["cron-jobs"],
-}
-
-# Maps each skill dir-name to the tool(s) that must be present for it to be useful.
-# Skills not listed here have no tool prerequisite and are always available.
-SKILL_REQUIRED_TOOLS: dict[str, list[str]] = {
-    "claude-code": ["claude_code"],
-    "cron-jobs":   ["cron"],
-}
-
-# Maps skills that are exclusive to specific agent classes.
-# A skill listed here will only appear for agents of those classes.
-SKILL_CLASS_RESTRICTIONS: dict[str, list[str]] = {}
-
 # Migrate old class names from saved agent JSON to the current names.
 _CLASS_MIGRATIONS: dict[str, str] = {
     "Wanderer":  "Custom",
@@ -126,7 +104,6 @@ PRESET_AGENTS = [
         "model": None,
         "system_prompt": SAGE_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS],
-        "skills": None,
         "class_name": "Sage",
     },
     {
@@ -134,7 +111,6 @@ PRESET_AGENTS = [
         "model": None,
         "system_prompt": EXPLORER_SYSTEM_PROMPT,
         "tools": ["web_search", "web_browse"],
-        "skills": None,
         "class_name": "Explorer",
     },
     {
@@ -142,7 +118,6 @@ PRESET_AGENTS = [
         "model": None,
         "system_prompt": ARCHITECT_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS, "shell", "claude_code"],
-        "skills": None,
         "class_name": "Architect",
     },
     {
@@ -150,7 +125,6 @@ PRESET_AGENTS = [
         "model": None,
         "system_prompt": ORACLE_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS],
-        "skills": None,
         "class_name": "Oracle",
     },
     {
@@ -158,7 +132,6 @@ PRESET_AGENTS = [
         "model": None,
         "system_prompt": SENTINEL_SYSTEM_PROMPT,
         "tools": ["cron"],
-        "skills": ["cron-jobs"],
         "class_name": "Scheduler",
     },
 ]
@@ -221,7 +194,7 @@ class AgentManager:
         system_prompt: str | None,
         tools: list[str] | str,
         class_name: str | None = None,
-        skills: list[str] | None = None,
+        **_ignored,
     ) -> dict:
         """Create a new custom agent, save it, and return its definition."""
         agent_def = {
@@ -230,7 +203,6 @@ class AgentManager:
             "model": model or None,
             "system_prompt": system_prompt or None,
             "tools": tools,
-            "skills": skills,   # None = all; [] = none; list = specific by dir-name
             "class_name": class_name or DEFAULT_CLASS,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -313,7 +285,6 @@ class AgentManager:
                     model=preset["model"],
                     system_prompt=preset["system_prompt"],
                     tools=preset["tools"],
-                    skills=preset.get("skills"),
                     class_name=preset["class_name"],
                 )
                 added = True

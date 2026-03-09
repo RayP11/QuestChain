@@ -21,7 +21,7 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_SKILL_PRESETS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, SKILL_CLASS_RESTRICTIONS, SKILL_REQUIRED_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant, level_personality
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -82,7 +82,6 @@ def _init_metrics(agent_def: dict, agent) -> MetricsManager:
     mm.update_static(
         model_name=agent.model.model_name,
         num_tools=len(agent.tools),
-        num_skills=len(agent.skills),
         context_window=agent.model.num_ctx,
     )
     try:
@@ -998,31 +997,6 @@ async def _agent_action_menu(
     return None
 
 
-def _get_available_skills(
-    tools: list[str] | str | None = None,
-    class_name: str | None = None,
-) -> list[tuple[str, str]]:
-    """Return [(name, description)] for skills compatible with the given tool set and class.
-
-    Filters out skills whose required tools are missing and skills restricted to
-    other agent classes.
-    """
-    from questchain.engine.skills import SkillsManager
-    sm = SkillsManager()
-    result = []
-    for s in sm.list_skills():
-        # Class restriction: skip if this skill is locked to other classes
-        allowed_classes = SKILL_CLASS_RESTRICTIONS.get(s.name)
-        if allowed_classes is not None and class_name not in allowed_classes:
-            continue
-        # Tool requirement: skip if a required tool isn't in the selected set
-        if tools is not None and tools != "all":
-            if not all(t in tools for t in SKILL_REQUIRED_TOOLS.get(s.name, [])):
-                continue
-        result.append((s.name, s.description))
-    return result
-
-
 def _tool_availability_tag(tool_name: str) -> str:
     """Return a Rich markup tag like ' [dim](no API key)[/dim]' if a tool needs setup."""
     from questchain.config import TAVILY_API_KEY
@@ -1032,21 +1006,6 @@ def _tool_availability_tag(tool_name: str) -> str:
     if tool_name == "claude_code" and not is_claude_code_available():
         return "  [dim](claude not found — /claudecode)[/dim]"
     return ""
-
-
-def _parse_skill_selection(raw: str, available: list[tuple[str, str]], fallback) -> list[str] | None:
-    """Parse comma-separated skill indices from raw input.
-
-    Returns a list of skill names, or *fallback* if nothing valid was parsed.
-    """
-    selected: list[str] = []
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            idx = int(part) - 1
-            if 0 <= idx < len(available):
-                selected.append(available[idx][0])
-    return selected if selected else fallback
 
 
 def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
@@ -1062,44 +1021,6 @@ def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
             if 0 <= idx < len(SELECTABLE_TOOLS):
                 selected.append(SELECTABLE_TOOLS[idx][0])
     return selected if selected else fallback
-
-
-async def _ask_skills(
-    session: PromptSession,
-    console: Console,
-    class_name: str,
-    current_skills,
-    tools: list[str] | str | None = None,
-) -> list[str] | None:
-    """Prompt the user to select skills for an agent.
-
-    Only skills whose required tools are present in *tools* are shown.
-    Returns a list of skill names (possibly empty), or None meaning "all".
-    *current_skills* is the existing value to fall back to on Enter.
-    """
-    available = _get_available_skills(tools, class_name)
-    if not available:
-        return []  # no applicable skills for these tools
-
-    console.print()
-    console.print("[bold]Skills[/bold] (loaded into agent context on demand):")
-    for i, (skill_name, desc) in enumerate(available, 1):
-        console.print(f"  {i}. [cyan]{skill_name}[/cyan] — {desc}")
-    console.print()
-
-    if current_skills is None or current_skills == "all":
-        current_display = "all"
-    else:
-        current_display = ", ".join(current_skills) if current_skills else "none"
-
-    raw = await _prompt_line(
-        session, f"Select skills (numbers, 'none', Enter=all) current=[{current_display}]: "
-    )
-    if raw.strip() == "":
-        return None  # all
-    if raw.strip().lower() == "none":
-        return []    # no skills
-    return _parse_skill_selection(raw, available, current_skills)
 
 
 async def _run_create_wizard(
@@ -1152,14 +1073,12 @@ async def _run_create_wizard(
         preset_names = ", ".join(preset) if preset else "built-in only"
         console.print(f"  [dim]Tools preset for {chosen_class}: {preset_names}[/dim]")
 
-    skills = await _ask_skills(session, console, chosen_class, None, tools)
-
     console.print()
     console.print("System prompt (Enter for default QuestChain prompt):")
     prompt_raw = await _prompt_line(session, "> ")
     system_prompt = prompt_raw if prompt_raw else None
 
-    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class, skills=skills)
+    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class)
     console.print()
     console.print(f"[blue]✓ Agent '[bold]{name}[/bold]' created.[/blue] Use [cyan]/agents[/cyan] to activate it.")
     return agent_def
@@ -1234,14 +1153,11 @@ async def _run_edit_wizard(
         if 0 <= idx < len(AGENT_CLASSES):
             new_class = AGENT_CLASSES[idx][0]
 
-    new_skills = await _ask_skills(session, console, new_class, agent_def.get("skills"), new_tools)
-
     agent_manager.update(
         agent_def["id"],
         name=new_name,
         model=new_model,
         tools=new_tools,
-        skills=new_skills,
         system_prompt=new_system_prompt,
         class_name=new_class,
     )

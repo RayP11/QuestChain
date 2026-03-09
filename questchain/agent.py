@@ -4,7 +4,6 @@ from questchain.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensur
 from questchain.engine.agent import Agent
 from questchain.engine.model import OllamaModel
 from questchain.engine.tools import make_registry, wrap_lc_tool
-from questchain.engine.skills import SkillsManager
 from questchain.engine.builtins import filesystem, shell
 
 SYSTEM_PROMPT = """\
@@ -14,7 +13,6 @@ You are {agent_name}, a capable AI assistant running locally via Ollama.
 - Never hallucinate file contents, URLs, or facts — verify with tools first.
 - Coding tasks → use `claude_code`. Need current info → `web_search` then `web_browse`.
 - All virtual file paths start with `/` (e.g. `/workspace/memory/ABOUT.md`).
-- For complex multi-step tasks, plan with `write_todos` first.
 - Confirm before risky or destructive actions.
 - Be concise and direct.
 """
@@ -24,7 +22,6 @@ def create_questchain_agent(
     model_name: str | None = None,
     system_prompt_override: str | None = None,
     tools_filter: list[str] | None = None,
-    skills_filter: list[str] | None = None,
     agent_name: str = "QuestChain",
     on_audio=None,
     injected_files=None,
@@ -38,8 +35,7 @@ def create_questchain_agent(
     Args:
         model_name: Ollama model to use. Defaults to config value.
         system_prompt_override: Replace the default SYSTEM_PROMPT when set.
-        tools_filter: Restrict custom tools to this subset by name; None = all.
-        skills_filter: Restrict skills to this subset by dir-name; None = all.
+        tools_filter: Restrict tools to this subset by name; None = all.
         agent_name: Display name injected into the system prompt.
         on_audio: TTS callback for the speak tool.
     """
@@ -48,12 +44,7 @@ def create_questchain_agent(
 
     ensure_memory_dir()
 
-    # Skills (lazy-loaded on demand by the agent; filtered per agent def)
-    skills = SkillsManager(skills_filter=skills_filter)
-
-    # read_skill is always available; everything else is gated by tools_filter.
-    # tools_filter=None means "all" — include everything.
-    registry = make_registry(skills.make_read_skill_tool())
+    registry = make_registry()
 
     def _want(name: str) -> bool:
         return tools_filter is None or name in tools_filter
@@ -77,7 +68,6 @@ def create_questchain_agent(
     return Agent(
         model=model,
         tools=registry,
-        skills=skills,
         system_prompt=system_prompt,
         agent_name=agent_name,
         injected_files=injected_files,
@@ -93,8 +83,6 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     """
     from pathlib import Path
     from questchain.progression import ProgressionManager, level_personality
-    skills_raw = agent_def.get("skills")  # None/"all" → all; list → filtered
-    skills_filter = None if (skills_raw is None or skills_raw == "all") else skills_raw
 
     # profile.md is injected into every agent; ABOUT.md only for the default agent.
     memory_dir = WORKSPACE_DIR / "workspace" / "memory"
@@ -114,7 +102,6 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
         on_audio=audio_router,
         system_prompt_override=agent_def.get("system_prompt"),
         tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),
-        skills_filter=skills_filter,
         agent_name=agent_def.get("name", "QuestChain"),
         injected_files=injected_files,
         personality_hint=hint,

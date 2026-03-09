@@ -21,7 +21,6 @@ from typing import Awaitable, Callable
 
 from questchain.engine.context import ContextManager
 from questchain.engine.model import OllamaModel
-from questchain.engine.skills import SkillsManager
 from questchain.engine.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -31,13 +30,12 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class Agent:
-    """Async ReAct agent: model + tools + JSONL context + skills."""
+    """Async ReAct agent: model + tools + JSONL context."""
 
     def __init__(
         self,
         model: OllamaModel,
         tools: ToolRegistry,
-        skills: SkillsManager,
         system_prompt: str,
         agent_name: str = "QuestChain",
         injected_files: list[Path] | None = None,
@@ -45,7 +43,6 @@ class Agent:
     ):
         self.model = model
         self.tools = tools
-        self.skills = skills
         self.agent_name = agent_name
         self._base_system_prompt = system_prompt
         self._injected_files: list[Path] = injected_files or []
@@ -190,13 +187,11 @@ class Agent:
         now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         parts = []
 
-        # Personality hint is first so it sets the tone before everything else
         if self._personality_hint:
             parts.append(self._personality_hint)
 
         parts.append(self._base_system_prompt)
 
-        # Inject profile/about files from disk (always fresh)
         for path in self._injected_files:
             try:
                 content = path.read_text(encoding="utf-8").strip()
@@ -204,14 +199,6 @@ class Agent:
                     parts.append(content)
             except FileNotFoundError:
                 pass
-
-        skill_text = self.skills.skill_list_text()
-        if skill_text:
-            parts.append(skill_text)
-
-        always_text = self.skills.always_active_text()
-        if always_text:
-            parts.append(always_text)
 
         parts.append(f"Current date and time: {now}")
         return "\n\n".join(parts)

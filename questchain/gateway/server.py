@@ -302,17 +302,14 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         if _agent_manager:
             name = (msg.get("name") or "").strip()
             if name:
-                from questchain.agents import CLASS_TOOL_PRESETS, CLASS_SKILL_PRESETS
+                from questchain.agents import CLASS_TOOL_PRESETS
                 class_name = msg.get("class_name") or "Custom"
-                # Use same class presets as the CLI /agents wizard
                 tools: list | str = CLASS_TOOL_PRESETS.get(class_name, []) or []
-                skills = CLASS_SKILL_PRESETS.get(class_name)  # None = all; [] = none
                 _agent_manager.add(
                     name=name,
                     model=msg.get("model") or None,
                     system_prompt=msg.get("system_prompt") or None,
                     tools=tools,
-                    skills=skills,
                     class_name=class_name,
                 )
                 get_bus().publish_nowait({"type": "agents", **_agents_payload()})
@@ -397,7 +394,6 @@ def _agents_payload() -> dict:
                 "agent_name": agent.get("name", "QuestChain"),
                 "model_name": metrics_src.model_name or (agent.get("model") or _model_name),
                 "num_tools": metrics_src.num_tools,
-                "num_skills": metrics_src.num_skills,
                 "prompt_count": metrics_src.prompt_count,
                 "tokens_used": metrics_src.tokens_used,
                 "total_errors": metrics_src.total_errors,
@@ -408,7 +404,6 @@ def _agents_payload() -> dict:
                 "agent_id": agent_id,
                 "agent_name": agent.get("name", "QuestChain"),
                 "model_name": agent.get("model") or _model_name,
-                "num_tools": 0, "num_skills": 0, "prompt_count": 0,
                 "tokens_used": 0, "total_errors": 0, "highest_chain": 0,
             }
         enriched.append(a)
@@ -463,7 +458,6 @@ def _stats_payload(agent_id: str | None = None) -> dict:
             "total_errors": m.total_errors,
             "highest_chain": m.highest_chain,
             "num_tools": m.num_tools,
-            "num_skills": m.num_skills,
             "model_name": m.model_name or _model_name,
         }
     elif effective_agent_id:
@@ -476,7 +470,6 @@ def _stats_payload(agent_id: str | None = None) -> dict:
             "total_errors": m.total_errors,
             "highest_chain": m.highest_chain,
             "num_tools": m.num_tools,
-            "num_skills": m.num_skills,
             "model_name": m.model_name or (agent_def.get("model") or _model_name if agent_def else _model_name),
         }
     else:

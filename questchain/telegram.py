@@ -360,7 +360,6 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Model:         {model_line}",
         f"Context:       {rec.context_window:,} tokens",
         f"Tools:         {rec.num_tools} registered",
-        f"Skills:        {rec.num_skills} available",
         "",
         f"Prompts:       {rec.prompt_count}",
         f"Tokens used:   ~{rec.tokens_used:,}",
