@@ -77,11 +77,11 @@ Pick a class when creating an agent. It sets the tool loadout, identity, and spe
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
 | Custom | 🌀 | You decide | You configure |
-| Sage | 📚 | Files & knowledge | Built-in tools only |
+| Sage | 📚 | Files & knowledge | File tools |
 | Explorer | 🔭 | Research & discovery | Web search + browse |
-| Architect | ⚒️ | Code & systems | Claude Code |
-| Oracle | 🔮 | Planning & strategy | Web search |
-| Scheduler | ⏱️ | Automation | Cron scheduler |
+| Architect | ⚒️ | Code & systems | Files, shell, Claude Code |
+| Oracle | 🔮 | Planning & strategy | File tools |
+| Scheduler | ⏱️ | Automation | Cron only |
 
 ---
 
@@ -157,6 +157,20 @@ On first run, QuestChain walks you through a short onboarding conversation and o
 
 > **Web search (optional):** Run `/tavily` inside QuestChain to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
 
+### Startup Cheat Sheet
+
+```bash
+questchain start                      # Start with default model
+questchain start -m qwen3:4b          # Use a specific model
+questchain start -t <thread-id>       # Resume a previous conversation
+questchain start --no-memory          # Run without persistent memory
+questchain start --quests 30          # Set quest runner interval (minutes)
+questchain start --no-quests          # Disable the quest runner
+questchain start --web                # Start with web UI (gateway + CLI)
+questchain start --web-only           # Start web UI only (no CLI)
+questchain start --list-models        # Show available model presets
+```
+
 ### Clone & Run (alternative)
 
 If you want to clone the repo directly, modify the code, or run from source:
@@ -189,14 +203,12 @@ python -m questchain
 - 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily *(optional)*
 - 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
 - 💻 **Shell Commands** — Run terminal commands and scripts directly
-- 🧠 **Planning** — Break down complex tasks into steps with built-in todo tools
 - 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
 - ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
 - 📱 **Telegram Bot** — Access QuestChain remotely from your phone
 - 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
 - 🔄 **Quests** — Autonomously checks your task list and works in the background on a timer
-- 🧩 **Skills** — Extend the agent with Markdown skill files it can load on demand
 
 ---
 
@@ -213,7 +225,7 @@ Most AI tools assume cloud infrastructure and always-online connections. QuestCh
 
 **Private by design:**
 - **Nothing reachable from outside** — runs only on your computer, never exposed to the internet.
-- **No store, no strangers' code** — Skills are plain text files on your hard drive. No online marketplace.
+- **No store, no strangers' code** — No online marketplace, no telemetry, nothing phoning home.
 - **No accounts, nothing to steal** — Optional API keys stay in a local file and go nowhere else.
 - **Works with no internet at all** — Disconnect your machine and QuestChain keeps working.
 
@@ -273,7 +285,6 @@ questchain start --list-models
 | `/tools` | List all available agent tools |
 | `/instructions` | Show the agent's system prompt |
 | `/memory` | Show your saved user profile |
-| `/tasks` | Show the current workspace task list |
 | `/cron` | List scheduled cron jobs |
 | `/agents` | Manage agent profiles (list, switch, create, edit) |
 | `/stats` | Show agent level, XP bar, top tools, and achievements |
