@@ -126,17 +126,33 @@ async def serve_ui() -> HTMLResponse:
     return HTMLResponse(_get_html())
 
 
+_CLASS_IMAGES: dict[str, list[str]] = {
+    "Custom":    ["Pixel_idle.png",                        "evolve2.png",                           "draft-evolve-3.png"],
+    "Sage":      ["Sage1.png",                             "Sage2.png",                             "Sage3.png"],
+    "Explorer":  ["Explorer1-jukebox-bg-removed.png",      "Explorer2-jukebox-bg-removed.png",      "Explorer3-jukebox-bg-removed.png"],
+    "Architect": ["Arch1-jukebox-bg-removed.png",          "Arch2-jukebox-bg-removed.png",          "Arch3-jukebox-bg-removed.png"],
+    "Oracle":    ["Oracle1-jukebox-bg-removed.png",        "Oracle2-jukebox-bg-removed.png",        "Oracle3-jukebox-bg-removed.png"],
+    "Scheduler": ["Scheduler1-jukebox-bg-removed.png",     "Scheduler2-jukebox-bg-removed.png",     "Scheduler3-jukebox-bg-removed.png"],
+}
+
+
 @app.get("/agent-image")
-async def serve_agent_image(level: int = Query(default=1, ge=1, le=20)) -> Response:
-    """Serve the evolution image for the given agent level."""
-    if level <= 5:
-        name = "Pixel_idle.png"
-    elif level <= 10:
-        name = "evolve2.png"
-    else:
-        name = "draft-evolve-3.png"
-    # Images are package data inside questchain/static/ — works in both dev
-    # checkouts and installed packages (uv tool install / pip install).
+async def serve_agent_image(agent_id: str = Query(default="")) -> Response:
+    """Serve the evolution image for an agent, resolved from live server data."""
+    agent_def = None
+    if _agent_manager:
+        agent_def = _agent_manager.get(agent_id) if agent_id else _agent_manager.get_active()
+    if not agent_def:
+        return Response(status_code=404)
+
+    class_name = agent_def.get("class_name", "Custom")
+    from questchain.progression import ProgressionManager
+    rec = ProgressionManager(agent_def["id"], class_name).load()
+    level = rec.level
+
+    stage = 0 if level <= 5 else (1 if level <= 10 else 2)
+    images = _CLASS_IMAGES.get(class_name, _CLASS_IMAGES["Custom"])
+    name = images[stage]
     static_dir = Path(__file__).resolve().parent.parent / "static"
     p = static_dir / name
     if p.exists():
@@ -173,7 +189,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             try:
                 raw = await ws.receive_text()
-            except WebSocketDisconnect:
+            except (WebSocketDisconnect, RuntimeError):
                 break
             if len(raw) > _MAX_WS_MSG_BYTES:
                 continue

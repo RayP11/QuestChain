@@ -937,14 +937,22 @@ function onAgents(msg) {
   if (!State.viewingAgentId) State.viewingAgentId = State.activeAgentId;
   renderRoster();
   updateChatHeader();
+  // Fetch fresh stats for the viewed agent (stats panel + image)
+  send({ type: 'get_stats', agent_id: State.viewingAgentId || State.activeAgentId });
+  // If viewing a different agent, also fetch active agent stats for the chat header
+  if (State.viewingAgentId && State.viewingAgentId !== State.activeAgentId) {
+    send({ type: 'get_stats', agent_id: State.activeAgentId });
+  }
 }
 
 function onStats(msg) {
   const statsAgentId = msg.metrics?.agent_id || '';
-  // Always update chat header (shows active agent level)
-  const level = msg.progression?.level || 1;
-  document.getElementById('chat-agent-level').textContent = `Lv. ${level}`;
-  document.getElementById('chat-model').textContent = msg.metrics?.model_name || '';
+  // Update chat header only for active agent stats
+  if (!statsAgentId || statsAgentId === State.activeAgentId) {
+    document.getElementById('chat-agent-name').textContent = msg.metrics?.agent_name || 'QuestChain';
+    document.getElementById('chat-agent-level').textContent = `Lv. ${msg.progression?.level || 1}`;
+    document.getElementById('chat-model').textContent = msg.metrics?.model_name || '';
+  }
   // Only render full stats panel if this data is for the agent being viewed
   if (!statsAgentId || !State.viewingAgentId || statsAgentId === State.viewingAgentId) {
     renderStats(msg);
@@ -1117,18 +1125,17 @@ function updateChatHeader() {
   const active = State.agents.find(a => a.id === State.activeAgentId);
   if (!active) return;
   document.getElementById('chat-agent-name').textContent = active.name || 'QuestChain';
-  document.getElementById('chat-agent-level').textContent = `Lv. ${active.level || 1}`;
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
-const CLASS_ICONS = { Custom:'🌀', Sage:'📚', Explorer:'🔭', Architect:'⚒️', Oracle:'🔮', Sentinel:'⏱️' };
+const CLASS_ICONS = { Custom:'🌀', Sage:'📚', Explorer:'🔭', Architect:'⚒️', Oracle:'🔮', Scheduler:'⏱️' };
 // Use the bundled character image (served relative to the page)
 const AGENT_IMAGE_SRC = 'data:image/png;base64,'; // placeholder; real image injected below
 
-function updateAgentImage(level) {
+function updateAgentImage(agentId) {
   const img = document.getElementById('agent-image');
   img.style.display = '';
-  img.src = `/agent-image?level=${encodeURIComponent(level || 1)}`;
+  img.src = `/agent-image?agent_id=${encodeURIComponent(agentId || '')}`;
   img.onerror = function() { this.style.display = 'none'; };
 }
 
@@ -1140,14 +1147,12 @@ function renderStats(msg) {
   const level = prog.level || 1;
   const className = prog.class_name || 'Custom';
 
-  updateAgentImage(level);
+  updateAgentImage(metrics.agent_id || '');
 
-  document.getElementById('chat-agent-level').textContent = `Lv. ${level}`;
   document.getElementById('agent-name-display').textContent = metrics.agent_name || 'QuestChain';
   document.getElementById('agent-level-display').textContent = `Level ${level}`;
   document.getElementById('agent-class-icon').textContent = CLASS_ICONS[className] || '🌀';
   document.getElementById('agent-class-name').textContent = className;
-  document.getElementById('chat-model').textContent = metrics.model_name || '';
 
   const xpThis = prog.xp_this_level || 0;
   const xpLeft = prog.xp_next_level || 100;
@@ -1203,9 +1208,7 @@ function renderRoster() {
     });
   });
 
-  // Update agent image based on viewing agent's level
-  const viewing = State.agents.find(a => a.id === (State.viewingAgentId || State.activeAgentId));
-  if (viewing) updateAgentImage(viewing.level || 1);
+  // Image is updated via renderStats (fresh server data) — not here
 }
 
 // ── Quest rendering ───────────────────────────────────────────
@@ -1266,7 +1269,7 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
     btn.classList.add('active');
     document.getElementById(`page-${page}`).classList.add('active');
     State.page = page;
-    if (page === 'agent') send({ type: 'get_stats' });
+    if (page === 'agent') send({ type: 'get_stats', agent_id: State.viewingAgentId || State.activeAgentId });
     if (page === 'quests') send({ type: 'get_quests' });
     if (page === 'settings') {
       send({ type: 'get_settings' });

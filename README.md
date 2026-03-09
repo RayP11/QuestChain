@@ -75,7 +75,7 @@ Pick a class when creating an agent. It sets the tool loadout, identity, and spe
 | Explorer | 🔭 | Research & discovery | Web search + browse |
 | Architect | ⚒️ | Code & systems | Claude Code |
 | Oracle | 🔮 | Planning & strategy | Web search |
-| Sentinel | ⏱️ | Automation | Cron scheduler |
+| Scheduler | ⏱️ | Automation | Cron scheduler |
 
 ---
 

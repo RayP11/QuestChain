@@ -12,7 +12,7 @@ AGENT_CLASSES: list[tuple[str, str, str]] = [
     ("Explorer",  "🔭", "Explorer of the web and information"),
     ("Architect", "⚒️",  "Builder and coder"),
     ("Oracle",    "🔮", "Planner and strategist"),
-    ("Sentinel",  "⏱️",  "Scheduler and automation specialist"),
+    ("Scheduler", "⏱️",  "Scheduler and automation specialist"),
 ]
 DEFAULT_CLASS = "Custom"
 
@@ -23,7 +23,7 @@ CLASS_COLORS: dict[str, str] = {
     "Explorer":  "cyan",
     "Architect": "orange3",
     "Oracle":    "magenta",
-    "Sentinel":  "green",
+    "Scheduler":  "green",
 }
 
 # Tool presets applied when creating an agent of each class.
@@ -35,7 +35,7 @@ CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Explorer":  ["web_search", "web_browse"],
     "Architect": ["claude_code"],
     "Oracle":    ["web_search"],
-    "Sentinel":  ["cron"],
+    "Scheduler":  ["cron"],
 }
 
 # Skill presets applied when creating an agent of each class.
@@ -46,7 +46,7 @@ CLASS_SKILL_PRESETS: dict[str, list[str] | None] = {
     "Explorer":  None,
     "Architect": None,
     "Oracle":    None,
-    "Sentinel":  ["cron-jobs"],
+    "Scheduler":  ["cron-jobs"],
 }
 
 # Maps each skill dir-name to the tool(s) that must be present for it to be useful.
@@ -152,12 +152,12 @@ PRESET_AGENTS = [
         "class_name": "Oracle",
     },
     {
-        "name": "Sentinel",
+        "name": "Scheduler",
         "model": None,
         "system_prompt": SENTINEL_SYSTEM_PROMPT,
         "tools": ["cron"],
         "skills": ["cron-jobs"],
-        "class_name": "Sentinel",
+        "class_name": "Scheduler",
     },
 ]
 
