@@ -151,6 +151,17 @@ SELECTABLE_TOOLS = [
     ("cron",        "Schedule recurring cron jobs"),
 ]
 
+def get_dynamic_selectable_tools() -> list[tuple[str, str]]:
+    """Return SELECTABLE_TOOLS combined with discovered workspace tools (tagged [WS])."""
+    try:
+        from questchain.config import WORKSPACE_DIR
+        from questchain.engine.workspace_tools import get_tool_entries
+        ws = get_tool_entries(WORKSPACE_DIR)
+    except Exception:
+        ws = []
+    return list(SELECTABLE_TOOLS) + [(name, f"{desc} [WS]") for name, desc in ws]
+
+
 BUILTIN_AGENT = {
     "id": "default",
     "name": "QuestChain",

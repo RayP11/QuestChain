@@ -318,7 +318,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
     elif t == "update_agent":
         if _agent_manager:
             agent_id = msg.get("agent_id", "")
-            allowed = {"name", "model", "system_prompt", "class_name"}
+            allowed = {"name", "model", "system_prompt", "class_name", "tools"}
             kwargs = {k: v for k, v in msg.items() if k in allowed}
             if agent_id and kwargs:
                 try:
@@ -489,7 +489,9 @@ def _settings_payload() -> dict:
         TAVILY_API_KEY, TELEGRAM_BOT_TOKEN, MODEL_PRESETS, get_cron_jobs_path,
     )
     from questchain.tools import is_claude_code_available
-    from questchain.agents import AGENT_CLASSES
+    from questchain.agents import AGENT_CLASSES, SELECTABLE_TOOLS
+    from questchain.config import WORKSPACE_DIR as _ws_dir
+    from questchain.engine.workspace_tools import get_tool_entries as _ws_tool_entries
 
     try:
         from questchain.models import list_available_models
@@ -514,9 +516,15 @@ def _settings_payload() -> dict:
                 "class_name": a.get("class_name", "Custom"),
                 "model": a.get("model") or "",
                 "system_prompt": a.get("system_prompt") or "",
+                "tools": a.get("tools", "all"),
             })
 
     agent_classes = [{"name": c[0], "icon": c[1], "description": c[2]} for c in AGENT_CLASSES]
+
+    selectable_tools = (
+        [{"name": t[0], "description": t[1], "workspace": False} for t in SELECTABLE_TOOLS]
+        + [{"name": t[0], "description": t[1], "workspace": True} for t in _ws_tool_entries(_ws_dir)]
+    )
 
     return {
         "thread_id": _thread_id,
@@ -525,6 +533,7 @@ def _settings_payload() -> dict:
         "model_presets": list(MODEL_PRESETS.keys()),
         "agents": agents,
         "agent_classes": agent_classes,
+        "selectable_tools": selectable_tools,
         "cron_jobs": cron_jobs,
         "integrations": {
             "tavily": bool(TAVILY_API_KEY),

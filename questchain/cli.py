@@ -21,7 +21,7 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, get_dynamic_selectable_tools
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant, level_personality
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -1012,14 +1012,16 @@ def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
     """Parse comma-separated tool indices from raw input.
 
     Returns a list of tool names, or *fallback* if nothing valid was parsed.
+    Includes workspace tools dynamically.
     """
+    all_tools = get_dynamic_selectable_tools()
     selected: list[str] = []
     for part in raw.split(","):
         part = part.strip()
         if part.isdigit():
             idx = int(part) - 1
-            if 0 <= idx < len(SELECTABLE_TOOLS):
-                selected.append(SELECTABLE_TOOLS[idx][0])
+            if 0 <= idx < len(all_tools):
+                selected.append(all_tools[idx][0])
     return selected if selected else fallback
 
 
@@ -1056,7 +1058,7 @@ async def _run_create_wizard(
         # Custom: user configures tools manually
         console.print()
         console.print("[bold]Custom tools[/bold] (filesystem tools always available):")
-        for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
+        for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
             tag = _tool_availability_tag(tool_name)
             console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
         console.print()

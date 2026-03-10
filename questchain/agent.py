@@ -63,6 +63,12 @@ def create_questchain_agent(
     for lc_tool in lc_tools:
         registry.register(wrap_lc_tool(lc_tool))
 
+    # Workspace tools — only loaded when explicitly listed in tools_filter
+    if tools_filter is not None:
+        from questchain.engine.workspace_tools import load_workspace_tools
+        for tool_def in load_workspace_tools(WORKSPACE_DIR, tools_filter):
+            registry.register(tool_def)
+
     system_prompt = (system_prompt_override or SYSTEM_PROMPT).format(agent_name=agent_name)
 
     return Agent(
