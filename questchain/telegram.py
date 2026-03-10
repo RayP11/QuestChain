@@ -112,7 +112,6 @@ _HELP_TEXT = (
     "/tools — List available tools\n"
     "/quest <text> — Add a new quest\n"
     "/quests — List pending quests with descriptions\n"
-    "/tasks — Show pending quests (filenames only)\n"
     "/cron — List scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
     "/agents — Manage agents (list, switch, create, edit)\n"
@@ -182,23 +181,6 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 
-
-async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tasks command — list pending quests."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    from questchain.config import WORKSPACE_DIR
-    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-    if not quests_dir.exists():
-        await update.message.reply_text("No quests pending.")
-        return
-    quest_files = sorted(quests_dir.glob("*.md"))
-    if not quest_files:
-        await update.message.reply_text("No quests pending.")
-        return
-    lines = [f.name for f in quest_files]
-    await update.message.reply_text("Pending quests:\n" + "\n".join(f"• {l}" for l in lines))
 
 
 async def cmd_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1011,7 +993,6 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("tools", cmd_tools))
     app.add_handler(CommandHandler("quest", cmd_quest))
     app.add_handler(CommandHandler("quests", cmd_quests))
-    app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
     app.add_handler(CommandHandler("agents", cmd_agent))

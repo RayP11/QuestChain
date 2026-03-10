@@ -1357,8 +1357,9 @@ async def run_agent_stream(
             chain_depth=agent.last_iterations,
         )
     if _bus:
-        from questchain.gateway.server import _stats_payload
+        from questchain.gateway.server import _stats_payload, _agents_payload
         _bus.publish_nowait({"type": "stats", **_stats_payload()})
+        _bus.publish_nowait({"type": "agents", **_agents_payload()})
     return full_response, xp_grant
 
 
