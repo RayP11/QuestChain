@@ -1660,6 +1660,14 @@ async def _repl_loop(
         agent_config = None
         telegram_update = None
 
+        # Sync progression/metrics if the active agent changed (e.g. switched from Telegram)
+        if agent_manager is not None:
+            _active_id = agent_manager.get_active_id()
+            if _progression is None or getattr(_progression, "_agent_id", None) != _active_id:
+                _active_def = agent_manager.get_active()
+                _init_progression(_active_def)
+                _init_metrics(_active_def, agent_holder["agent"])
+
         # Build label for the separator line
         _agent_label = ""
         if agent_manager is not None:
