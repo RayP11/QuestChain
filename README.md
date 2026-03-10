@@ -81,7 +81,7 @@ Each agent has:
 
 ### Classes
 
-Pick a class when creating an agent. It sets the tool loadout, identity, and specialty. Each class tracks its own progression independently.
+Classes are QuestChain's micro-agent system. Each class is a specialized agent with its own role, tool loadout, and independent progression. Keeping agents focused on a single domain is best practice for local models — a smaller context, fewer tools, and a clear identity means better decisions and fewer hallucinations.
 
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
