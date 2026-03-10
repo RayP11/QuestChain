@@ -110,6 +110,7 @@ _HELP_TEXT = (
     "/new — Start a fresh conversation\n"
     "/model — Show current model\n"
     "/tools — List available tools\n"
+    "/quest <text> — Add a new quest\n"
     "/quests — List pending quests with descriptions\n"
     "/tasks — Show pending quests (filenames only)\n"
     "/cron — List scheduled cron jobs\n"
@@ -198,6 +199,69 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     lines = [f.name for f in quest_files]
     await update.message.reply_text("Pending quests:\n" + "\n".join(f"• {l}" for l in lines))
+
+
+async def cmd_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /quest — start the two-step quest creation wizard."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    context.chat_data["creating_quest"] = {"step": "title"}
+    await update.message.reply_text(
+        "New quest — send /cancel at any time.\n\nStep 1/2 — What's the quest title?"
+    )
+
+
+async def _handle_quest_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Process wizard steps for quest creation. Returns True if message was consumed."""
+    state = context.chat_data.get("creating_quest")
+    if state is None:
+        return False
+
+    text = (update.message.text or "").strip()
+
+    if text.lower() == "/cancel":
+        context.chat_data.pop("creating_quest", None)
+        await update.message.reply_text("Cancelled.")
+        return True
+
+    step = state["step"]
+
+    if step == "title":
+        if not text:
+            await update.message.reply_text("Title can't be empty. What's the quest title?")
+            return True
+        state["title"] = text
+        state["step"] = "content"
+        await update.message.reply_text("Step 2/2 — Describe what the agent should do:")
+
+    elif step == "content":
+        if not text:
+            await update.message.reply_text("Content can't be empty. Describe the quest:")
+            return True
+
+        import re
+        from questchain.config import WORKSPACE_DIR
+
+        title = state["title"]
+        quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+        quests_dir.mkdir(parents=True, exist_ok=True)
+
+        words = re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+        slug = "-".join(words[:5]) or "quest"
+        path = quests_dir / f"{slug}.md"
+        counter = 2
+        while path.exists():
+            path = quests_dir / f"{slug}-{counter}.md"
+            counter += 1
+
+        path.write_text(f"# {title}\n\n{text}", encoding="utf-8")
+        context.chat_data.pop("creating_quest", None)
+        await update.message.reply_text(
+            f"✓ Quest added: `{path.name}`", parse_mode=ParseMode.MARKDOWN
+        )
+
+    return True
 
 
 async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -803,6 +867,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Intercept wizard messages first
+    if await _handle_quest_wizard(update, context):
+        return
     if await _handle_build_agent_wizard(update, context):
         return
 
@@ -943,6 +1009,7 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("tools", cmd_tools))
+    app.add_handler(CommandHandler("quest", cmd_quest))
     app.add_handler(CommandHandler("quests", cmd_quests))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("cron", cmd_cron))
@@ -968,6 +1035,7 @@ async def run_telegram_alongside_cli(
         BotCommand("new", "Start a fresh conversation"),
         BotCommand("model", "Show current model"),
         BotCommand("tools", "List available tools"),
+        BotCommand("quest", "Add a new quest — /quest <description>"),
         BotCommand("quests", "List pending quests with descriptions"),
         BotCommand("tasks", "Show pending quests (filenames)"),
         BotCommand("cron", "List scheduled cron jobs"),

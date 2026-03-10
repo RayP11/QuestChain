@@ -51,6 +51,18 @@ I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot
 
 QuestChain is that framework: a party of micro agents all jam-packed with tool loadouts for specific tasks, fully autonomous, and with a twist of gamification.
 
+### How it compares
+
+| | **QuestChain** | **[picoClaw](https://github.com/sipeed/picoclaw)** | **[OpenClaw](https://github.com/OpenClaw-AI/OpenClaw)** |
+|---|---|---|---|
+| Language | Python | Go | TypeScript |
+| Lines of code | ~10,600 | ~87,000 | ~1,250,000 |
+| Source files | 38 | 583 | 8,085 |
+| Multi-surface (CLI, Telegram, Web) | ✅ | ✅ | ✅ |
+| RPG progression | ✅ | ❌ | ❌ |
+
+QuestChain is ~8× smaller than picoClaw and ~118× smaller than OpenClaw, while covering multi-surface chat, RPG progression, cron scheduling, and a custom async agent engine — all in pure Python.
+
 ---
 
 ## RPG Progression
