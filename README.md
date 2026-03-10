@@ -313,8 +313,8 @@ Any Ollama model works. These are the most tested:
 |---|---|---|
 | `qwen3:8b` | ~6 GB | **Default** — Fast, excellent tool calling, native thinking |
 | `qwen3:4b` | ~3 GB | Compact — solid tool calling, native thinking |
-| `qwen2.5:9b` | ~6 GB | Strong tool calling |
-| `qwen2.5:4b` | ~3 GB | Lightweight, reliable tool calling |
+| `qwen3.5:9b` | ~7 GB | Strong tool calling |
+| `qwen3.5:4b` | ~3.5 GB | Lightweight, reliable tool calling |
 | `qwen3:1.7b` | ~2 GB | Ultra-light — runs on CPU or minimal VRAM |
 
 ```bash
