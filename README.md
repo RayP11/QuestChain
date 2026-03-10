@@ -68,7 +68,7 @@ QuestChain is ~8× smaller than picoClaw and ~118× smaller than OpenClaw, while
 ## RPG Progression
 
 <div align="center">
-<img src="assets/agent-page.png" alt="QuestChain agent page" width="800"/>
+<img src="assets/agents-select.gif" alt="QuestChain agent page" width="800"/>
 </div>
 
 QuestChain isn't just a tool. It's a companion you build over time. Every agent starts at Level 1 and earns XP through real work: tool calls, completed tasks, background jobs, and extended conversations. The more your agent works, the stronger it gets.
