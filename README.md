@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/QuestChain-LOGO.jpg" alt="QuestChain" width="400"/>
+<img src="assets/QuestChain.jpg" alt="QuestChain" width="400"/>
 
 # Truly Local. Always On. Ready for Quests.
 
