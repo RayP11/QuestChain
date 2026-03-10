@@ -1,12 +1,11 @@
 <div align="center">
 
-<img src="assets/QuestChain.png" alt="QuestChain" width="400"/>
+<img src="assets/QuestChain-LOGO.jpg" alt="QuestChain" width="400"/>
 
 # Truly Local. Always On. Ready for Quests.
 
 ### Your AI assistant, running on your hardware, working for you around the clock.
 
-[![Stars](https://img.shields.io/github/stars/RayP11/QuestChain?style=social)](https://github.com/RayP11/QuestChain/stargazers)
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-black?logo=ollama&logoColor=white)](https://ollama.com)
@@ -58,7 +57,6 @@ QuestChain is that framework: a party of micro agents all jam-packed with tool l
 | Lines of code | ~10,600 | ~87,000 | ~1,250,000 |
 | Source files | 38 | 583 | 8,085 |
 | Multi-surface (CLI, Telegram, Web) | ✅ | ✅ | ✅ |
-| RPG progression | ✅ | ❌ | ❌ |
 
 QuestChain is ~8× smaller than picoClaw and ~118× smaller than OpenClaw, while covering multi-surface chat, RPG progression, cron scheduling, and a custom async agent engine — all in pure Python.
 
