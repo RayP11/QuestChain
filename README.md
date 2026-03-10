@@ -35,11 +35,10 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 - [What It Can Do](#what-it-can-do)
 - [Built for the Edge — Securely](#built-for-the-edge--securely)
 - [It Codes Itself](#it-codes-itself)
-- [Usage](#usage)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
 - [Configuration](#configuration)
-- [Model Presets](#model-presets)
+- [Most Tested Models](#most-tested-models)
 - [Contributing](#contributing)
 - [Built With](#built-with)
 
@@ -247,42 +246,11 @@ Want to go further? Two optional integrations are a single command away: [Tavily
 
 ## It Ships
 
-<div align="center">
-<img src="assets/QuestChain-coding.png" alt="QuestChain coding" width="300"/>
-</div>
-
 QuestChain can delegate programming tasks to [Claude Code](https://claude.ai/code) (Anthropic's coding agent) with full access to your filesystem. It uses this to develop its own codebase: describe a bug or feature, and QuestChain hands it off, reviews the result, and reports back.
 
 My own QuestChain agent Jarvis has actually started vibing its own features and pushing code to this repo.
 
 > **No Claude Code?** Try running a local coder model instead. Try `deepseek-coder-v2:16b` for maximum capability, or `qwen2.5-coder:7b` for a lighter option.
-
----
-
-## Usage
-
-```bash
-# Start QuestChain
-questchain start
-
-# Use a specific model
-questchain start -m qwen3:4b
-
-# Resume a previous conversation by thread ID
-questchain start -t <thread-id>
-
-# Run without persistent memory
-questchain start --no-memory
-
-# Set the quest runner interval (minutes)
-questchain start --quests 30
-
-# Disable the quest runner
-questchain start --no-quests
-
-# List available model presets
-questchain start --list-models
-```
 
 ---
 
@@ -339,37 +307,19 @@ All settings via environment variables or a `.env` file in the project root:
 
 ---
 
-## Model Presets
+## Most Tested Models
 
-Any Ollama model works. These are pre-tuned for the best agentic experience on edge hardware:
-
-<details>
-<summary>Show all presets</summary>
+Any Ollama model works. These are the most tested:
 
 | Model | VRAM | Notes |
 |---|---|---|
 | `qwen3:8b` | ~6 GB | **Default** — Fast, excellent tool calling, native thinking |
-| `qwen2.5:7b-instruct` | ~6 GB | Top-tier tool calling |
-| `qwen2.5:14b-instruct` | ~10 GB | More capable |
-| `llama3.1:8b-instruct` | ~6 GB | Strong tool calling (BFCL 77-81%) |
-| `llama3.3:8b-instruct` | ~6 GB | Newer Llama, strong tool use |
-| `mistral:7b` | ~5 GB | Fast, low resource |
-| `mistral-nemo:12b` | ~8 GB | Stronger Mistral variant |
-| `dolphin3:latest` | ~6 GB | Uncensored, good for agents |
-| `deepseek-r1:7b` | ~6 GB | Strong reasoning, `<think>` filtered automatically |
-| `deepseek-r1:14b` | ~10 GB | Stronger reasoning |
-| `deepseek-coder-v2:16b` | ~12 GB | Best local code generation |
-| `qwen3:4b` | ~3 GB | Compact Qwen3 — solid tool calling, native thinking |
-| `qwen3:1.7b` | ~2 GB | Ultra-light Qwen3 — runs on CPU or minimal VRAM |
-| `qwen2.5:3b` | ~2.5 GB | Smallest reliable tool-calling model |
-| `llama3.2:3b` | ~2.5 GB | Meta's 3B — fast, decent tool use |
-| `phi4-mini:3.8b` | ~3 GB | Microsoft Phi-4 Mini — punches above its size |
-| `gemma3:4b` | ~3 GB | Google Gemma 3 4B — efficient, good instruction following |
-
-</details>
+| `qwen3:4b` | ~3 GB | Compact — solid tool calling, native thinking |
+| `qwen2.5:9b` | ~6 GB | Strong tool calling |
+| `qwen2.5:4b` | ~3 GB | Lightweight, reliable tool calling |
+| `qwen3:1.7b` | ~2 GB | Ultra-light — runs on CPU or minimal VRAM |
 
 ```bash
-questchain start --list-models   # see all presets with descriptions
 questchain start -m <any-model>  # use any model installed in Ollama
 ```
 
