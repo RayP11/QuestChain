@@ -18,6 +18,7 @@ dependencies = [
     "sounddevice",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "faster-whisper",
 ]
 
 [project.scripts]
