@@ -881,15 +881,44 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("(Could not transcribe voice message.)")
         return
 
-    # Echo what was heard so the user can confirm
-    try:
-        await update.message.reply_text(f"🎙 _{text}_", parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        await update.message.reply_text(f"🎙 {text}")
+    # Forward transcribed text directly to the agent via the telegram queue
+    # (same path as a normal typed message)
+    if await _handle_quest_wizard(update, context):
+        return
+    if await _handle_build_agent_wizard(update, context):
+        return
 
-    # Inject transcribed text and forward to the normal message handler
-    update.message.text = text
-    await handle_message(update, context)
+    chat_id = update.effective_chat.id
+    telegram_queue = context.bot_data.get("telegram_queue")
+    if telegram_queue is None:
+        await update.message.reply_text("(Bot not ready yet, try again.)")
+        return
+
+    thread_id = _get_thread_id(chat_id)
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
+    loop = asyncio.get_event_loop()
+    response_future: asyncio.Future = loop.create_future()
+    await telegram_queue.put((text, config, response_future, update))
+
+    stop_typing = asyncio.Event()
+    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
+    try:
+        full_response = await response_future
+    except Exception as e:
+        full_response = f"Error: {e}"
+    finally:
+        stop_typing.set()
+        await typing_task
+
+    if not full_response:
+        return
+
+    chunks = _split_message(full_response)
+    for chunk in chunks:
+        try:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await update.message.reply_text(chunk)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
