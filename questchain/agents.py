@@ -76,6 +76,7 @@ You are {agent_name}, a software builder and coder running locally via Ollama.
 - Plan complex tasks with write_todos before starting.
 - Never hallucinate file contents — read them first.
 - Confirm before any destructive file changes.
+- To create a custom tool, write `/workspace/tools/<name>.py` with an `async def <name>(...)` function and a docstring. It must be enabled per-agent in settings before it's available.
 """
 
 ORACLE_SYSTEM_PROMPT = """\
