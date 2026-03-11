@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import uuid
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -117,7 +119,8 @@ _HELP_TEXT = (
     "/agents — Manage agents (list, switch, create, edit)\n"
     "/level — Show agent level and achievements\n"
     "/stats — Show agent metrics (prompts, tokens, errors)\n"
-    "/help — Show this help message"
+    "/help — Show this help message\n"
+    "\nSend a voice message to speak to the agent directly."
 )
 
 
@@ -839,6 +842,56 @@ async def _run_agent_collect(agent, user_text: str, config: dict, update: Update
     return full_response
 
 
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle voice/audio messages — transcribe offline then forward to agent."""
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+
+    from questchain.stt import is_available, transcribe
+
+    if not is_available():
+        await update.message.reply_text(
+            "Voice input is not available. Install faster-whisper:\n`pip install faster-whisper`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    voice = update.message.voice or update.message.audio
+    if voice is None:
+        return
+
+    await update.effective_chat.send_action(ChatAction.TYPING)
+
+    tg_file = await context.bot.get_file(voice.file_id)
+
+    suffix = ".ogg" if update.message.voice else ".mp3"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        await tg_file.download_to_drive(tmp_path)
+        text = await asyncio.to_thread(transcribe, tmp_path)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+    if not text:
+        await update.message.reply_text("(Could not transcribe voice message.)")
+        return
+
+    # Echo what was heard so the user can confirm
+    try:
+        await update.message.reply_text(f"🎙 _{text}_", parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        await update.message.reply_text(f"🎙 {text}")
+
+    # Inject transcribed text and forward to the normal message handler
+    update.message.text = text
+    await handle_message(update, context)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages — invoke the QuestChain agent."""
     if not _is_owner(update.effective_user.id):
@@ -1000,6 +1053,7 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
 
     async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         from telegram.error import NetworkError, TimedOut
