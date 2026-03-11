@@ -69,6 +69,11 @@ def load_workspace_tools(workspace_dir: Path, tools_filter: list[str]) -> list[T
         try:
             spec = importlib.util.spec_from_file_location(f"_ws_tool_{path.stem}", path)
             mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+            logger.warning(
+                "Loading workspace tool %s — this executes untrusted Python code. "
+                "Only enable tools you have reviewed.",
+                path.name,
+            )
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
         except Exception as e:
             logger.warning("Failed to load workspace tool %s: %s", path.name, e)
@@ -78,7 +83,11 @@ def load_workspace_tools(workspace_dir: Path, tools_filter: list[str]) -> list[T
                 continue
             td: ToolDef = attr._tool_def
             if td.name in RESERVED_NAMES:
-                logger.warning("Workspace tool %r conflicts with reserved name — skipped", td.name)
+                logger.error(
+                    "Workspace tool file %s defines %r which conflicts with a built-in "
+                    "tool name — skipped. Rename the function to load it.",
+                    path.name, td.name,
+                )
                 continue
             if td.name in tools_filter:
                 loaded.append(td)

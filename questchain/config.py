@@ -48,7 +48,13 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 # --- Telegram settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_OWNER_ID = int(os.getenv("TELEGRAM_OWNER_ID") or "0")
+_owner_id_raw = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+TELEGRAM_OWNER_ID: int | None = int(_owner_id_raw) if _owner_id_raw.isdigit() and int(_owner_id_raw) != 0 else None
+
+# --- Web gateway settings ---
+# Optional shared secret for WebSocket auth. Set QUESTCHAIN_WS_TOKEN in .env
+# to require all WebSocket clients to supply ?token=<value> on connect.
+QUESTCHAIN_WS_TOKEN = os.getenv("QUESTCHAIN_WS_TOKEN", "")
 
 # --- Data directory ---
 QUESTCHAIN_DATA_DIR = Path(os.getenv("QUESTCHAIN_DATA_DIR", Path.home() / ".questchain"))

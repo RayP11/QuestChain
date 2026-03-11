@@ -76,6 +76,12 @@ def _reset_thread(chat_id: int) -> str:
 
 def _is_owner(user_id: int) -> bool:
     """Check if the user is the configured owner."""
+    if TELEGRAM_OWNER_ID is None:
+        logger.warning(
+            "TELEGRAM_OWNER_ID is not set — rejecting all users. "
+            "Set it in .env to your Telegram user ID."
+        )
+        return False
     return user_id == TELEGRAM_OWNER_ID
 
 
@@ -820,9 +826,9 @@ async def _run_agent_collect(agent, user_text: str, config: dict, update: Update
         thread_id = config.get("configurable", {}).get("thread_id", "telegram")
         async for token in agent.run(user_text, thread_id=thread_id):
             full_response += token
-    except Exception as e:
+    except Exception:
         logger.exception("Agent error")
-        full_response = f"Error: {e}"
+        full_response = "Sorry, an internal error occurred."
     finally:
         stop_typing.set()
         await typing_task
@@ -874,8 +880,8 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     finally:
         try:
             os.unlink(tmp_path)
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.debug("Could not delete temp voice file %s: %s", tmp_path, exc)
 
     if not text:
         await update.message.reply_text("(Could not transcribe voice message.)")
@@ -904,8 +910,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
     try:
         full_response = await response_future
-    except Exception as e:
-        full_response = f"Error: {e}"
+    except Exception:
+        logger.exception("Voice handler error")
+        full_response = "Sorry, an internal error occurred."
     finally:
         stop_typing.set()
         await typing_task
@@ -990,8 +997,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
     try:
         full_response = await response_future
-    except Exception as e:
-        full_response = f"Error: {e}"
+    except Exception:
+        logger.exception("Message handler error")
+        full_response = "Sorry, an internal error occurred."
     finally:
         stop_typing.set()
         await typing_task

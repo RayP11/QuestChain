@@ -1,7 +1,5 @@
 """Tavily web search tool for QuestChain."""
 
-import os
-
 from langchain_tavily import TavilySearch
 
 
@@ -15,10 +13,8 @@ def create_search_tool(api_key: str, max_results: int = 5) -> TavilySearch:
     Returns:
         Configured TavilySearch tool.
     """
-    # TavilySearch reads from TAVILY_API_KEY env var
-    os.environ.setdefault("TAVILY_API_KEY", api_key)
-
     return TavilySearch(
+        tavily_api_key=api_key,
         max_results=max_results,
         search_depth="advanced",
         name="web_search",

@@ -77,27 +77,33 @@ class OllamaModel:
         in_think = False
 
         stream = await self._client.chat(**kwargs)
-        async for part in stream:
-            msg = part.message
+        try:
+            async with asyncio.timeout(300):
+                async for part in stream:
+                    msg = part.message
 
-            # --- Text chunk ---
-            raw = msg.content or ""
-            if raw:
-                # Filter <think>…</think> blocks on the fly
-                raw, in_think, think_buf = _filter_think(raw, in_think, think_buf)
-                if raw:
-                    yield Chunk(text=raw)
+                    # --- Text chunk ---
+                    raw = msg.content or ""
+                    if raw:
+                        # Filter <think>…</think> blocks on the fly
+                        raw, in_think, think_buf = _filter_think(raw, in_think, think_buf)
+                        if raw:
+                            yield Chunk(text=raw)
 
-            # --- Tool calls (typically in the final message) ---
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    tool_calls.append({
-                        "name": tc.function.name,
-                        "args": dict(tc.function.arguments) if tc.function.arguments else {},
-                    })
+                    # --- Tool calls (typically in the final message) ---
+                    if msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            tool_calls.append({
+                                "name": tc.function.name,
+                                "args": dict(tc.function.arguments) if tc.function.arguments else {},
+                            })
 
-            if part.done:
-                yield Chunk(tool_calls=tool_calls, done=True)
+                    if part.done:
+                        yield Chunk(tool_calls=tool_calls, done=True)
+        except asyncio.TimeoutError:
+            logger.warning("Ollama stream timed out after 300s")
+            yield Chunk(text="\n[Response timed out]", done=False)
+            yield Chunk(tool_calls=[], done=True)
 
     async def chat(
         self,

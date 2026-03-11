@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 
 from questchain.engine.tools import tool
 
@@ -11,13 +12,19 @@ from questchain.engine.tools import tool
 async def execute(command: str, timeout: int = 60) -> str:
     """Execute a shell command and return its output.
 
+    Commands are run without a shell interpreter (safer). For pipelines or
+    redirects, prefix with the shell explicitly: execute("bash -c 'ls | grep .py'")
+
     Args:
         command: Shell command to run
         timeout: Max seconds to wait (default: 60)
     """
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        args = shlex.split(command)
+        if not args:
+            return "Error: empty command"
+        proc = await asyncio.create_subprocess_exec(
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -12,6 +13,8 @@ from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, Response
 
 from questchain.gateway.events import get_bus
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from questchain.agents import AgentManager
@@ -22,14 +25,20 @@ app = FastAPI(docs_url=None, redoc_url=None)
 
 _MAX_WS_MSG_BYTES = 512_000  # 512 KB per WebSocket message
 _MAX_CHAT_CHARS   = 16_000   # max characters in a single chat message
+_MAX_SYSTEM_PROMPT = 4_000   # max characters in a system prompt
+_RATE_LIMIT_MSGS  = 30       # max messages per window
+_RATE_LIMIT_SECS  = 10.0     # rate limit window in seconds
 
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "   # unsafe-inline needed for <style> block
     "img-src 'self' data:; "
     "connect-src 'self' ws: wss:;"
 )
+
+# Optional shared secret loaded at startup (set QUESTCHAIN_WS_TOKEN in .env).
+_ws_token: str = ""
 
 # Set by start_gateway_server() so validators know what the server is bound to.
 _LOCALHOST_NAMES: frozenset[str] = frozenset(("127.0.0.1", "localhost", "::1"))
@@ -121,9 +130,28 @@ def _get_html() -> str:
     return "<h1>QuestChain UI — index.html not found</h1>"
 
 
+def _get_app_js() -> str:
+    p = Path(__file__).parent.parent / "static" / "app.js"
+    if p.exists():
+        return p.read_text(encoding="utf-8")
+    return ""
+
+
 @app.get("/")
 async def serve_ui() -> HTMLResponse:
-    return HTMLResponse(_get_html())
+    html = _get_html()
+    # Inject WS token into the meta tag so app.js can pick it up
+    if _ws_token:
+        html = html.replace(
+            '<meta name="ws-token" content="">',
+            f'<meta name="ws-token" content="{_ws_token}">',
+        )
+    return HTMLResponse(html)
+
+
+@app.get("/app.js")
+async def serve_app_js() -> Response:
+    return Response(_get_app_js(), media_type="application/javascript")
 
 
 _CLASS_IMAGES: dict[str, list[str]] = {
@@ -173,6 +201,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             await ws.close(code=1008)
             return
 
+    # Optional token auth — enforced when QUESTCHAIN_WS_TOKEN is set.
+    if _ws_token:
+        provided = ws.query_params.get("token", "")
+        if provided != _ws_token:
+            await ws.close(code=1008)
+            return
+
     await ws.accept()
     bus = get_bus()
     event_q = bus.subscribe()
@@ -186,6 +221,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 break
 
     async def _recv_loop() -> None:
+        msg_count = 0
+        window_start = asyncio.get_event_loop().time()
         while True:
             try:
                 raw = await ws.receive_text()
@@ -193,11 +230,22 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 break
             if len(raw) > _MAX_WS_MSG_BYTES:
                 continue
+            # Rate limiting
+            now = asyncio.get_event_loop().time()
+            if now - window_start > _RATE_LIMIT_SECS:
+                msg_count = 0
+                window_start = now
+            msg_count += 1
+            if msg_count > _RATE_LIMIT_MSGS:
+                logger.warning("WebSocket rate limit exceeded — dropping message")
+                continue
             try:
                 msg = json.loads(raw)
                 await _handle_inbound(ws, msg)
+            except json.JSONDecodeError:
+                logger.debug("WebSocket: invalid JSON from client")
             except Exception:
-                pass
+                logger.warning("WebSocket: error handling inbound message", exc_info=True)
 
     # Push current state to the new client immediately
     await _push_initial_state(ws)
@@ -232,7 +280,17 @@ async def _push_initial_state(ws: WebSocket) -> None:
         await ws.send_json({"type": "quests", "quests": _list_quests()})
         await ws.send_json({"type": "settings", **_settings_payload()})
     except Exception:
-        pass
+        logger.debug("Failed to push initial state to WebSocket client", exc_info=True)
+
+
+# ── Input helpers ─────────────────────────────────────────────────────────────
+
+def _sanitize_prompt(raw: str | None) -> str | None:
+    """Truncate and strip control characters from a system prompt."""
+    if not raw:
+        return None
+    cleaned = raw[:_MAX_SYSTEM_PROMPT]
+    return cleaned if cleaned.strip() else None
 
 
 # ── Inbound message handlers ──────────────────────────────────────────────────
@@ -308,7 +366,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                 _agent_manager.add(
                     name=name,
                     model=msg.get("model") or None,
-                    system_prompt=msg.get("system_prompt") or None,
+                    system_prompt=_sanitize_prompt(msg.get("system_prompt")),
                     tools=tools,
                     class_name=class_name,
                 )
@@ -320,13 +378,15 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             agent_id = msg.get("agent_id", "")
             allowed = {"name", "model", "system_prompt", "class_name", "tools"}
             kwargs = {k: v for k, v in msg.items() if k in allowed}
+            if "system_prompt" in kwargs:
+                kwargs["system_prompt"] = _sanitize_prompt(kwargs["system_prompt"])
             if agent_id and kwargs:
                 try:
                     _agent_manager.update(agent_id, **kwargs)
                     get_bus().publish_nowait({"type": "agents", **_agents_payload()})
                     get_bus().publish_nowait({"type": "settings", **_settings_payload()})
                 except Exception:
-                    pass
+                    logger.warning("update_agent failed for %s", agent_id, exc_info=True)
 
     elif t == "delete_agent":
         if _agent_manager:
@@ -337,7 +397,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                     get_bus().publish_nowait({"type": "agents", **_agents_payload()})
                     get_bus().publish_nowait({"type": "settings", **_settings_payload()})
                 except Exception:
-                    pass
+                    logger.warning("delete_agent failed for %s", agent_id, exc_info=True)
 
 
 # ── Payload builders ──────────────────────────────────────────────────────────
@@ -621,9 +681,11 @@ def _delete_quest(name: str) -> None:
 
 async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Start uvicorn in the current event loop as a background task."""
-    global _bound_host, _bound_port
+    global _bound_host, _bound_port, _ws_token
     _bound_host = host
     _bound_port = port
+    from questchain.config import QUESTCHAIN_WS_TOKEN
+    _ws_token = QUESTCHAIN_WS_TOKEN
 
     import uvicorn
 
