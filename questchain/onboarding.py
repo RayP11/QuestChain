@@ -1,10 +1,16 @@
 """First-run onboarding flow for QuestChain."""
 
 import asyncio
+import logging
 import os
+import re as _re
 import random
 import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_ENV_KEY_RE = _re.compile(r'^[A-Z][A-Z0-9_]*$')
 
 from rich.panel import Panel
 from rich.text import Text
@@ -113,16 +119,20 @@ def _get_env_path() -> Path:
 
 def _save_env_key(key: str, value: str) -> None:
     """Write a key=value to os.environ and to the project root .env."""
+    if not _ENV_KEY_RE.match(key):
+        raise ValueError(f"Invalid env key: {key!r}")
     os.environ[key] = value
     env_path = _get_env_path()
     try:
         from dotenv import set_key
         set_key(str(env_path), key, value)
-    except Exception:
-        # Fallback: write directly as KEY="value" lines
+    except Exception as e:
+        logger.warning("dotenv set_key failed for %s, falling back to manual write: %s", key, e)
+        # Escape newlines to prevent .env format corruption
+        safe_value = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
         existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         lines = [l for l in existing.splitlines() if not l.startswith(f"{key}=")]
-        lines.append(f'{key}="{value}"')
+        lines.append(f'{key}="{safe_value}"')
         env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

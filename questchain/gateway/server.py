@@ -671,7 +671,7 @@ def _save_quest(name: str, content: str) -> None:
 def _delete_quest(name: str) -> None:
     quests_dir = _quests_dir().resolve()
     path = (quests_dir / name).resolve()
-    if quests_dir not in path.parents:
+    if path == quests_dir or quests_dir not in path.parents:
         return  # path traversal attempt
     if path.exists() and path.suffix == ".md":
         path.unlink()

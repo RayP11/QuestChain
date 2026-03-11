@@ -235,7 +235,7 @@ function renderToolPicker(selectedTools) {
     chip.className = 'tool-chip' + (selected.has(t.name) ? ' selected' : '');
     chip.dataset.name = t.name;
     chip.title = t.description;
-    chip.innerHTML = t.name + (t.workspace ? ' <span class="ws-badge">[WS]</span>' : '');
+    chip.innerHTML = escHtml(t.name) + (t.workspace ? ' <span class="ws-badge">[WS]</span>' : '');
     chip.addEventListener('click', () => chip.classList.toggle('selected'));
     picker.appendChild(chip);
   });
