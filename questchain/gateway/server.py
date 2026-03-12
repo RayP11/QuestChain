@@ -362,7 +362,14 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             if name:
                 from questchain.agents import CLASS_TOOL_PRESETS
                 class_name = msg.get("class_name") or "Custom"
-                tools: list | str = CLASS_TOOL_PRESETS.get(class_name, []) or []
+                # Use tools from the message if provided; fall back to class preset.
+                # "all" means every available tool (same as CLI Custom default).
+                msg_tools = msg.get("tools")
+                if msg_tools is not None:
+                    tools: list | str = msg_tools
+                else:
+                    preset = CLASS_TOOL_PRESETS.get(class_name)
+                    tools = preset if preset is not None else "all"
                 _agent_manager.add(
                     name=name,
                     model=msg.get("model") or None,
