@@ -128,11 +128,12 @@ function onStats(msg) {
     agent.metrics = msg.metrics || agent.metrics;
     agent.level = msg.progression?.level || agent.level;
   }
-  // Update chat header for active agent
+  // Update chat header and portrait for active agent
   if (!statsAgentId || statsAgentId === State.activeAgentId) {
     document.getElementById('chat-agent-name').textContent = msg.metrics?.agent_name || 'QuestChain';
     document.getElementById('chat-agent-level').textContent = `Lv. ${msg.progression?.level || 1}`;
     document.getElementById('chat-model').textContent = msg.metrics?.model_name || '';
+    updateChatPortrait(agent || null);
   }
   // Render stats panel if this is for the agent being viewed
   if (!statsAgentId || statsAgentId === State.viewingAgentId) {
@@ -364,6 +365,36 @@ function updateChatHeader() {
   document.getElementById('chat-agent-name').textContent = active.name || 'QuestChain';
   document.getElementById('chat-agent-level').textContent = `Lv. ${active.progression?.level || active.level || 1}`;
   document.getElementById('chat-model').textContent = active.metrics?.model_name || active.model || '';
+  updateChatPortrait(active);
+}
+
+function updateChatPortrait(agent) {
+  if (!agent) agent = State.agents.find(a => a.id === State.activeAgentId);
+  if (!agent) return;
+  const prog = agent.progression || {};
+  const level = prog.level || agent.level || 1;
+  const className = agent.class_name || 'Custom';
+  const icon = CLASS_ICONS[className] || '🌀';
+
+  document.getElementById('chat-portrait-class-icon').textContent = icon;
+  document.getElementById('chat-portrait-class-name').textContent = className;
+  document.getElementById('chat-portrait-name').textContent = agent.name || 'QuestChain';
+  document.getElementById('chat-portrait-level').textContent = `Level ${level}`;
+
+  // XP bar
+  const xpThis = prog.xp_this_level || 0;
+  const xpLeft = prog.xp_next_level || 100;
+  const xpTotal = xpThis + xpLeft;
+  const pct = xpTotal > 0 ? Math.min(100, Math.round(xpThis / xpTotal * 100)) : 0;
+  document.getElementById('chat-portrait-xp-bar-fill').style.width = pct + '%';
+  document.getElementById('chat-portrait-xp-val').textContent = `${xpThis} / ${xpTotal}`;
+
+  // Image
+  const img = document.getElementById('chat-portrait-img');
+  img.style.opacity = '0';
+  img.src = `/agent-image?agent_id=${encodeURIComponent(agent.id || '')}`;
+  img.onload = () => { img.style.opacity = '1'; };
+  img.onerror = () => { img.style.opacity = '0.2'; };
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
@@ -658,6 +689,11 @@ function fmtLarge(n) {
   if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
   return n.toString();
 }
+
+// ── Portrait panel click ──────────────────────────────────────
+document.getElementById('chat-portrait-panel').addEventListener('click', () => {
+  switchPage('agent');
+});
 
 // ── Boot ──────────────────────────────────────────────────────
 connect();

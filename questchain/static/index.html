@@ -85,7 +85,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .page.active { display: flex; }
 
 /* ── PAGE 1: CHAT ───────────────────────────────────────────── */
-#page-chat { position: relative; }
+#page-chat { flex-direction: row; }
+#chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 #chat-header {
   padding: 14px 20px;
@@ -209,6 +210,87 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 #send-btn:hover { background: #5dc8ff; }
 #send-btn:disabled { background: var(--surface3); color: var(--text-muted); cursor: not-allowed; }
 #send-btn svg { width: 16px; height: 16px; }
+
+/* ── Chat portrait right panel ──────────────────────────────── */
+#chat-portrait-panel {
+  width: 172px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#chat-portrait-panel:hover { background: var(--surface2); }
+#chat-portrait-img-wrap {
+  width: 100%;
+  aspect-ratio: 1;
+  background: var(--surface2);
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+/* subtle gradient at bottom of image for depth */
+#chat-portrait-img-wrap::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 40%;
+  background: linear-gradient(to top, var(--surface2), transparent);
+  pointer-events: none;
+}
+#chat-portrait-img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 10px;
+  transition: opacity 0.25s, transform 0.25s;
+}
+#chat-portrait-panel:hover #chat-portrait-img { transform: scale(1.03); }
+#chat-portrait-info {
+  flex: 1;
+  padding: 14px 14px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+  overflow: hidden;
+}
+#chat-portrait-class-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: 20px; padding: 2px 8px;
+  font-size: 10px; color: var(--text-dim);
+  align-self: flex-start; margin-bottom: 2px;
+}
+#chat-portrait-name {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#chat-portrait-level {
+  font-size: 12px; color: var(--accent); font-weight: 600;
+}
+#chat-portrait-xp-wrap { margin-top: 8px; }
+#chat-portrait-xp-label {
+  font-size: 10px; color: var(--text-dim);
+  display: flex; justify-content: space-between;
+  margin-bottom: 4px;
+}
+#chat-portrait-xp-bar-track {
+  height: 4px; background: var(--surface3);
+  border-radius: 2px; overflow: hidden;
+}
+#chat-portrait-xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #88ddff);
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--accent-glow);
+  transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+#chat-portrait-view-link {
+  margin-top: auto; padding-top: 12px;
+  font-size: 10px; color: var(--text-muted);
+  display: flex; align-items: center; gap: 4px;
+}
+#chat-portrait-panel:hover #chat-portrait-view-link { color: var(--accent); }
 
 /* ── PAGE 2: AGENT STATS ────────────────────────────────────── */
 #page-agent {
@@ -610,32 +692,64 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     <!-- PAGE 1: CHAT -->
     <div class="page active" id="page-chat">
-      <div id="chat-header">
-        <span id="chat-agent-name">QuestChain</span>
-        <span id="chat-agent-level">Lv. 1</span>
-        <span id="chat-model"></span>
-        <button id="btn-new-chat" title="New conversation">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Chat
-        </button>
-      </div>
 
-      <div id="messages">
-        <div class="msg assistant">
-          <div class="msg-avatar">⚔</div>
-          <div>
-            <div class="msg-source-label">QuestChain</div>
-            <div class="msg-bubble">Ready for your quest. What shall we do?</div>
+      <!-- Chat column -->
+      <div id="chat-main">
+        <div id="chat-header">
+          <span id="chat-agent-name">QuestChain</span>
+          <span id="chat-agent-level">Lv. 1</span>
+          <span id="chat-model"></span>
+          <button id="btn-new-chat" title="New conversation">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Chat
+          </button>
+        </div>
+
+        <div id="messages">
+          <div class="msg assistant">
+            <div class="msg-avatar">⚔</div>
+            <div>
+              <div class="msg-source-label">QuestChain</div>
+              <div class="msg-bubble">Ready for your quest. What shall we do?</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div id="chat-input-wrap">
-        <textarea id="chat-input" rows="1" placeholder="Send a message…"></textarea>
-        <button id="send-btn" title="Send">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        </button>
-      </div>
+        <div id="chat-input-wrap">
+          <textarea id="chat-input" rows="1" placeholder="Send a message…"></textarea>
+          <button id="send-btn" title="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div><!-- /chat-main -->
+
+      <!-- Agent portrait right panel -->
+      <div id="chat-portrait-panel" title="View agent stats">
+        <div id="chat-portrait-img-wrap">
+          <img id="chat-portrait-img" src="" alt="Agent" />
+        </div>
+        <div id="chat-portrait-info">
+          <div id="chat-portrait-class-badge">
+            <span id="chat-portrait-class-icon">🌀</span>
+            <span id="chat-portrait-class-name">Custom</span>
+          </div>
+          <div id="chat-portrait-name">QuestChain</div>
+          <div id="chat-portrait-level">Level 1</div>
+          <div id="chat-portrait-xp-wrap">
+            <div id="chat-portrait-xp-label">
+              <span>XP</span><span id="chat-portrait-xp-val">0 / 100</span>
+            </div>
+            <div id="chat-portrait-xp-bar-track">
+              <div id="chat-portrait-xp-bar-fill" style="width:0%"></div>
+            </div>
+          </div>
+          <div id="chat-portrait-view-link">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+            View Stats
+          </div>
+        </div>
+      </div><!-- /chat-portrait-panel -->
+
     </div>
 
     <!-- PAGE 2: AGENT STATS -->
