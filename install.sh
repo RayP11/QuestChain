@@ -68,7 +68,7 @@ DATA_DIR="$HOME/.questchain"
 DATA_ENV="$DATA_DIR/.env"
 
 step "Setting up workspace at $WORKSPACE_DIR..."
-mkdir -p "$WORKSPACE_DIR/workspace/memory" "$WORKSPACE_DIR/workspace/skills"
+mkdir -p "$WORKSPACE_DIR/workspace/memory" "$WORKSPACE_DIR/workspace/quests"
 mkdir -p "$DATA_DIR"
 
 # Pin the workspace in ~/.questchain/.env so 'questchain' finds it from any terminal.

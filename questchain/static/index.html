@@ -380,6 +380,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   background: var(--accent); box-shadow: 0 0 5px var(--accent);
   flex-shrink: 0;
 }
+.roster-item-actions { display: flex; gap: 3px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; margin-left: auto; }
+.roster-item:hover .roster-item-actions { opacity: 1; }
+.roster-item-action { width: 22px; height: 22px; border-radius: 4px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; transition: all 0.15s; }
+.roster-item-action:hover { background: var(--surface3); color: var(--text); }
+.roster-item-action.danger:hover { background: rgba(255,76,110,0.15); color: var(--red); }
 
 /* ── PAGE 3: QUESTS ─────────────────────────────────────────── */
 #page-quests { flex-direction: row; }

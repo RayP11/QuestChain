@@ -110,7 +110,7 @@ $DataEnv      = Join-Path $DataDir ".env"
 
 Step "Setting up workspace at $WorkspaceDir..."
 New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceDir "workspace\memory") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceDir "workspace\skills")  | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $WorkspaceDir "workspace\quests")  | Out-Null
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # Pin the workspace in ~/.questchain/.env so 'questchain' finds it from any terminal.

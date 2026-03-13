@@ -13,6 +13,7 @@ const State = {
   page: 'chat',
   settings: null,
   editingAgentId: null,
+  pendingEditId: null,   // agent to open in edit form once settings load
 };
 
 // ── WebSocket ─────────────────────────────────────────────────
@@ -147,6 +148,14 @@ function onQuests(msg) {
 function onSettings(msg) {
   State.settings = msg;
   if (State.page === 'settings') renderSettings();
+  // Handle a deferred edit triggered from the agent roster
+  if (State.pendingEditId) {
+    const id = State.pendingEditId;
+    State.pendingEditId = null;
+    const agent = (State.settings?.agents || []).find(a => a.id === id)
+               || State.agents.find(a => a.id === id);
+    if (agent) openAgentForm(agent);
+  }
 }
 
 // ── Settings rendering ────────────────────────────────────────
@@ -176,11 +185,17 @@ function renderSettings() {
       <td class="agent-tbl-class">${escHtml(a.class_name)}</td>
       <td class="agent-tbl-model">${escHtml(a.model || '—')}</td>
       <td><div class="agent-tbl-actions">
-        <button class="btn-icon" onclick="editAgent('${escAttr(a.id)}')">Edit</button>
-        ${a.id !== 'default' ? `<button class="btn-icon danger" onclick="deleteAgent('${escAttr(a.id)}')">Delete</button>` : ''}
+        <button class="btn-icon" data-edit-id="${escAttr(a.id)}">Edit</button>
+        ${a.id !== 'default' ? `<button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>` : ''}
       </div></td>
     </tr>
   `).join('');
+  tbody.querySelectorAll('[data-edit-id]').forEach(btn => {
+    btn.addEventListener('click', () => openAgentFormById(btn.dataset.editId));
+  });
+  tbody.querySelectorAll('[data-delete-id]').forEach(btn => {
+    btn.addEventListener('click', () => deleteAgent(btn.dataset.deleteId));
+  });
 
   // Populate class <select> once
   const sel = document.getElementById('af-class');
@@ -201,9 +216,12 @@ function renderSettings() {
         <span class="cron-name">${escHtml(j.name || j.id)}</span>
         <span class="cron-expr">${escHtml(j.cron_expression || '')}</span>
         <span class="cron-status ${j.enabled !== false ? 'on' : 'off'}">${j.enabled !== false ? 'ON' : 'OFF'}</span>
-        <button class="btn-icon danger" onclick="deleteCronJob('${escAttr(j.id)}')">Remove</button>
+        <button class="btn-icon danger" data-cron-id="${escAttr(j.id)}">Remove</button>
       </div>
     `).join('');
+    cronBody.querySelectorAll('[data-cron-id]').forEach(btn => {
+      btn.addEventListener('click', () => deleteCronJob(btn.dataset.cronId));
+    });
   } else {
     cronBody.innerHTML = '<span class="cron-empty">No cron jobs configured.</span>';
   }
@@ -258,9 +276,24 @@ function openAgentForm(agent) {
   document.getElementById('af-name').focus();
 }
 
+// Opens the agent edit form by ID, navigating to settings first if needed.
+// Used by roster edit buttons (may be called from the agent page).
 function editAgent(id) {
-  const agent = (State.settings?.agents || []).find(a => a.id === id);
-  if (agent) openAgentForm(agent);
+  if (State.page !== 'settings') switchPage('settings');
+  openAgentFormById(id);
+}
+
+// Opens the agent edit form by ID. Assumes settings data is available or defers.
+// Used by the settings page agent table (already on the right page).
+function openAgentFormById(id) {
+  const agent = (State.settings?.agents || []).find(a => a.id === id)
+             || State.agents.find(a => a.id === id);
+  if (!agent) {
+    State.pendingEditId = id;
+    send({ type: 'get_settings' });
+    return;
+  }
+  openAgentForm(agent);
 }
 
 function deleteAgent(id) {
@@ -403,6 +436,9 @@ function renderRoster() {
     const isViewing = a.id === State.viewingAgentId;
     const isActive = a.id === State.activeAgentId;
     const icon = CLASS_ICONS[a.class_name] || '🌀';
+    const delBtn = a.id !== 'default'
+      ? `<button class="roster-item-action danger" data-action="delete" data-id="${escAttr(a.id)}" title="Delete agent">✕</button>`
+      : '';
     return `
       <div class="roster-item ${isViewing ? 'active' : ''}" data-id="${escAttr(a.id)}">
         <span class="roster-item-icon">${icon}</span>
@@ -411,24 +447,44 @@ function renderRoster() {
           <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(a.class_name || 'Custom')}</div>
         </div>
         ${isActive ? '<div class="roster-item-active-dot" title="Active in CLI"></div>' : ''}
+        <div class="roster-item-actions">
+          <button class="roster-item-action" data-action="edit" data-id="${escAttr(a.id)}" title="Edit agent">✏</button>
+          ${delBtn}
+        </div>
       </div>`;
   }).join('');
 
   list.querySelectorAll('.roster-item').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action]')) return;
       const id = el.dataset.id;
       State.viewingAgentId = id;
       State.activeAgentId = id;
       send({ type: 'switch_agent', agent_id: id });
-      // Render stats immediately from cached agents data; server will broadcast
-      // a fresh agents payload once the CLI rebuilds the agent.
       renderRoster();
       renderStatsFromAgents();
       updateChatHeader();
     });
   });
 
-  // Image is updated via renderStats (fresh server data) — not here
+  list.querySelectorAll('[data-action="edit"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      editAgent(btn.dataset.id);
+    });
+  });
+
+  list.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const agent = State.agents.find(a => a.id === id);
+      const name = agent ? agent.name : id;
+      if (confirm(`Delete agent "${name}"? This cannot be undone.`)) {
+        send({ type: 'delete_agent', agent_id: id });
+      }
+    });
+  });
 }
 
 // ── Quest rendering ───────────────────────────────────────────
@@ -481,25 +537,26 @@ function clearEditor() {
 }
 
 // ── Navigation ────────────────────────────────────────────────
+function switchPage(page) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`.nav-btn[data-page="${page}"]`);
+  if (btn) btn.classList.add('active');
+  document.getElementById(`page-${page}`).classList.add('active');
+  State.page = page;
+  if (page === 'agent') {
+    renderStatsFromAgents();
+    send({ type: 'get_agents' });
+  }
+  if (page === 'quests') send({ type: 'get_quests' });
+  if (page === 'settings') {
+    send({ type: 'get_settings' });
+    renderSettings();
+  }
+}
+
 document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const page = btn.dataset.page;
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`page-${page}`).classList.add('active');
-    State.page = page;
-    if (page === 'agent') {
-      renderStatsFromAgents();
-      // Also pull a fresh agents payload so data is up-to-date
-      send({ type: 'get_agents' });
-    }
-    if (page === 'quests') send({ type: 'get_quests' });
-    if (page === 'settings') {
-      send({ type: 'get_settings' });
-      renderSettings();
-    }
-  });
+  btn.addEventListener('click', () => switchPage(btn.dataset.page));
 });
 
 // ── Chat input ────────────────────────────────────────────────

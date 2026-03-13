@@ -1,7 +1,7 @@
 [project]
 name = "questchain"
 version = "0.1.0"
-description = "A terminal-based AI agent powered by local Ollama models and LangGraph Deep Agents"
+description = "A fully local, autonomous AI agent framework powered by Ollama — no cloud, no subscriptions"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
