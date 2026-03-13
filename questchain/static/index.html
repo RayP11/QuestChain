@@ -220,21 +220,23 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* Top section: image + info — clickable, navigates to agent page */
+#chat-portrait-header {
+  flex-shrink: 0;
   cursor: pointer;
   transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
 }
-#chat-portrait-panel:hover { background: var(--surface2); }
+#chat-portrait-header:hover { background: var(--surface2); }
 #chat-portrait-img-wrap {
   width: 100%;
   aspect-ratio: 1;
   background: var(--surface2);
-  flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
-  border-bottom: 1px solid var(--border);
   position: relative;
 }
-/* subtle gradient at bottom of image for depth */
 #chat-portrait-img-wrap::after {
   content: '';
   position: absolute; bottom: 0; left: 0; right: 0; height: 40%;
@@ -247,12 +249,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   padding: 10px;
   transition: opacity 0.25s, transform 0.25s;
 }
-#chat-portrait-panel:hover #chat-portrait-img { transform: scale(1.03); }
+#chat-portrait-header:hover #chat-portrait-img { transform: scale(1.03); }
 #chat-portrait-info {
-  flex: 1;
-  padding: 14px 14px 10px;
+  padding: 12px 14px 10px;
   display: flex; flex-direction: column; gap: 4px;
-  overflow: hidden;
 }
 #chat-portrait-class-badge {
   display: inline-flex; align-items: center; gap: 4px;
@@ -265,32 +265,62 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-size: 14px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#chat-portrait-level {
-  font-size: 12px; color: var(--accent); font-weight: 600;
-}
-#chat-portrait-xp-wrap { margin-top: 8px; }
+#chat-portrait-level { font-size: 12px; color: var(--accent); font-weight: 600; }
+#chat-portrait-xp-wrap { margin-top: 6px; }
 #chat-portrait-xp-label {
   font-size: 10px; color: var(--text-dim);
-  display: flex; justify-content: space-between;
-  margin-bottom: 4px;
+  display: flex; justify-content: space-between; margin-bottom: 4px;
 }
-#chat-portrait-xp-bar-track {
-  height: 4px; background: var(--surface3);
-  border-radius: 2px; overflow: hidden;
-}
+#chat-portrait-xp-bar-track { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
 #chat-portrait-xp-bar-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), #88ddff);
-  border-radius: 2px;
-  box-shadow: 0 0 6px var(--accent-glow);
+  border-radius: 2px; box-shadow: 0 0 6px var(--accent-glow);
   transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
 }
 #chat-portrait-view-link {
-  margin-top: auto; padding-top: 12px;
-  font-size: 10px; color: var(--text-muted);
+  margin-top: 8px; font-size: 10px; color: var(--text-muted);
   display: flex; align-items: center; gap: 4px;
 }
-#chat-portrait-panel:hover #chat-portrait-view-link { color: var(--accent); }
+#chat-portrait-header:hover #chat-portrait-view-link { color: var(--accent); }
+
+/* Agent list below portrait */
+#chat-agent-list-wrap {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#chat-agent-list-wrap::-webkit-scrollbar { width: 3px; }
+#chat-agent-list-wrap::-webkit-scrollbar-thumb { background: var(--border2); }
+.chat-agent-list-header {
+  padding: 8px 14px 5px;
+  font-size: 9px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+#chat-agent-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+}
+#chat-agent-list::-webkit-scrollbar { width: 3px; }
+#chat-agent-list::-webkit-scrollbar-thumb { background: var(--border2); }
+.chat-agent-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; cursor: pointer;
+  transition: background 0.12s;
+  border-left: 2px solid transparent;
+}
+.chat-agent-item:hover { background: var(--surface2); }
+.chat-agent-item.active {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+}
+.chat-agent-item-icon { font-size: 13px; flex-shrink: 0; }
+.chat-agent-item-info { flex: 1; min-width: 0; }
+.chat-agent-item-name {
+  font-size: 11px; font-weight: 500; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chat-agent-item-sub { font-size: 9px; color: var(--text-dim); }
 
 /* ── PAGE 2: AGENT STATS ────────────────────────────────────── */
 #page-agent {
@@ -724,30 +754,41 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div><!-- /chat-main -->
 
       <!-- Agent portrait right panel -->
-      <div id="chat-portrait-panel" title="View agent stats">
-        <div id="chat-portrait-img-wrap">
-          <img id="chat-portrait-img" src="" alt="Agent" />
-        </div>
-        <div id="chat-portrait-info">
-          <div id="chat-portrait-class-badge">
-            <span id="chat-portrait-class-icon">🌀</span>
-            <span id="chat-portrait-class-name">Custom</span>
+      <div id="chat-portrait-panel">
+
+        <!-- Clickable header: sprite + active agent info -->
+        <div id="chat-portrait-header" title="View agent stats">
+          <div id="chat-portrait-img-wrap">
+            <img id="chat-portrait-img" src="" alt="Agent" />
           </div>
-          <div id="chat-portrait-name">QuestChain</div>
-          <div id="chat-portrait-level">Level 1</div>
-          <div id="chat-portrait-xp-wrap">
-            <div id="chat-portrait-xp-label">
-              <span>XP</span><span id="chat-portrait-xp-val">0 / 100</span>
+          <div id="chat-portrait-info">
+            <div id="chat-portrait-class-badge">
+              <span id="chat-portrait-class-icon">🌀</span>
+              <span id="chat-portrait-class-name">Custom</span>
             </div>
-            <div id="chat-portrait-xp-bar-track">
-              <div id="chat-portrait-xp-bar-fill" style="width:0%"></div>
+            <div id="chat-portrait-name">QuestChain</div>
+            <div id="chat-portrait-level">Level 1</div>
+            <div id="chat-portrait-xp-wrap">
+              <div id="chat-portrait-xp-label">
+                <span>XP</span><span id="chat-portrait-xp-val">0 / 100</span>
+              </div>
+              <div id="chat-portrait-xp-bar-track">
+                <div id="chat-portrait-xp-bar-fill" style="width:0%"></div>
+              </div>
+            </div>
+            <div id="chat-portrait-view-link">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+              View Stats
             </div>
           </div>
-          <div id="chat-portrait-view-link">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
-            View Stats
-          </div>
+        </div><!-- /chat-portrait-header -->
+
+        <!-- Scrollable agent switcher list -->
+        <div id="chat-agent-list-wrap">
+          <div class="chat-agent-list-header">Agents</div>
+          <div id="chat-agent-list"></div>
         </div>
+
       </div><!-- /chat-portrait-panel -->
 
     </div>

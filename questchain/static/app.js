@@ -113,6 +113,7 @@ function onAgents(msg) {
   // Always update viewing to match active when agents list refreshes
   State.viewingAgentId = State.activeAgentId;
   renderRoster();
+  renderChatAgentList();
   updateChatHeader();
   // Render stats panel directly from enriched agents data — no extra roundtrip
   renderStatsFromAgents();
@@ -395,6 +396,37 @@ function updateChatPortrait(agent) {
   img.src = `/agent-image?agent_id=${encodeURIComponent(agent.id || '')}`;
   img.onload = () => { img.style.opacity = '1'; };
   img.onerror = () => { img.style.opacity = '0.2'; };
+}
+
+function renderChatAgentList() {
+  const list = document.getElementById('chat-agent-list');
+  if (!list) return;
+  list.innerHTML = State.agents.map(a => {
+    const icon = CLASS_ICONS[a.class_name] || '🌀';
+    const level = a.progression?.level || a.level || 1;
+    const isActive = a.id === State.activeAgentId;
+    return `
+      <div class="chat-agent-item ${isActive ? 'active' : ''}" data-id="${escAttr(a.id)}">
+        <span class="chat-agent-item-icon">${icon}</span>
+        <div class="chat-agent-item-info">
+          <div class="chat-agent-item-name">${escHtml(a.name || 'Agent')}</div>
+          <div class="chat-agent-item-sub">Lv. ${level} · ${escHtml(a.class_name || 'Custom')}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.chat-agent-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.id;
+      if (id === State.activeAgentId) return;
+      State.activeAgentId = id;
+      State.viewingAgentId = id;
+      send({ type: 'switch_agent', agent_id: id });
+      renderChatAgentList();
+      renderRoster();
+      updateChatHeader();
+    });
+  });
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
@@ -690,8 +722,8 @@ function fmtLarge(n) {
   return n.toString();
 }
 
-// ── Portrait panel click ──────────────────────────────────────
-document.getElementById('chat-portrait-panel').addEventListener('click', () => {
+// ── Portrait header click (navigate to agent stats) ───────────
+document.getElementById('chat-portrait-header').addEventListener('click', () => {
   switchPage('agent');
 });
 
