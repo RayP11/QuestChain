@@ -21,6 +21,10 @@ class QuestRunner:
 
     A shared *busy_lock* prevents quest ticks from running while the agent
     is already processing a user or Telegram message.
+
+    When *agent_manager* and *agent_factory* are provided, quests that have an
+    ``agent:`` frontmatter key are routed to that specific agent instead of the
+    currently active one.
     """
 
     def __init__(
@@ -29,11 +33,15 @@ class QuestRunner:
         send_callback: Callable[[str], Awaitable[None]],
         interval_minutes: int = 60,
         busy_lock: asyncio.Lock | None = None,
+        agent_manager=None,   # questchain.agents.AgentManager — for per-quest routing
+        agent_factory=None,   # Callable[[dict], Agent] — creates agent from def
     ):
         self._agent_holder = agent_holder
         self._send_callback = send_callback
         self._interval_minutes = interval_minutes
         self._busy_lock = busy_lock
+        self._agent_manager = agent_manager
+        self._agent_factory = agent_factory
         self._running = False
         self._task: asyncio.Task | None = None
         self._current_tick_task: asyncio.Task | None = None
@@ -97,17 +105,60 @@ class QuestRunner:
             logger.debug("Quest: skipping tick — agent is busy")
             return
 
+        # Find the next quest and resolve which agent should run it.
+        from questchain.config import WORKSPACE_DIR
+        from questchain.quest_meta import parse_quest
+
+        quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+        if not quests_dir.exists():
+            return
+        quest_files = sorted(quests_dir.glob("*.md"))
+        if not quest_files:
+            return
+
+        quest_path = quest_files[0]
+        try:
+            meta, _ = parse_quest(quest_path)
+        except Exception:
+            meta = {}
+
+        assigned_agent_id = meta.get("agent", "")
+
+        # Determine the agent instance to use for this quest.
+        active_id = self._agent_manager.get_active_id() if self._agent_manager else ""
+        agent = self._agent_holder["agent"]
+        effective_agent_id = active_id  # tracks which agent actually runs the quest
+        if (
+            assigned_agent_id
+            and self._agent_manager is not None
+            and self._agent_factory is not None
+        ):
+            agent_def = self._agent_manager.get(assigned_agent_id)
+            if agent_def:
+                if agent_def["id"] != active_id:
+                    try:
+                        agent = self._agent_factory(agent_def)
+                        effective_agent_id = agent_def["id"]
+                    except Exception:
+                        logger.warning(
+                            "Quest: failed to create agent %s — using active agent",
+                            assigned_agent_id,
+                        )
+                else:
+                    effective_agent_id = assigned_agent_id
+
         thread_id = f"quest_{uuid.uuid4().hex}"
-        logger.debug("Quest tick — thread %s", thread_id)
+        logger.debug(
+            "Quest tick — thread %s, agent %s",
+            thread_id,
+            assigned_agent_id or "active",
+        )
 
         async def _run_quest() -> str | None:
-            # Always look up the live agent from the holder so agent switches
-            # are respected without needing to restart the runner.
-            agent = self._agent_holder["agent"]
             if self._busy_lock is not None:
                 async with self._busy_lock:
-                    return await agent.run_quest(thread_id)
-            return await agent.run_quest(thread_id)
+                    return await agent.run_quest(thread_id, quest_path=quest_path)
+            return await agent.run_quest(thread_id, quest_path=quest_path)
 
         try:
             self._current_tick_task = asyncio.create_task(
@@ -121,14 +172,14 @@ class QuestRunner:
         except asyncio.TimeoutError:
             logger.warning("Quest timed out after %ds", HEARTBEAT_TIMEOUT)
             try:
-                await self._send_callback("Quest timed out — agent took too long.")
+                await self._send_callback("Quest timed out — agent took too long.", "")
             except Exception:
                 logger.exception("Failed to deliver quest timeout message")
             return
         except Exception as e:
             logger.exception("Quest tick failed")
             try:
-                await self._send_callback(f"Quest error: {e}")
+                await self._send_callback(f"Quest error: {e}", "")
             except Exception:
                 logger.exception("Failed to deliver quest error message")
             return
@@ -136,6 +187,6 @@ class QuestRunner:
             self._current_tick_task = None
 
         if result:
-            await self._send_callback(result)
+            await self._send_callback(result, effective_agent_id)
         else:
             logger.debug("Quest: nothing to do")

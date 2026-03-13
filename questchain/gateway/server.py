@@ -325,15 +325,17 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
     elif t == "create_quest":
         name = (msg.get("name") or "").strip()
         content = msg.get("content") or ""
+        agent_id = (msg.get("agent_id") or "").strip()
         if name:
-            _save_quest(name, content)
+            _save_quest(name, content, agent_id)
             get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
 
     elif t == "update_quest":
         name = msg.get("name") or ""
         content = msg.get("content") or ""
+        agent_id = (msg.get("agent_id") or "").strip()
         if name:
-            _save_quest(name, content)
+            _save_quest(name, content, agent_id)
             get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
 
     elif t == "delete_quest":
@@ -650,29 +652,37 @@ def _quests_dir() -> Path:
 
 
 def _list_quests() -> list[dict]:
+    from questchain.quest_meta import parse_quest
     quests = []
     for f in sorted(_quests_dir().glob("*.md")):
         try:
-            content = f.read_text(encoding="utf-8")
-            # Pull title from first # heading or filename
+            meta, body = parse_quest(f)
+            # Pull title from first # heading in body, or filename
             title = f.stem
-            for line in content.splitlines():
+            for line in body.splitlines():
                 line = line.strip()
                 if line.startswith("#"):
                     title = line.lstrip("#").strip()
                     break
-            quests.append({"name": f.name, "title": title, "content": content})
+            quests.append({
+                "name": f.name,
+                "title": title,
+                "content": body,      # body only — no frontmatter
+                "agent_id": meta.get("agent", ""),
+            })
         except Exception:
             pass
     return quests
 
 
-def _save_quest(name: str, content: str) -> None:
+def _save_quest(name: str, content: str, agent_id: str = "") -> None:
+    from questchain.quest_meta import render_quest
     if not name.endswith(".md"):
         name = name + ".md"
     # Sanitize filename
     name = "".join(c for c in name if c.isalnum() or c in "-_. ")
-    (_quests_dir() / name).write_text(content, encoding="utf-8")
+    meta = {"agent": agent_id} if agent_id else {}
+    (_quests_dir() / name).write_text(render_quest(meta, content), encoding="utf-8")
 
 
 def _delete_quest(name: str) -> None:

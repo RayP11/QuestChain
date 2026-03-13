@@ -144,27 +144,38 @@ class Agent:
             "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
         )
 
-    async def run_quest(self, thread_id: str) -> str | None:
-        """Pick and complete the alphabetically-first quest in workspace/quests/.
+    async def run_quest(self, thread_id: str, quest_path: "Path | None" = None) -> str | None:
+        """Pick and complete a quest from workspace/quests/.
+
+        Args:
+            thread_id: Conversation thread identifier.
+            quest_path: Specific quest file to run. If None, picks the
+                        alphabetically-first quest in workspace/quests/.
 
         Returns the agent's summary response, or None if there are no quests.
         Deletes the quest file on completion.
         """
         from questchain.config import WORKSPACE_DIR
+        from questchain.quest_meta import parse_quest
 
-        quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-        if not quests_dir.exists():
+        if quest_path is None:
+            quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+            if not quests_dir.exists():
+                return None
+            quest_files = sorted(quests_dir.glob("*.md"))
+            if not quest_files:
+                return None
+            quest_path = quest_files[0]
+
+        if not quest_path.exists():
             return None
 
-        quest_files = sorted(quests_dir.glob("*.md"))
-        if not quest_files:
-            return None
-
-        quest_path = quest_files[0]
         quest_name = quest_path.name
+        _, body = parse_quest(quest_path)
 
         prompt = (
-            f"QUEST: Complete the task in /workspace/quests/{quest_name}. "
+            f"QUEST: Complete the following task (from {quest_name}).\n\n"
+            f"{body}\n\n"
             f"When finished, present your actual findings, results, or produced content directly "
             f"in your response — not a description of steps taken."
         )

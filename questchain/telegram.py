@@ -193,13 +193,13 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /quest — start the two-step quest creation wizard."""
+    """Handle /quest — start the three-step quest creation wizard."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
     context.chat_data["creating_quest"] = {"step": "title"}
     await update.message.reply_text(
-        "New quest — send /cancel at any time.\n\nStep 1/2 — What's the quest title?"
+        "New quest — send /cancel at any time.\n\nStep 1/3 — What's the quest title?"
     )
 
 
@@ -224,35 +224,93 @@ async def _handle_quest_wizard(update: Update, context: ContextTypes.DEFAULT_TYP
             return True
         state["title"] = text
         state["step"] = "content"
-        await update.message.reply_text("Step 2/2 — Describe what the agent should do:")
+        await update.message.reply_text("Step 2/3 — Describe what the agent should do:")
 
     elif step == "content":
         if not text:
             await update.message.reply_text("Content can't be empty. Describe the quest:")
             return True
 
-        import re
-        from questchain.config import WORKSPACE_DIR
+        state["content"] = text
+        state["step"] = "agent"
 
-        title = state["title"]
-        quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-        quests_dir.mkdir(parents=True, exist_ok=True)
-
-        words = re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
-        slug = "-".join(words[:5]) or "quest"
-        path = quests_dir / f"{slug}.md"
-        counter = 2
-        while path.exists():
-            path = quests_dir / f"{slug}-{counter}.md"
-            counter += 1
-
-        path.write_text(f"# {title}\n\n{text}", encoding="utf-8")
-        context.chat_data.pop("creating_quest", None)
+        # Build agent selection keyboard
+        agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+        agents = agent_manager.all_agents() if agent_manager else []
+        keyboard = [
+            [InlineKeyboardButton(f"🤖 {a['name']}", callback_data=f"quest_agent:pick:{a['id']}")]
+            for a in agents
+        ]
+        keyboard.append([InlineKeyboardButton("⚔ Any agent (default)", callback_data="quest_agent:pick:none")])
         await update.message.reply_text(
-            f"✓ Quest added: `{path.name}`", parse_mode=ParseMode.MARKDOWN
+            "Step 3/3 — Which agent should complete this quest?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     return True
+
+
+async def _save_quest_from_wizard(
+    state: dict, agent_id: str | None
+) -> str:
+    """Write quest file and return its filename."""
+    import re
+    from questchain.config import WORKSPACE_DIR
+    from questchain.quest_meta import render_quest
+
+    title = state["title"]
+    content = state["content"]
+    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
+    quests_dir.mkdir(parents=True, exist_ok=True)
+
+    words = re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
+    slug = "-".join(words[:5]) or "quest"
+    path = quests_dir / f"{slug}.md"
+    counter = 2
+    while path.exists():
+        path = quests_dir / f"{slug}-{counter}.md"
+        counter += 1
+
+    meta = {"agent": agent_id} if agent_id else {}
+    body = f"# {title}\n\n{content}"
+    path.write_text(render_quest(meta, body), encoding="utf-8")
+    return path.name
+
+
+async def callback_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle quest_agent: inline keyboard callbacks (agent selection)."""
+    query = update.callback_query
+    if not _is_owner(query.from_user.id):
+        await query.answer("This bot is private.")
+        return
+
+    await query.answer()
+    data = query.data or ""
+    # data format: "quest_agent:pick:<agent_id|none>"
+    parts = data.split(":", 2)
+    if len(parts) < 3:
+        return
+
+    state = context.chat_data.get("creating_quest")
+    if state is None or state.get("step") != "agent":
+        await query.edit_message_text("Quest wizard expired. Use /quest to start again.")
+        return
+
+    agent_id = parts[2] if parts[2] != "none" else None
+    filename = await _save_quest_from_wizard(state, agent_id)
+    context.chat_data.pop("creating_quest", None)
+
+    agent_label = ""
+    if agent_id:
+        agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
+        if agent_manager:
+            agent_def = agent_manager.get(agent_id)
+            if agent_def:
+                agent_label = f" (assigned to {agent_def['name']})"
+
+    await query.edit_message_text(
+        f"✓ Quest added: `{filename}`{agent_label}", parse_mode=ParseMode.MARKDOWN
+    )
 
 
 async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -270,12 +328,16 @@ async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("No quests pending.")
         return
 
+    from questchain.quest_meta import parse_quest
+    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
     lines = [f"*Pending quests ({len(quest_files)}):*\n"]
     for f in quest_files:
         title = None
         description = None
+        agent_label = ""
         try:
-            for raw_line in f.read_text(encoding="utf-8").splitlines():
+            meta, body = parse_quest(f)
+            for raw_line in body.splitlines():
                 stripped = raw_line.strip()
                 if not stripped:
                     continue
@@ -284,10 +346,15 @@ async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 elif description is None and not stripped.startswith("#"):
                     description = stripped
                     break
+            assigned = meta.get("agent", "")
+            if assigned and agent_manager:
+                agent_def = agent_manager.get(assigned)
+                if agent_def:
+                    agent_label = f" \\[{agent_def['name']}]"
         except Exception:
             pass
         title = title or f.stem
-        entry = f"• *{title}*"
+        entry = f"• *{title}*{agent_label}"
         if description:
             entry += f"\n  _{description[:120]}{'…' if len(description) > 120 else ''}_"
         lines.append(entry)
@@ -1089,6 +1156,7 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("level", cmd_level))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
+    app.add_handler(CallbackQueryHandler(callback_quest, pattern="^quest_agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
 

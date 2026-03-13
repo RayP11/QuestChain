@@ -627,7 +627,7 @@ async def _inline_file_editor(file_path, title: str) -> bool:
     return True
 
 
-async def _quest_menu(session: PromptSession) -> None:
+async def _quest_menu(session: PromptSession, agent_manager=None) -> None:
     """Keyboard-driven quest management menu (arrow keys + Enter)."""
     from prompt_toolkit import Application
     from prompt_toolkit.layout import Layout
@@ -636,12 +636,28 @@ async def _quest_menu(session: PromptSession) -> None:
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style as PTStyle
     from questchain.config import WORKSPACE_DIR
+    from questchain.quest_meta import parse_quest, render_quest
 
     quests_dir = WORKSPACE_DIR / "workspace" / "quests"
     quests_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_quests():
         return sorted(quests_dir.glob("*.md"))
+
+    def _quest_agent_label(f):
+        """Return e.g. ' [Aria]' if quest has an agent assigned, else ''."""
+        try:
+            meta, _ = parse_quest(f)
+            agent_id = meta.get("agent", "")
+            if agent_id and agent_manager:
+                agent_def = agent_manager.get(agent_id)
+                if agent_def:
+                    return f" [{agent_def['name']}]"
+            elif agent_id:
+                return f" [{agent_id[:8]}]"
+        except Exception:
+            pass
+        return ""
 
     quest_files = _load_quests()
     state = {"idx": 0, "files": quest_files, "exit": False, "open_editor": None, "new_quest": False, "delete": False}
@@ -654,10 +670,11 @@ async def _quest_menu(session: PromptSession) -> None:
             lines.append(("class:dim", " No quests yet. Press n to create one.\n"))
         else:
             for i, f in enumerate(files):
+                label = _quest_agent_label(f)
                 if i == state["idx"]:
-                    lines.append(("class:selected", f" ▶ {f.name}\n"))
+                    lines.append(("class:selected", f" ▶ {f.name}{label}\n"))
                 else:
-                    lines.append(("class:item", f"   {f.name}\n"))
+                    lines.append(("class:item", f"   {f.name}{label}\n"))
         return lines
 
     content = FormattedTextControl(text=_render, focusable=True)
@@ -729,7 +746,23 @@ async def _quest_menu(session: PromptSession) -> None:
             if name.strip():
                 slug = name.strip().rstrip(".md")
                 new_path = quests_dir / f"{slug}.md"
-                new_path.write_text("", encoding="utf-8")
+
+                # Optional agent assignment
+                meta: dict = {}
+                if agent_manager:
+                    agents = agent_manager.all_agents()
+                    if agents:
+                        console.print("\n[dim]Assign to agent? (Enter to skip)[/dim]")
+                        for i, a in enumerate(agents, 1):
+                            console.print(f"  {i}. [cyan]{a['name']}[/cyan]")
+                        raw = await _prompt_line(session, f"Pick [1-{len(agents)}] or Enter: ")
+                        if raw.strip().isdigit():
+                            idx = int(raw.strip()) - 1
+                            if 0 <= idx < len(agents):
+                                meta = {"agent": agents[idx]["id"]}
+                                console.print(f"[dim]Assigned to {agents[idx]['name']}[/dim]")
+
+                new_path.write_text(render_quest(meta, ""), encoding="utf-8")
                 await _inline_file_editor(new_path, new_path.name)
             continue
 
@@ -1525,11 +1558,40 @@ async def _run_with_quests(
     agent_lock = asyncio.Lock()
 
     if quest_minutes is not None:
-        async def merged_callback(text: str) -> None:
+        async def merged_callback(text: str, quest_agent_id: str = "") -> None:
             console.print()
             console.print(Panel(text, title="[bold blue]Quest[/bold blue]", border_style="blue"))
             console.print()
-            if _progression is not None:
+
+            # Award XP to the agent that actually completed the quest.
+            # If a non-active agent ran it, load their ProgressionManager from disk.
+            active_id = agent_manager.get_active_id() if agent_manager else ""
+            if quest_agent_id and quest_agent_id != active_id and agent_manager:
+                agent_def = agent_manager.get(quest_agent_id)
+                if agent_def:
+                    from questchain.progression import ProgressionManager as _PM
+                    quest_prog = _PM(agent_def["id"], agent_def.get("class_name", "Custom"))
+                    quest_prog.load()
+                    grant = quest_prog.award_xp([], is_quest=True)
+                    if grant.leveled_up:
+                        print_level_up(grant, agent_def.get("class_name", "Custom"))
+                        if telegram_send:
+                            try:
+                                await telegram_send(
+                                    f"⚔ {agent_def['name']} LEVEL UP (quest) — now Level {grant.new_level}!"
+                                )
+                            except Exception:
+                                pass
+                    for ach in grant.new_achievements:
+                        print_achievement_unlock(ach)
+                    try:
+                        from questchain.gateway.events import get_bus as _get_bus
+                        from questchain.gateway.server import _stats_payload, _agents_payload
+                        _get_bus().publish_nowait({"type": "stats", **_stats_payload(quest_agent_id)})
+                        _get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                    except Exception:
+                        pass
+            elif _progression is not None:
                 grant = _progression.award_xp([], is_quest=True)
                 if grant.leveled_up:
                     print_level_up(grant, _progression.get_record().class_name)
@@ -1546,17 +1608,21 @@ async def _run_with_quests(
                     _get_bus().publish_nowait({"type": "stats", **_stats_payload()})
                 except Exception:
                     pass
+
             if telegram_send:
                 try:
                     await telegram_send(text)
                 except Exception:
                     pass
 
+        from questchain.agent import make_agent_from_def as _make_agent
         runner = QuestRunner(
             agent_holder=agent_holder,
             send_callback=merged_callback,
             interval_minutes=quest_minutes,
             busy_lock=agent_lock,
+            agent_manager=agent_manager,
+            agent_factory=lambda d: _make_agent(d),
         )
         await runner.start()
         session_state["quest_runner"] = runner
@@ -1791,7 +1857,7 @@ async def _repl_loop(
                     await show_history(session, session_state)
 
                 if session_state.pop("run_quest_menu", False):
-                    await _quest_menu(session)
+                    await _quest_menu(session, agent_manager=agent_manager)
 
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)

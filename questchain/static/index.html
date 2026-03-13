@@ -558,6 +558,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   padding: 32px 16px; text-align: center;
   color: var(--text-muted); font-size: 12px; line-height: 1.6;
 }
+.quest-agent-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  background: var(--accent-dim); color: var(--accent);
+  border: 1px solid rgba(60,184,255,0.2); white-space: nowrap;
+  flex-shrink: 0; margin-right: 4px;
+}
 
 #quest-editor {
   flex: 1; min-height: 0; display: flex; flex-direction: column;
@@ -582,6 +588,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-size: 12px; cursor: pointer; transition: all 0.15s;
 }
 .btn-save:hover { background: rgba(60,184,255,0.2); }
+#quest-agent-select {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); font-size: 12px; border-radius: var(--radius);
+  padding: 4px 8px; outline: none; cursor: pointer; max-width: 140px;
+}
+#quest-agent-select:focus { border-color: rgba(60,184,255,0.4); }
 #quest-content-input {
   flex: 1; background: var(--bg); border: none; outline: none;
   color: var(--text); font-family: var(--mono); font-size: 13px;
@@ -879,6 +891,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <div id="quest-editor">
         <div class="editor-header">
           <input type="text" id="quest-name-input" placeholder="Quest filename (e.g. find-api-docs)">
+          <select id="quest-agent-select" title="Assign to agent">
+            <option value="">Any agent</option>
+          </select>
           <button class="btn-save" id="btn-save-quest">Save</button>
         </div>
         <textarea id="quest-content-input" placeholder="Describe the quest in plain language or Markdown…&#10;&#10;Example:&#10;Find the REST API docs for the weather service and save a summary to workspace/memory/weather-api.md"></textarea>

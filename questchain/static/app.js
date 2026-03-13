@@ -117,6 +117,11 @@ function onAgents(msg) {
   updateChatHeader();
   // Render stats panel directly from enriched agents data — no extra roundtrip
   renderStatsFromAgents();
+  // Refresh quest agent selector if quests page is open
+  if (State.page === 'quests') {
+    const q = State.quests.find(x => x.name === State.selectedQuestName);
+    renderQuestAgentSelect(q ? (q.agent_id || '') : '');
+  }
 }
 
 function onStats(msg) {
@@ -551,18 +556,39 @@ function renderRoster() {
 }
 
 // ── Quest rendering ───────────────────────────────────────────
+function _questAgentLabel(q) {
+  if (!q.agent_id) return '';
+  const agent = State.agents.find(a => a.id === q.agent_id);
+  return agent ? agent.name : q.agent_id.slice(0, 8);
+}
+
+function renderQuestAgentSelect(selectedId) {
+  const sel = document.getElementById('quest-agent-select');
+  if (!sel) return;
+  sel.innerHTML =
+    '<option value="">Any agent</option>' +
+    State.agents.map(a =>
+      `<option value="${escAttr(a.id)}" ${a.id === selectedId ? 'selected' : ''}>${escHtml(a.name)}</option>`
+    ).join('');
+}
+
 function renderQuestList() {
   const list = document.getElementById('quest-list');
   if (!State.quests.length) {
     list.innerHTML = '<div class="quest-empty">No quests yet.<br>Create one to get started.</div>';
     return;
   }
-  list.innerHTML = State.quests.map(q => `
+  list.innerHTML = State.quests.map(q => {
+    const label = _questAgentLabel(q);
+    const badge = label ? `<span class="quest-agent-badge">${escHtml(label)}</span>` : '';
+    return `
     <div class="quest-item ${q.name === State.selectedQuestName ? 'active' : ''}" data-name="${escAttr(q.name)}">
       <span class="quest-item-icon">⚔</span>
       <span class="quest-item-title">${escHtml(q.title || q.name)}</span>
+      ${badge}
       <button class="quest-item-del" data-name="${escAttr(q.name)}" title="Delete">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.quest-item').forEach(el => {
     el.addEventListener('click', (e) => {
@@ -588,6 +614,7 @@ function selectQuest(name) {
   if (q) {
     document.getElementById('quest-name-input').value = q.name.replace(/\.md$/, '');
     document.getElementById('quest-content-input').value = q.content;
+    renderQuestAgentSelect(q.agent_id || '');
   }
   renderQuestList();
 }
@@ -596,6 +623,7 @@ function clearEditor() {
   State.selectedQuestName = null;
   document.getElementById('quest-name-input').value = '';
   document.getElementById('quest-content-input').value = '';
+  renderQuestAgentSelect(State.activeAgentId);
   renderQuestList();
 }
 
@@ -611,7 +639,11 @@ function switchPage(page) {
     renderStatsFromAgents();
     send({ type: 'get_agents' });
   }
-  if (page === 'quests') send({ type: 'get_quests' });
+  if (page === 'quests') {
+    send({ type: 'get_quests' });
+    const q = State.quests.find(x => x.name === State.selectedQuestName);
+    renderQuestAgentSelect(q ? (q.agent_id || '') : State.activeAgentId);
+  }
   if (page === 'settings') {
     send({ type: 'get_settings' });
     renderSettings();
@@ -657,6 +689,7 @@ document.getElementById('btn-new-quest').addEventListener('click', () => {
   State.selectedQuestName = null;
   document.getElementById('quest-name-input').value = '';
   document.getElementById('quest-content-input').value = '';
+  renderQuestAgentSelect(State.activeAgentId);
   document.getElementById('quest-name-input').focus();
   renderQuestList();
 });
@@ -664,12 +697,14 @@ document.getElementById('btn-new-quest').addEventListener('click', () => {
 document.getElementById('btn-save-quest').addEventListener('click', () => {
   const name = document.getElementById('quest-name-input').value.trim();
   const content = document.getElementById('quest-content-input').value;
+  const agentSel = document.getElementById('quest-agent-select');
+  const agent_id = agentSel ? agentSel.value : '';
   if (!name) { document.getElementById('quest-name-input').focus(); return; }
 
   if (State.selectedQuestName) {
-    send({ type: 'update_quest', name: State.selectedQuestName, content });
+    send({ type: 'update_quest', name: State.selectedQuestName, content, agent_id });
   } else {
-    send({ type: 'create_quest', name, content });
+    send({ type: 'create_quest', name, content, agent_id });
     State.selectedQuestName = name.endsWith('.md') ? name : name + '.md';
   }
 });
