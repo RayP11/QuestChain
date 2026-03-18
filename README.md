@@ -36,7 +36,6 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 - [It Codes Itself](#it-codes-itself)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
-- [Configuration](#configuration)
 - [Most Tested Models](#most-tested-models)
 - [Contributing](#contributing)
 - [Built With](#built-with)
@@ -287,23 +286,6 @@ Restart QuestChain and the bot starts alongside the CLI. The same conversation t
 
 ---
 
-## Configuration
-
-All settings via environment variables or a `.env` file in the project root:
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_MODEL` | `qwen3:8b` | Default model to use |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
-| `OLLAMA_NUM_GPU` | *(auto)* | GPU layers to offload (`-1` = all) |
-| `OLLAMA_NUM_THREAD` | *(auto)* | CPU threads for inference |
-| `TAVILY_API_KEY` | — | Web search API key (free tier at tavily.com) |
-| `TELEGRAM_BOT_TOKEN` | — | Telegram bot token |
-| `TELEGRAM_OWNER_ID` | — | Your Telegram user ID (access control) |
-| `QUESTCHAIN_DATA_DIR` | `~/.questchain` | Session history, cron jobs |
-| `QUESTCHAIN_WORKSPACE_DIR` | Project root | Workspace and memory root |
-
----
 
 ## Most Tested Models
 
