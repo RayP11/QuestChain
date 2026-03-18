@@ -183,19 +183,29 @@ If you want to clone the repo directly, modify the code, or run from source:
 ```bash
 git clone https://github.com/RayP11/QuestChain.git
 cd QuestChain
-pip install -e .
 ```
 
-Then run:
-
+**Option A — uv sync (recommended, no manual activation needed):**
 ```bash
+uv sync
+uv run python -m questchain
+```
+
+**Option B — uv with venv:**
+```bash
+uv venv
+source .venv/bin/activate   # macOS / Linux
+.venv\Scripts\activate      # Windows
+uv pip install -e .
 python -m questchain
 ```
 
-If you have [uv](https://docs.astral.sh/uv/) installed, you can use that instead of pip:
-
+**Option C — plain pip with venv:**
 ```bash
-uv pip install -e .
+python -m venv .venv
+source .venv/bin/activate   # macOS / Linux
+.venv\Scripts\activate      # Windows
+pip install -e .
 python -m questchain
 ```
 
