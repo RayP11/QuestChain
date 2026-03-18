@@ -51,6 +51,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 _owner_id_raw = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 TELEGRAM_OWNER_ID: int | None = int(_owner_id_raw) if _owner_id_raw.isdigit() and int(_owner_id_raw) != 0 else None
 
+# --- Speak / TTS settings ---
+SPEAK_ENABLED   = os.getenv("SPEAK_ENABLED", "false").lower() in ("1", "true", "yes")
+SPEAK_MODEL_DIR = os.getenv("SPEAK_MODEL_DIR", "")   # resolved below after QUESTCHAIN_DATA_DIR
+SPEAK_VOICE     = os.getenv("SPEAK_VOICE", "bm_fable")
+
 # --- Web gateway settings ---
 # Optional shared secret for WebSocket auth. Set QUESTCHAIN_WS_TOKEN in .env
 # to require all WebSocket clients to supply ?token=<value> on connect.
@@ -58,6 +63,10 @@ QUESTCHAIN_WS_TOKEN = os.getenv("QUESTCHAIN_WS_TOKEN", "")
 
 # --- Data directory ---
 QUESTCHAIN_DATA_DIR = Path(os.getenv("QUESTCHAIN_DATA_DIR", Path.home() / ".questchain"))
+
+# Resolve SPEAK_MODEL_DIR default now that QUESTCHAIN_DATA_DIR is defined
+if not SPEAK_MODEL_DIR:
+    SPEAK_MODEL_DIR = str(QUESTCHAIN_DATA_DIR / "kokoro")
 
 # --- Model presets ---
 MODEL_PRESETS = {

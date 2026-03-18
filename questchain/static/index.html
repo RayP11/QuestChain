@@ -438,8 +438,27 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   margin-bottom: 10px;
 }
 .achievements-list {
-  display: flex; flex-wrap: wrap; gap: 6px;
+  display: flex; flex-direction: column; gap: 4px;
 }
+.ach-category-header {
+  font-size: 10px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 1px;
+  margin: 10px 0 4px 0;
+}
+.ach-category-header:first-child { margin-top: 0; }
+.ach-category-group { display: flex; flex-direction: column; gap: 4px; }
+.achievement-card {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px;
+  transition: border-color 0.15s;
+}
+.achievement-card:hover { border-color: rgba(255,184,28,0.5); }
+.ach-icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+.ach-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ach-name { font-weight: 600; color: var(--gold); font-size: 12px; }
+.ach-desc { font-size: 11px; color: var(--text-muted); }
+.ach-date { font-size: 10px; color: var(--overlay); }
 .achievement-badge {
   background: var(--gold-dim);
   border: 1px solid rgba(255,184,28,0.2);
@@ -557,6 +576,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .quest-empty {
   padding: 32px 16px; text-align: center;
   color: var(--text-muted); font-size: 12px; line-height: 1.6;
+}
+.quest-cron-badge {
+  font-size: 12px; flex-shrink: 0; opacity: 0.75; margin-right: 2px;
 }
 .quest-agent-badge {
   font-size: 10px; padding: 1px 6px; border-radius: 10px;
@@ -894,7 +916,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <select id="quest-agent-select" title="Assign to agent">
             <option value="">Any agent</option>
           </select>
-          <button class="btn-save" id="btn-save-quest">Save</button>
+<button class="btn-save" id="btn-save-quest">Save</button>
         </div>
         <textarea id="quest-content-input" placeholder="Describe the quest in plain language or Markdown…&#10;&#10;Example:&#10;Find the REST API docs for the weather service and save a summary to workspace/memory/weather-api.md"></textarea>
       </div>
@@ -1007,6 +1029,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <div class="integration-row">
             <span class="integration-label">Telegram Bot</span>
             <span class="integration-badge missing" id="intg-telegram">Not configured</span>
+          </div>
+          <div class="integration-row">
+            <span class="integration-label">Speak (TTS)</span>
+            <span class="integration-badge missing" id="intg-speak">Run /speak to set up</span>
           </div>
         </div>
       </div>

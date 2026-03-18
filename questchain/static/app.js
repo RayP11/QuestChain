@@ -1,3 +1,27 @@
+// ── Achievement metadata (icon + category, keyed by achievement id) ───────────
+const ACHIEVEMENT_META = {
+  first_strike:  { icon: '⚔️',  category: 'Progression' },
+  awakening:     { icon: '🌅',  category: 'Progression' },
+  seasoned:      { icon: '🗺️',  category: 'Progression' },
+  veteran:       { icon: '🛡️',  category: 'Progression' },
+  legend:        { icon: '🏆',  category: 'Progression' },
+  century:       { icon: '💬',  category: 'Milestones'  },
+  old_timer:     { icon: '⏳',  category: 'Milestones'  },
+  iron_will:     { icon: '🔩',  category: 'Milestones'  },
+  bibliophile:   { icon: '📚',  category: 'Tool Use'    },
+  web_walker:    { icon: '🌐',  category: 'Tool Use'    },
+  globe_trotter: { icon: '🗾',  category: 'Tool Use'    },
+  blacksmith:    { icon: '🔨',  category: 'Tool Use'    },
+  demolition:    { icon: '💥',  category: 'Tool Use'    },
+  archivist:     { icon: '🗄️',  category: 'Tool Use'    },
+  grand_planner: { icon: '📋',  category: 'Tool Use'    },
+  polymath:      { icon: '🎓',  category: 'Behavioral'  },
+  speed_demon:   { icon: '⚡',  category: 'Behavioral'  },
+  centurion:     { icon: '💰',  category: 'Behavioral'  },
+  busy_bee:      { icon: '🐝',  category: 'Behavioral'  },
+  road_runner:   { icon: '🏃',  category: 'Behavioral'  },
+};
+
 // ── State ─────────────────────────────────────────────────────
 const State = {
   ws: null,
@@ -178,8 +202,19 @@ function renderSettings() {
   const modelList = document.getElementById('settings-model-list');
   if (s.available_models && s.available_models.length) {
     modelList.innerHTML = s.available_models.map(m =>
-      `<span class="model-chip${m === s.model_name ? ' active' : ''}">${escHtml(m)}</span>`
+      `<span class="model-chip${m === s.model_name ? ' active' : ''}" data-model="${escAttr(m)}" title="Click to set as global model">${escHtml(m)}</span>`
     ).join('');
+    modelList.querySelectorAll('.model-chip[data-model]').forEach(chip => {
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', () => {
+        const model = chip.dataset.model;
+        if (model && model !== s.model_name) {
+          if (confirm(`Set global model to "${model}" and clear per-agent overrides?`)) {
+            send({ type: 'set_model', model, apply_all: true });
+          }
+        }
+      });
+    });
   } else {
     modelList.innerHTML = '<span class="model-chip text-muted-hint">None found</span>';
   }
@@ -239,6 +274,7 @@ function renderSettings() {
     { id: 'intg-tavily',   key: 'tavily',      ok: 'Configured', fail: 'Not configured' },
     { id: 'intg-claude',   key: 'claude_code', ok: 'Found',       fail: 'Not found' },
     { id: 'intg-telegram', key: 'telegram',    ok: 'Configured', fail: 'Not configured' },
+    { id: 'intg-speak',    key: 'speak',       ok: 'Ready',       fail: 'Run /speak to set up' },
   ];
   intRows.forEach(r => {
     const el = document.getElementById(r.id);
@@ -488,9 +524,35 @@ function renderStats(msg) {
   if (achs.length === 0) {
     achWrap.innerHTML = '<span class="no-achievements">No achievements yet — start a quest!</span>';
   } else {
-    achWrap.innerHTML = achs.map(a =>
-      `<span class="achievement-badge">${escHtml(a)}</span>`
-    ).join('');
+    // Group by category
+    const grouped = {};
+    achs.forEach(a => {
+      const meta = ACHIEVEMENT_META[a.id] || { icon: '🏅', category: 'Other' };
+      const cat = meta.category;
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push({ ...a, icon: meta.icon });
+    });
+    const catOrder = ['Progression', 'Milestones', 'Tool Use', 'Behavioral', 'Other'];
+    let html = '';
+    catOrder.forEach(cat => {
+      if (!grouped[cat]) return;
+      html += `<div class="ach-category-header">${escHtml(cat)}</div>`;
+      html += '<div class="ach-category-group">';
+      grouped[cat].forEach(a => {
+        const date = a.earned_at ? a.earned_at.slice(0, 10) : '';
+        html += `
+          <div class="achievement-card">
+            <span class="ach-icon">${a.icon}</span>
+            <div class="ach-body">
+              <span class="ach-name">${escHtml(a.name)}</span>
+              <span class="ach-desc">${escHtml(a.description)}</span>
+              ${date ? `<span class="ach-date">${escHtml(date)}</span>` : ''}
+            </div>
+          </div>`;
+      });
+      html += '</div>';
+    });
+    achWrap.innerHTML = html;
   }
 }
 
@@ -581,11 +643,12 @@ function renderQuestList() {
   list.innerHTML = State.quests.map(q => {
     const label = _questAgentLabel(q);
     const badge = label ? `<span class="quest-agent-badge">${escHtml(label)}</span>` : '';
+    const cronBadge = q.cron ? `<span class="quest-cron-badge" title="${escAttr(q.cron)}">⏰</span>` : '';
     return `
     <div class="quest-item ${q.name === State.selectedQuestName ? 'active' : ''}" data-name="${escAttr(q.name)}">
       <span class="quest-item-icon">⚔</span>
       <span class="quest-item-title">${escHtml(q.title || q.name)}</span>
-      ${badge}
+      ${cronBadge}${badge}
       <button class="quest-item-del" data-name="${escAttr(q.name)}" title="Delete">✕</button>
     </div>`;
   }).join('');
@@ -615,6 +678,8 @@ function selectQuest(name) {
     document.getElementById('quest-name-input').value = q.name.replace(/\.md$/, '');
     document.getElementById('quest-content-input').value = q.content;
     renderQuestAgentSelect(q.agent_id || '');
+    const cronInput = document.getElementById('quest-cron-input');
+    if (cronInput) cronInput.value = q.cron || '';
   }
   renderQuestList();
 }
@@ -623,6 +688,8 @@ function clearEditor() {
   State.selectedQuestName = null;
   document.getElementById('quest-name-input').value = '';
   document.getElementById('quest-content-input').value = '';
+  const cronInput = document.getElementById('quest-cron-input');
+  if (cronInput) cronInput.value = '';
   renderQuestAgentSelect(State.activeAgentId);
   renderQuestList();
 }
@@ -689,6 +756,8 @@ document.getElementById('btn-new-quest').addEventListener('click', () => {
   State.selectedQuestName = null;
   document.getElementById('quest-name-input').value = '';
   document.getElementById('quest-content-input').value = '';
+  const cronInput = document.getElementById('quest-cron-input');
+  if (cronInput) cronInput.value = '';
   renderQuestAgentSelect(State.activeAgentId);
   document.getElementById('quest-name-input').focus();
   renderQuestList();
@@ -699,12 +768,14 @@ document.getElementById('btn-save-quest').addEventListener('click', () => {
   const content = document.getElementById('quest-content-input').value;
   const agentSel = document.getElementById('quest-agent-select');
   const agent_id = agentSel ? agentSel.value : '';
+  const cronInput = document.getElementById('quest-cron-input');
+  const cron = cronInput ? cronInput.value.trim() : '';
   if (!name) { document.getElementById('quest-name-input').focus(); return; }
 
   if (State.selectedQuestName) {
-    send({ type: 'update_quest', name: State.selectedQuestName, content, agent_id });
+    send({ type: 'update_quest', name: State.selectedQuestName, content, agent_id, cron });
   } else {
-    send({ type: 'create_quest', name, content, agent_id });
+    send({ type: 'create_quest', name, content, agent_id, cron });
     State.selectedQuestName = name.endsWith('.md') ? name : name + '.md';
   }
 });

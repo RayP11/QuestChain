@@ -326,16 +326,18 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         name = (msg.get("name") or "").strip()
         content = msg.get("content") or ""
         agent_id = (msg.get("agent_id") or "").strip()
+        cron_expr = (msg.get("cron") or "").strip()
         if name:
-            _save_quest(name, content, agent_id)
+            _save_quest(name, content, agent_id, cron_expr)
             get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
 
     elif t == "update_quest":
         name = msg.get("name") or ""
         content = msg.get("content") or ""
         agent_id = (msg.get("agent_id") or "").strip()
+        cron_expr = (msg.get("cron") or "").strip()
         if name:
-            _save_quest(name, content, agent_id)
+            _save_quest(name, content, agent_id, cron_expr)
             get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
 
     elif t == "delete_quest":
@@ -408,6 +410,26 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                 except Exception:
                     logger.warning("delete_agent failed for %s", agent_id, exc_info=True)
 
+    elif t == "set_model":
+        model = (msg.get("model") or "").strip()
+        apply_all = bool(msg.get("apply_all", True))
+        if model:
+            try:
+                from questchain.onboarding import _save_env_key
+                _save_env_key("OLLAMA_MODEL", model)
+                global _model_name
+                _model_name = model
+                if apply_all and _agent_manager:
+                    for a in _agent_manager.all_agents():
+                        if not a.get("built_in"):
+                            try:
+                                _agent_manager.update(a["id"], model=None)
+                            except Exception:
+                                pass
+                get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+            except Exception:
+                logger.warning("set_model failed", exc_info=True)
+
 
 # ── Payload builders ──────────────────────────────────────────────────────────
 
@@ -436,7 +458,10 @@ def _agents_payload() -> dict:
                 "xp_this_level": rec.xp_this_level,
                 "xp_next_level": rec.xp_next_level,
                 "class_name": rec.class_name,
-                "achievements": [ach.name for ach in rec.achievements],
+                "achievements": [
+                    {"id": ach.id, "name": ach.name, "description": ach.description, "earned_at": ach.earned_at}
+                    for ach in rec.achievements
+                ],
                 "prestige": rec.prestige,
             }
             a["level"] = rec.level  # keep top-level for roster display
@@ -505,7 +530,10 @@ def _stats_payload(agent_id: str | None = None) -> dict:
             "xp_this_level": rec.xp_this_level,
             "xp_next_level": rec.xp_next_level,
             "class_name": rec.class_name,
-            "achievements": [a.name for a in rec.achievements],
+            "achievements": [
+                {"id": a.id, "name": a.name, "description": a.description, "earned_at": a.earned_at}
+                for a in rec.achievements
+            ],
             "prestige": rec.prestige,
             "turns_completed": rec.turns_completed,
         }
@@ -551,6 +579,14 @@ def _stats_payload(agent_id: str | None = None) -> dict:
 
 
 # ── Settings payload ──────────────────────────────────────────────────────────
+
+def _get_speak_available() -> bool:
+    try:
+        from questchain.tools.speak import is_speak_available
+        return is_speak_available()
+    except Exception:
+        return False
+
 
 def _settings_payload() -> dict:
     import json as _json
@@ -608,6 +644,7 @@ def _settings_payload() -> dict:
             "tavily": bool(TAVILY_API_KEY),
             "claude_code": is_claude_code_available(),
             "telegram": bool(TELEGRAM_BOT_TOKEN),
+            "speak": _get_speak_available(),
         },
     }
 
@@ -652,7 +689,7 @@ def _quests_dir() -> Path:
 
 
 def _list_quests() -> list[dict]:
-    from questchain.quest_meta import parse_quest
+    from questchain.quest_meta import parse_quest, cron_is_due
     quests = []
     for f in sorted(_quests_dir().glob("*.md")):
         try:
@@ -664,24 +701,40 @@ def _list_quests() -> list[dict]:
                 if line.startswith("#"):
                     title = line.lstrip("#").strip()
                     break
+            cron_expr = meta.get("cron", "")
             quests.append({
                 "name": f.name,
                 "title": title,
                 "content": body,      # body only — no frontmatter
                 "agent_id": meta.get("agent", ""),
+                "cron": cron_expr,
+                "cron_due": bool(cron_expr and cron_is_due(f)),
             })
         except Exception:
             pass
     return quests
 
 
-def _save_quest(name: str, content: str, agent_id: str = "") -> None:
-    from questchain.quest_meta import render_quest
+def _save_quest(name: str, content: str, agent_id: str = "", cron_expr: str = "") -> None:
+    from questchain.quest_meta import render_quest, parse_quest
     if not name.endswith(".md"):
         name = name + ".md"
     # Sanitize filename
     name = "".join(c for c in name if c.isalnum() or c in "-_. ")
-    meta = {"agent": agent_id} if agent_id else {}
+    meta: dict = {}
+    if agent_id:
+        meta["agent"] = agent_id
+    if cron_expr:
+        meta["cron"] = cron_expr
+        # Preserve existing last_run if updating a cron quest
+        existing_path = _quests_dir() / name
+        if existing_path.exists():
+            try:
+                existing_meta, _ = parse_quest(existing_path)
+                if "last_run" in existing_meta:
+                    meta["last_run"] = existing_meta["last_run"]
+            except Exception:
+                pass
     (_quests_dir() / name).write_text(render_quest(meta, content), encoding="utf-8")
 
 

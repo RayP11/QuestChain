@@ -225,6 +225,170 @@ async def run_setup_telegram(console, prompt_session) -> bool:
     return True
 
 
+async def run_setup_speak(console, prompt_session) -> bool:
+    """Interactive wizard to set up Kokoro TTS (speak tool).
+
+    Checks for kokoro_onnx package, downloads model files, and saves config to .env.
+    Returns True if speak was successfully configured.
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path as _Path
+    from questchain.config import SPEAK_ENABLED, SPEAK_MODEL_DIR, SPEAK_VOICE
+
+    console.print()
+    console.print(Panel(
+        "[bold]Speak Tool — Kokoro TTS[/bold]\n\n"
+        "Gives your agent a voice using the Kokoro text-to-speech engine.\n"
+        "Runs fully locally — no API key required.\n\n"
+        "Requirements:\n"
+        "  • [cyan]kokoro_onnx[/cyan] Python package (~10 MB)\n"
+        "  • [cyan]kokoro-v1.0.onnx[/cyan] model file (~80 MB)\n"
+        "  • [cyan]voices-v1.0.bin[/cyan] voices file (~4 MB)\n\n"
+        + (f"Current status: [green]Configured[/green]  Voice: [cyan]{SPEAK_VOICE}[/cyan]"
+           if SPEAK_ENABLED else "Current status: [yellow]Not configured[/yellow]"),
+        border_style="cyan",
+        title="Speak Setup",
+    ))
+
+    # Step 1 — check / install kokoro_onnx
+    has_kokoro = importlib.util.find_spec("kokoro_onnx") is not None
+    if not has_kokoro:
+        install = await _prompt_input(
+            prompt_session, console, "  Install kokoro_onnx package now? [Y/n]: "
+        )
+        if install.lower() in ("", "y", "yes"):
+            import subprocess
+            console.print("  [dim]Installing kokoro_onnx…[/dim]")
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "kokoro_onnx"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                console.print("  [green]✓ kokoro_onnx installed.[/green]")
+                has_kokoro = True
+            else:
+                console.print(f"  [red]Install failed:[/red] {result.stderr[-200:]}")
+                console.print("  [dim]Install manually: pip install kokoro_onnx[/dim]")
+                return False
+        else:
+            console.print("  [dim]Skipped.[/dim]")
+            return False
+
+    # Step 2 — check / download model files
+    model_dir = _Path(SPEAK_MODEL_DIR)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_file = model_dir / "kokoro-v1.0.onnx"
+    voices_file = model_dir / "voices-v1.0.bin"
+
+    _KOKORO_URLS = {
+        "kokoro-v1.0.onnx": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+        "voices-v1.0.bin":  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+    }
+
+    files_needed = []
+    if not model_file.exists():
+        files_needed.append(("kokoro-v1.0.onnx", model_file, _KOKORO_URLS["kokoro-v1.0.onnx"]))
+    if not voices_file.exists():
+        files_needed.append(("voices-v1.0.bin", voices_file, _KOKORO_URLS["voices-v1.0.bin"]))
+
+    if files_needed:
+        total_size = "~84 MB" if len(files_needed) == 2 else "~80 MB" if "kokoro-v1.0.onnx" in [f[0] for f in files_needed] else "~4 MB"
+        download = await _prompt_input(
+            prompt_session, console,
+            f"  Download Kokoro model files? ({total_size}) [Y/n]: ",
+        )
+        if download.lower() not in ("", "y", "yes"):
+            console.print("  [dim]Skipped.[/dim]")
+            return False
+
+        try:
+            import urllib.request
+            for fname, fpath, url in files_needed:
+                console.print(f"  [dim]Downloading {fname}…[/dim]")
+                urllib.request.urlretrieve(url, fpath)
+                console.print(f"  [green]✓ {fname}[/green]")
+        except Exception as e:
+            console.print(f"  [red]Download failed:[/red] {e}")
+            console.print(f"  [dim]Download manually to {model_dir}/[/dim]")
+            return False
+
+    # Step 3 — voice selection
+    _VOICES = [
+        ("bm_fable",  "British male, calm storyteller (default)"),
+        ("af_heart",  "American female, warm"),
+        ("af_sky",    "American female, upbeat"),
+        ("am_adam",   "American male, neutral"),
+        ("am_michael","American male, deep"),
+    ]
+    console.print()
+    console.print("[bold]Select voice:[/bold]")
+    for i, (v, desc) in enumerate(_VOICES, 1):
+        marker = " ← current" if v == SPEAK_VOICE else ""
+        console.print(f"  {i}. [cyan]{v}[/cyan] — {desc}{marker}")
+    voice_choice = await _prompt_input(prompt_session, console, "  Voice [1]: ")
+    if voice_choice.isdigit() and 1 <= int(voice_choice) <= len(_VOICES):
+        chosen_voice = _VOICES[int(voice_choice) - 1][0]
+    else:
+        chosen_voice = SPEAK_VOICE or "bm_fable"
+
+    # Step 4 — save config
+    _save_env_key("SPEAK_ENABLED", "true")
+    _save_env_key("SPEAK_VOICE", chosen_voice)
+    _save_env_key("SPEAK_MODEL_DIR", str(model_dir))
+    console.print()
+    console.print(f"  [green]✓ Speak tool configured.[/green] Voice: [cyan]{chosen_voice}[/cyan]")
+
+    # Step 5 — assign speak to agents
+    from questchain.agents import AgentManager
+    mgr = AgentManager()
+    all_agents = mgr.all_agents()
+
+    console.print()
+    console.print("[bold]Assign speak to agents:[/bold]")
+    console.print("  [dim]Enter numbers separated by commas, or press Enter to skip.[/dim]")
+    console.print()
+
+    for i, ag in enumerate(all_agents, 1):
+        tools = ag.get("tools", [])
+        has_speak = tools == "all" or (isinstance(tools, list) and "speak" in tools)
+        marker = " [green](already enabled)[/green]" if has_speak else ""
+        console.print(f"  {i}. [cyan]{ag['name']}[/cyan]{marker}")
+
+    assign_input = await _prompt_input(
+        prompt_session, console, "  Agent numbers (e.g. 1,3) or Enter to skip: "
+    )
+
+    if assign_input.strip():
+        selected_indices: set[int] = set()
+        for part in assign_input.split(","):
+            part = part.strip()
+            if part.isdigit():
+                idx = int(part)
+                if 1 <= idx <= len(all_agents):
+                    selected_indices.add(idx - 1)
+
+        for i, ag in enumerate(all_agents):
+            tools = ag.get("tools", [])
+            if tools == "all":
+                continue  # "all" already includes speak implicitly
+            tool_list: list[str] = list(tools) if isinstance(tools, list) else []
+            if i in selected_indices:
+                if "speak" not in tool_list:
+                    tool_list.append("speak")
+                    mgr.update(ag["id"], tools=tool_list)
+                    console.print(f"  [green]✓ Added speak to {ag['name']}[/green]")
+            else:
+                if "speak" in tool_list:
+                    tool_list.remove("speak")
+                    mgr.update(ag["id"], tools=tool_list)
+                    console.print(f"  [dim]Removed speak from {ag['name']}[/dim]")
+    else:
+        console.print("  [dim]Skipped — assign later via /agents → Edit → Tools.[/dim]")
+
+    return True
+
+
 async def _run_integration_setup(console, prompt_session) -> None:
     """Offer Tavily, Claude Code, and Telegram setup as optional post-onboarding steps."""
     import shutil
@@ -295,36 +459,72 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
 
     # ── Model selection & pull ────────────────────────────────────────────────
     import ollama as _ollama
+    from questchain.models import list_available_models as _list_models
 
-    _MODELS = [
-        ("qwen3:8b",             "~6 GB",  "Fast, excellent tool calling (recommended)"),
-        ("qwen3:4b",             "~3 GB",  "Compact — good tool calling, lower VRAM"),
-        ("qwen3:1.7b",           "~2 GB",  "Ultra-light — runs on CPU or minimal VRAM"),
-        ("qwen2.5:7b-instruct",  "~6 GB",  "Top-tier tool calling"),
-        ("qwen2.5:14b-instruct", "~12 GB", "More capable, higher quality"),
+    _RECOMMENDED = [
+        ("qwen3:8b",    "~6 GB",  "Fast, excellent tool calling (recommended) ★"),
+        ("qwen3:4b",    "~3 GB",  "Compact — good tool calling, lower VRAM"),
+        ("qwen3.5:2b",  "~2 GB",  "Ultra-light — runs on CPU or minimal VRAM"),
+        ("gpt-oss:20b", "~16 GB", "Heavy use — high quality reasoning"),
+        ("qwen3.5:4b",  "~3 GB",  "Balanced — great for everyday use"),
+        ("qwen3.5:9b",  "~7 GB",  "High performance, strong reasoning"),
     ]
 
     while True:
         console.print()
-        console.print("[bold]Choose a model:[/bold]")
-        console.print()
-        for i, (name, vram, desc) in enumerate(_MODELS, 1):
-            console.print(f"  [dim]{i}.[/dim] [cyan]{name}[/cyan]  [dim]{vram}[/dim]  {desc}")
-        console.print(f"  [dim]{len(_MODELS) + 1}.[/dim] Other — enter a model name manually")
+
+        # Query Ollama for installed models
+        try:
+            _installed = _list_models()
+        except Exception:
+            _installed = []
+
+        _installed_set = set(_installed)
+        _recommended_new = [(n, v, d) for n, v, d in _RECOMMENDED if n not in _installed_set]
+
+        options: list[tuple[str, str, str, bool]] = []  # (name, vram, desc, needs_pull)
+
+        if _installed:
+            console.print("[bold]Already installed:[/bold]")
+            for m in _installed:
+                idx = len(options) + 1
+                console.print(f"  [dim]{idx}.[/dim] [green]{m}[/green]  [dim](no download needed)[/dim]")
+                options.append((m, "", "", False))
+            console.print()
+
+        if _recommended_new:
+            console.print("[bold]Recommended models:[/bold]")
+            for name, vram, desc in _recommended_new:
+                idx = len(options) + 1
+                console.print(f"  [dim]{idx}.[/dim] [cyan]{name}[/cyan]  [dim]{vram}[/dim]  {desc}")
+                options.append((name, vram, desc, True))
+
+        custom_idx = len(options) + 1
+        console.print(f"  [dim]{custom_idx}.[/dim] [dim]Other — enter a model name manually[/dim]")
         console.print()
 
         choice = await _prompt_input(prompt_session, console, "  Enter number (default: 1): ")
         if not choice:
             choice = "1"
 
-        if choice == str(len(_MODELS) + 1):
+        if choice == str(custom_idx):
             chosen = await _prompt_input(prompt_session, console, "  Model name: ")
             if not chosen:
                 chosen = "qwen3:8b"
-        elif choice.isdigit() and 1 <= int(choice) <= len(_MODELS):
-            chosen = _MODELS[int(choice) - 1][0]
+            needs_pull = chosen not in _installed_set
+        elif choice.isdigit() and 1 <= int(choice) <= len(options):
+            chosen, _, _, needs_pull = options[int(choice) - 1]
         else:
-            chosen = _MODELS[0][0]
+            # default: first installed or first recommended
+            if options:
+                chosen, _, _, needs_pull = options[0]
+            else:
+                chosen, needs_pull = "qwen3:8b", True
+
+        if not needs_pull:
+            console.print(f"  [green]✓ Using already-installed model: {chosen}[/green]")
+            _save_env_key("OLLAMA_MODEL", chosen)
+            break
 
         console.print(f"\n[dim]Pulling [bold]{chosen}[/bold] — this may take a few minutes…[/dim]")
         try:

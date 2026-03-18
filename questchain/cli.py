@@ -33,7 +33,7 @@ from questchain.config import (
 from questchain.onboarding import (
     QUESTCHAIN_ART, TAGLINES,
     clear_onboarded, is_onboarded, run_onboarding,
-    run_setup_claude_code,
+    run_setup_claude_code, run_setup_speak,
 )
 from questchain.memory.store import get_thread_history
 from questchain.models import check_ollama_connection, list_available_models, wait_for_ollama
@@ -368,12 +368,13 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/help",         "Show all available commands"),
     ("/history",      "Browse and switch past conversations"),
     ("/level",        "Show agent level and achievements"),
-    ("/model",        "Show current model and list available ones"),
+    ("/model",        "Change the global model for all agents"),
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
     ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
+    ("/speak",        "Set up Kokoro TTS voice output"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
-    ("/quest",        "Manage quests — one-off tasks for the agent to complete"),
+    ("/quest",        "Manage quests — one-off or scheduled tasks for the agent"),
     ("/tavily",       "Set up Tavily web search API key"),
     ("/telegram",     "Set up Telegram bot credentials"),
     ("/tools",        "List all available agent tools"),
@@ -479,12 +480,11 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     if cmd == "/model":
-        console.print(f"[cyan]Current model:[/cyan] {session_state['model_name']}")
-        models = list_available_models()
-        if models:
-            console.print("[cyan]Available on Ollama:[/cyan]")
-            for m in models:
-                console.print(f"  - {m}")
+        session_state["run_model_selector"] = True
+        return True
+
+    if cmd == "/speak":
+        session_state["run_setup_speak"] = True
         return True
 
 
@@ -570,14 +570,15 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         help_text = (
             "[bold]Commands:[/bold]\n"
             "  /new                   - Start a new conversation\n"
-            "  /model                 - Show current model and available models\n"
+            "  /model                 - Change the global model for all agents\n"
             "  /tools                 - List available tools\n"
-            "  /quest                 - Manage quests (one-off agent tasks)\n"
+            "  /quest                 - Manage quests (one-off or scheduled tasks)\n"
             "  /cron                  - List scheduled cron jobs\n"
             "  /onboard               - Re-run the onboarding flow\n"
             "  /tavily                - Set up Tavily web search API key\n"
             "  /claudecode            - Set up Claude Code CLI integration\n"
             "  /telegram              - Set up Telegram bot credentials\n"
+            "  /speak                 - Set up Kokoro TTS voice output\n"
             "  /agents                - Manage agents (list, switch, create)\n"
             "  /level                 - Show agent level and achievements\n"
             "  /prestige              - Prestige reset (requires Level 20)\n"
@@ -645,16 +646,21 @@ async def _quest_menu(session: PromptSession, agent_manager=None) -> None:
         return sorted(quests_dir.glob("*.md"))
 
     def _quest_agent_label(f):
-        """Return e.g. ' [Aria]' if quest has an agent assigned, else ''."""
+        """Return label showing agent name and cron schedule if present."""
         try:
             meta, _ = parse_quest(f)
+            parts = []
             agent_id = meta.get("agent", "")
             if agent_id and agent_manager:
                 agent_def = agent_manager.get(agent_id)
                 if agent_def:
-                    return f" [{agent_def['name']}]"
+                    parts.append(f"[{agent_def['name']}]")
             elif agent_id:
-                return f" [{agent_id[:8]}]"
+                parts.append(f"[{agent_id[:8]}]")
+            cron_expr = meta.get("cron", "")
+            if cron_expr:
+                parts.append(f"⏰ {cron_expr}")
+            return (" " + " ".join(parts)) if parts else ""
         except Exception:
             pass
         return ""
@@ -762,6 +768,23 @@ async def _quest_menu(session: PromptSession, agent_manager=None) -> None:
                                 meta = {"agent": agents[idx]["id"]}
                                 console.print(f"[dim]Assigned to {agents[idx]['name']}[/dim]")
 
+                # Optional cron schedule
+                cron_expr = await _prompt_line(
+                    session, "Cron schedule? (Enter to skip, e.g. '0 9 * * 1' for Mon 9am): "
+                )
+                if cron_expr.strip():
+                    try:
+                        from croniter import croniter as _croniter
+                        from datetime import datetime as _dt
+                        _croniter(cron_expr.strip(), _dt.now())  # validate
+                        meta["cron"] = cron_expr.strip()
+                        # Show next run
+                        _it = _croniter(cron_expr.strip(), _dt.now())
+                        _next = _it.get_next(_dt)
+                        console.print(f"  [dim]⏰ Next run: {_next.strftime('%a %b %d %Y %H:%M')}[/dim]")
+                    except Exception:
+                        console.print("[yellow]  Invalid cron expression — skipped.[/yellow]")
+
                 new_path.write_text(render_quest(meta, ""), encoding="utf-8")
                 await _inline_file_editor(new_path, new_path.name)
             continue
@@ -779,6 +802,91 @@ async def _quest_menu(session: PromptSession, agent_manager=None) -> None:
             continue
 
         break
+
+
+async def _run_model_selector(
+    console: Console,
+    session: PromptSession,
+    agent_manager: AgentManager,
+    session_state: dict,
+) -> None:
+    """Interactive /model command: pick a model and optionally apply it globally."""
+    from questchain.onboarding import _save_env_key
+
+    current = session_state.get("model_name", OLLAMA_MODEL)
+    models = list_available_models()
+
+    console.print()
+    console.print(Panel(
+        f"[bold]Change Global Model[/bold]\n\n"
+        f"Current: [cyan]{current}[/cyan]\n\n"
+        "Selecting a new model updates the default for all agents.\n"
+        "Agents with a per-agent model override are not affected unless\n"
+        "you choose to clear them.",
+        border_style="cyan",
+        title="Model Selector",
+    ))
+
+    if not models:
+        console.print("[yellow]No models found on Ollama. Is Ollama running?[/yellow]")
+        manual = await _prompt_line(session, f"Enter model name [{current}]: ")
+        chosen = manual.strip() if manual.strip() else current
+    else:
+        console.print()
+        for i, m in enumerate(models, 1):
+            active_tag = "  [bold green]← current[/bold green]" if m == current else ""
+            console.print(f"  {i}. [cyan]{m}[/cyan]{active_tag}")
+        custom_idx = len(models) + 1
+        console.print(f"  {custom_idx}. [dim]Other — enter manually[/dim]")
+        console.print()
+        raw = await _prompt_line(session, f"Pick [1-{custom_idx}], Enter=keep [{current}]: ")
+        if not raw:
+            console.print("[dim]No change.[/dim]")
+            return
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(models):
+                chosen = models[idx]
+            elif idx == len(models):
+                chosen = await _prompt_line(session, "Model name: ")
+                if not chosen:
+                    return
+            else:
+                chosen = current
+        else:
+            chosen = raw.strip() or current
+
+    if chosen == current:
+        console.print("[dim]No change.[/dim]")
+        return
+
+    apply_all = await _prompt_line(session, "Clear per-agent model overrides so all use this? [Y/n]: ")
+    do_apply = apply_all.lower() not in ("n", "no")
+
+    _save_env_key("OLLAMA_MODEL", chosen)
+    session_state["model_name"] = chosen
+
+    if do_apply:
+        for a in agent_manager.all_agents():
+            if not a.get("built_in") and a.get("model"):
+                try:
+                    agent_manager.update(a["id"], model=None)
+                except Exception:
+                    pass
+
+    console.print(f"[green]✓ Global model set to [bold]{chosen}[/bold].[/green]")
+    if do_apply:
+        console.print("[dim]All per-agent overrides cleared.[/dim]")
+    console.print("[dim]Restart QuestChain to use the new model in the active session.[/dim]")
+
+    try:
+        from questchain.gateway.server import _settings_payload
+        from questchain.gateway.events import get_bus as _get_bus
+        import os as _os
+        _os.environ["OLLAMA_MODEL"] = chosen
+        _get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+    except Exception:
+        pass
 
 
 async def _prompt_model_line(session: PromptSession, prompt_text: str) -> str:
@@ -1852,6 +1960,12 @@ async def _repl_loop(
                 if session_state.pop("run_setup_telegram", False):
                     from questchain.onboarding import run_setup_telegram
                     await run_setup_telegram(console, session)
+
+                if session_state.pop("run_setup_speak", False):
+                    await run_setup_speak(console, session)
+
+                if session_state.pop("run_model_selector", False) and agent_manager is not None:
+                    await _run_model_selector(console, session, agent_manager, session_state)
 
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)

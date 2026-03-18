@@ -144,7 +144,12 @@ class Agent:
             "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
         )
 
-    async def run_quest(self, thread_id: str, quest_path: "Path | None" = None) -> str | None:
+    async def run_quest(
+        self,
+        thread_id: str,
+        quest_path: "Path | None" = None,
+        keep_file: bool = False,
+    ) -> str | None:
         """Pick and complete a quest from workspace/quests/.
 
         Args:
@@ -156,7 +161,6 @@ class Agent:
         Deletes the quest file on completion.
         """
         from questchain.config import WORKSPACE_DIR
-        from questchain.quest_meta import parse_quest
 
         if quest_path is None:
             quests_dir = WORKSPACE_DIR / "workspace" / "quests"
@@ -171,13 +175,15 @@ class Agent:
             return None
 
         quest_name = quest_path.name
-        _, body = parse_quest(quest_path)
+        quest_content = quest_path.read_text(encoding="utf-8").strip()
 
         prompt = (
             f"QUEST: Complete the following task (from {quest_name}).\n\n"
-            f"{body}\n\n"
-            f"When finished, present your actual findings, results, or produced content directly "
-            f"in your response — not a description of steps taken."
+            f"{quest_content}\n\n"
+            f"Work autonomously. Do NOT ask for clarification — make your best judgment "
+            f"call and proceed (e.g. create missing files, infer intent from context). "
+            f"When finished, present your actual findings, results, or produced content "
+            f"directly in your response — not a description of steps taken."
         )
 
         tokens: list[str] = []
@@ -186,7 +192,8 @@ class Agent:
 
         response = _THINK_RE.sub("", "".join(tokens)).strip()
 
-        await asyncio.to_thread(quest_path.unlink, True)
+        if not keep_file:
+            await asyncio.to_thread(quest_path.unlink, True)
 
         return response or None
 

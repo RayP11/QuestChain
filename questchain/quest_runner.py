@@ -107,20 +107,34 @@ class QuestRunner:
 
         # Find the next quest and resolve which agent should run it.
         from questchain.config import WORKSPACE_DIR
-        from questchain.quest_meta import parse_quest
+        from questchain.quest_meta import parse_quest, is_cron_quest, cron_is_due, update_last_run
 
         quests_dir = WORKSPACE_DIR / "workspace" / "quests"
         if not quests_dir.exists():
             return
-        quest_files = sorted(quests_dir.glob("*.md"))
-        if not quest_files:
+        all_files = sorted(quests_dir.glob("*.md"))
+        if not all_files:
             return
 
-        quest_path = quest_files[0]
+        # Priority: non-cron quests first, then cron quests that are due.
+        regular = [f for f in all_files if not is_cron_quest(f)]
+        cron_due = [f for f in all_files if is_cron_quest(f) and cron_is_due(f)]
+
+        if regular:
+            quest_path = regular[0]
+            _is_cron = False
+        elif cron_due:
+            quest_path = cron_due[0]
+            _is_cron = True
+        else:
+            logger.debug("Quest: no quests due")
+            return
+
         try:
             meta, _ = parse_quest(quest_path)
         except Exception:
             meta = {}
+            _is_cron = False
 
         assigned_agent_id = meta.get("agent", "")
 
@@ -157,8 +171,8 @@ class QuestRunner:
         async def _run_quest() -> str | None:
             if self._busy_lock is not None:
                 async with self._busy_lock:
-                    return await agent.run_quest(thread_id, quest_path=quest_path)
-            return await agent.run_quest(thread_id, quest_path=quest_path)
+                    return await agent.run_quest(thread_id, quest_path=quest_path, keep_file=_is_cron)
+            return await agent.run_quest(thread_id, quest_path=quest_path, keep_file=_is_cron)
 
         try:
             self._current_tick_task = asyncio.create_task(
@@ -185,6 +199,13 @@ class QuestRunner:
             return
         finally:
             self._current_tick_task = None
+
+        # For cron quests, update last_run so they don't fire again until scheduled.
+        if _is_cron and quest_path.exists():
+            try:
+                update_last_run(quest_path)
+            except Exception:
+                logger.warning("Quest: failed to update last_run for cron quest %s", quest_path.name)
 
         if result:
             await self._send_callback(result, effective_agent_id)

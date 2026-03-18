@@ -6,6 +6,15 @@ from questchain.engine.model import OllamaModel
 from questchain.engine.tools import make_registry, wrap_lc_tool
 from questchain.engine.builtins import filesystem, shell
 
+# Tools that are NEVER allowed for a given class, regardless of the stored tools field.
+# This prevents small models from hallucinating tool calls that bypass the filter.
+_CLASS_TOOL_BLACKLIST: dict[str, frozenset[str]] = {
+    "Explorer":  frozenset({"shell"}),
+    "Oracle":    frozenset({"shell"}),
+    "Sage":      frozenset({"shell"}),
+    "Scheduler": frozenset({"shell"}),
+}
+
 SYSTEM_PROMPT = """\
 You are {agent_name}, a capable AI assistant running locally via Ollama.
 
@@ -26,6 +35,7 @@ def create_questchain_agent(
     on_audio=None,
     injected_files=None,
     personality_hint: str = "",
+    class_name: str = "Custom",
     # Legacy params accepted but unused (kept for call-site compatibility)
     checkpointer=None,
     store=None,
@@ -46,7 +56,11 @@ def create_questchain_agent(
 
     registry = make_registry()
 
+    _hard_blocked = _CLASS_TOOL_BLACKLIST.get(class_name, frozenset())
+
     def _want(name: str) -> bool:
+        if name in _hard_blocked:
+            return False
         return tools_filter is None or name in tools_filter
 
     for fn in (filesystem.read_file, filesystem.write_file, filesystem.edit_file,
@@ -111,4 +125,5 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
         agent_name=agent_def.get("name", "QuestChain"),
         injected_files=injected_files,
         personality_hint=hint,
+        class_name=agent_def.get("class_name", "Custom"),
     )

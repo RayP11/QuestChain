@@ -7,7 +7,7 @@ from questchain.tools.claude_code import create_claude_code_tool
 from questchain.tools.cron import create_cron_tools
 from questchain.tools.web_search import create_search_tool
 from questchain.tools.web_browse import create_browse_tool
-from questchain.tools.speak import create_speak_tool
+from questchain.tools.speak import create_speak_tool, is_speak_available
 
 
 def is_claude_code_available() -> bool:
@@ -47,7 +47,7 @@ def get_custom_tools(
     if api_key and _want("web_browse"):
         tools.append(create_browse_tool(api_key))
 
-    if on_audio and _want("speak"):
+    if on_audio and _want("speak") and is_speak_available():
         tools.append(create_speak_tool(on_audio))
 
     return tools
