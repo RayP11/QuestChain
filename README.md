@@ -171,11 +171,9 @@ On first run, QuestChain walks you through a short onboarding conversation and o
 questchain start                      # Start with default model
 questchain start -m qwen3:4b          # Use a specific model
 questchain start -t <thread-id>       # Resume a previous conversation
-questchain start --no-memory          # Run without persistent memory
 questchain start --quests 30          # Set quest runner interval (minutes)
 questchain start --no-quests          # Disable the quest runner
 questchain start --web                # Start with web UI (gateway + CLI)
-questchain start --list-models        # Show available model presets
 ```
 
 ### Clone & Run (alternative)
