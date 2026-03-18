@@ -15,7 +15,7 @@
 
 <img src="assets/QuestChain-short-demo.gif" alt="QuestChain demo" width="800"/>
 
-<img src="assets/chat-page.png" alt="QuestChain chat" width="800"/>
+<img src="assets/chat-ui.png" alt="QuestChain chat" width="800"/>
 
 </div>
 
