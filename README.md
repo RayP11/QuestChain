@@ -175,7 +175,6 @@ questchain start --no-memory          # Run without persistent memory
 questchain start --quests 30          # Set quest runner interval (minutes)
 questchain start --no-quests          # Disable the quest runner
 questchain start --web                # Start with web UI (gateway + CLI)
-questchain start --web-only           # Start web UI only (no CLI)
 questchain start --list-models        # Show available model presets
 ```
 
