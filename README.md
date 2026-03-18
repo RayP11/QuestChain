@@ -146,13 +146,13 @@ Leave it running, then open a new terminal for the next step.
 **Windows:** open PowerShell and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/master/install.ps1 | iex"
 ```
 
 **macOS / Linux:** open a terminal and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/master/install.sh | bash
 ```
 
 ### Step 3: Run

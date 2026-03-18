@@ -7,7 +7,7 @@
     'questchain' command globally so you can run 'questchain start' from any terminal.
 .NOTES
     Run via PowerShell one-liner:
-        powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1 | iex"
+        powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RayP11/QuestChain/master/install.ps1 | iex"
 #>
 
 $ErrorActionPreference = "Stop"

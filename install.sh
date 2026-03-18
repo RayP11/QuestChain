@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QuestChain installer for macOS and Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/RayP11/QuestChain/master/install.sh | bash
 
 set -euo pipefail
 
