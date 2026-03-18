@@ -21,7 +21,7 @@
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits — just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
+QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
 
 ---
 
@@ -32,7 +32,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 - [Quests](#quests)
 - [Install](#install)
 - [What It Can Do](#what-it-can-do)
-- [Built for the Edge — Securely](#built-for-the-edge--securely)
+- [Built for the Edge](#built-for-the-edge)
 - [It Codes Itself](#it-codes-itself)
 - [Terminal Commands](#terminal-commands)
 - [Telegram Setup](#telegram-setup)
@@ -45,20 +45,20 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 ## Why QuestChain?
 
-I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot of fun playing around with it. However, I couldn't afford the api token cost and I wasn't able to run local models quickly without having to buy even more expensive hardware. So I was inspired to create a framework which could run models as small as 3B autonomously and productively. 
+I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot of fun playing around with it. However, I couldn't afford the api token cost and I wasn't able to run local models quickly without having to buy even more expensive hardware. So I was inspired to create a framework which could run models as small as 3B autonomously and productively.
 
 QuestChain is that framework: a party of micro agents all jam-packed with tool loadouts for specific tasks, fully autonomous, and with a twist of gamification.
 
-### How it compares
+### At a glance
 
-| | **QuestChain** | **[picoClaw](https://github.com/sipeed/picoclaw)** | **[OpenClaw](https://github.com/OpenClaw-AI/OpenClaw)** |
-|---|---|---|---|
-| Language | Python | Go | TypeScript |
-| Lines of code | ~10,600 | ~87,000 | ~1,250,000 |
-| Source files | 38 | 583 | 8,085 |
-| Multi-surface (CLI, Telegram, Web) | ✅ | ✅ | ✅ |
-
-QuestChain is ~8× smaller than picoClaw and ~118× smaller than OpenClaw, while covering multi-surface chat, RPG progression, cron scheduling, and a custom async agent engine — all in pure Python.
+| | **QuestChain** |
+|---|---|
+| Language | Python |
+| Lines of code | ~9,000 |
+| Source files | 40 |
+| Multi-surface (CLI, Telegram, Web) | ✅ |
+| RPG progression | ✅ |
+| Custom async agent engine | ✅ |
 
 ---
 
@@ -81,7 +81,7 @@ Each agent has:
 
 ### Classes
 
-Classes are QuestChain's micro-agent system. Each class is a specialized agent with its own role, tool loadout, and independent progression. Keeping agents focused on a single domain is best practice for local models — a smaller context, fewer tools, and a clear identity means better decisions and fewer hallucinations.
+Classes are QuestChain's micro-agent system. Each class is a specialized agent with its own role, tool loadout, and independent progression. Keeping agents focused on a single domain is best practice for local models. A smaller context, fewer tools, and a clear identity means better decisions and fewer hallucinations.
 
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
@@ -102,7 +102,7 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 
 QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
 
-**Quests** are individual `.md` files in `workspace/quests/` — one file per task. Write whatever you want the agent to do:
+**Quests** are individual `.md` files in `workspace/quests/`, one file per task. Write whatever you want the agent to do:
 
 ```markdown
 # workspace/quests/find-api-docs.md
@@ -111,7 +111,7 @@ Find the REST API docs for the weather service and save a summary to /workspace/
 
 The agent reads the quest, uses all the tools at its disposal to complete the task, then deletes the file automatically. Results are shown in the terminal and on Telegram if configured.
 
-Use `/quest` to open the interactive quest manager — create, view, and delete quests with arrow keys:
+Use `/quest` to open the interactive quest manager to create, view, and delete quests with arrow keys:
 
 ```
  Quests   [n] new  [d] delete  [Esc] close
@@ -209,34 +209,34 @@ python -m questchain
 
 ## What It Can Do
 
-- 🔍 **Web Search & Browse** — Find current information and extract full page content via Tavily *(optional)*
-- 📁 **File Operations** — Read, write, edit, list, search files on your real filesystem
-- 💻 **Shell Commands** — Run terminal commands and scripts directly
-- 🖥️ **Self-Coding** — Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
-- ⏰ **Cron Jobs** — Schedule recurring tasks that run automatically and report back
-- 📱 **Telegram Bot** — Access QuestChain remotely from your phone
-- 💾 **Persistent Memory** — Learns your preferences and saves notes across sessions
-- 🗣️ **Voice Output** — Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
-- 🔄 **Quests** — Autonomously checks your task list and works in the background on a timer
+- 🔍 **Web Search & Browse:** Find current information and extract full page content via Tavily *(optional)*
+- 📁 **File Operations:** Read, write, edit, list, search files on your real filesystem
+- 💻 **Shell Commands:** Run terminal commands and scripts directly
+- 🖥️ **Self-Coding:** Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
+- ⏰ **Cron Jobs:** Schedule recurring tasks that run automatically and report back
+- 📱 **Telegram Bot:** Access QuestChain remotely from your phone
+- 💾 **Persistent Memory:** Learns your preferences and saves notes across sessions
+- 🗣️ **Voice Output:** Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
+- 🔄 **Quests:** Autonomously checks your task list and works in the background on a timer
 
 ---
 
-## Built for the Edge — Securely
+## Built for the Edge
 
-Most AI tools assume cloud infrastructure and always-online connections. QuestChain runs on the hardware you already own — reliably on models as small as **3B parameters** — and is built so that nothing has to leave your machine.
+Most AI tools assume cloud infrastructure and always-online connections. QuestChain runs on the hardware you already own, reliably on models as small as **3B parameters**, and is built so that nothing has to leave your machine.
 
 > *"All the power of AI, none of the cloud bills."*
 
 **Performance on constrained hardware:**
-- **No bloat.** The entire agent loop is ~100 lines of Python — no framework overhead, nothing between the model and your machine.
-- **Context is managed automatically.** When memory fills up, QuestChain summarizes older conversation and keeps going — no crashes, no cutoffs.
+- **No bloat.** The entire agent loop is ~100 lines of Python. No framework overhead, nothing between the model and your machine.
+- **Context is managed automatically.** When memory fills up, QuestChain summarizes older conversation and keeps going. No crashes, no cutoffs.
 - **Tools run in parallel.** Web search, file reads, and shell commands execute simultaneously when needed.
 
 **Private by design:**
-- **Nothing reachable from outside** — runs only on your computer, never exposed to the internet.
-- **No store, no strangers' code** — No online marketplace, no telemetry, nothing phoning home.
-- **No accounts, nothing to steal** — Optional API keys stay in a local file and go nowhere else.
-- **Works with no internet at all** — Disconnect your machine and QuestChain keeps working.
+- **Nothing reachable from outside:** runs only on your computer, never exposed to the internet.
+- **No store, no strangers' code:** no online marketplace, no telemetry, nothing phoning home.
+- **No accounts, nothing to steal:** optional API keys stay in a local file and go nowhere else.
+- **Works with no internet at all:** disconnect your machine and QuestChain keeps working.
 
 Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
 
@@ -311,11 +311,11 @@ Any Ollama model works. These are the most tested:
 
 | Model | VRAM | Notes |
 |---|---|---|
-| `qwen3:8b` | ~6 GB | **Default** — Fast, excellent tool calling, native thinking |
-| `qwen3:4b` | ~3 GB | Compact — solid tool calling, native thinking |
+| `qwen3:8b` | ~6 GB | **Default.** Fast, excellent tool calling, native thinking |
+| `qwen3:4b` | ~3 GB | Compact. Solid tool calling, native thinking |
 | `qwen3.5:9b` | ~7 GB | Strong tool calling |
 | `qwen3.5:4b` | ~3.5 GB | Lightweight, reliable tool calling |
-| `qwen3:1.7b` | ~2 GB | Ultra-light — runs on CPU or minimal VRAM |
+| `qwen3:1.7b` | ~2 GB | Ultra-light. Runs on CPU or minimal VRAM |
 
 ```bash
 questchain start -m <any-model>  # use any model installed in Ollama
@@ -329,7 +329,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 
 - **Issues:** [github.com/RayP11/QuestChain/issues](https://github.com/RayP11/QuestChain/issues)
 - **Discussion & ideas:** [Join the Discord](https://discord.gg/C8Rc3u7KKx)
-- **Self-hosted development:** QuestChain can write and test its own code — see [It Codes Itself](#it-codes-itself)
+- **Self-hosted development:** QuestChain can write and test its own code. See [It Codes Itself](#it-codes-itself)
 
 ---
 
@@ -345,15 +345,15 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 
 </div>
 
-- **Custom async agent engine** — purpose-built for edge AI; lightweight, streaming, parallel tool execution
-- **[Ollama](https://ollama.com)** — Run any open-weight LLM locally with one command
-- **[Claude Code](https://claude.ai/code)** — Anthropic's coding agent; QuestChain delegates programming tasks to it
-- **[Tavily](https://tavily.com)** — Web search and full-page extraction API
-- **[python-telegram-bot](https://python-telegram-bot.org)** — Telegram bot SDK
-- **[APScheduler](https://apscheduler.readthedocs.io)** — Async cron job scheduling
-- **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)** — Fast local text-to-speech
-- **[Rich](https://github.com/Textualize/rich)** — Beautiful terminal output
-- **[prompt-toolkit](https://python-prompt-toolkit.readthedocs.io)** — Interactive terminal input with history
+- **Custom async agent engine:** purpose-built for edge AI; lightweight, streaming, parallel tool execution
+- **[Ollama](https://ollama.com):** run any open-weight LLM locally with one command
+- **[Claude Code](https://claude.ai/code):** Anthropic's coding agent; QuestChain delegates programming tasks to it
+- **[Tavily](https://tavily.com):** web search and full-page extraction API
+- **[python-telegram-bot](https://python-telegram-bot.org):** Telegram bot SDK
+- **[APScheduler](https://apscheduler.readthedocs.io):** async cron job scheduling
+- **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx):** fast local text-to-speech
+- **[Rich](https://github.com/Textualize/rich):** beautiful terminal output
+- **[prompt-toolkit](https://python-prompt-toolkit.readthedocs.io):** interactive terminal input with history
 
 ---
 
