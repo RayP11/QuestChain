@@ -10,8 +10,8 @@ from questchain.engine.builtins import filesystem, shell
 # This prevents small models from hallucinating tool calls that bypass the filter.
 _CLASS_TOOL_BLACKLIST: dict[str, frozenset[str]] = {
     "Explorer":  frozenset({"shell"}),
-    "Oracle":    frozenset({"shell"}),
-    "Sage":      frozenset({"shell"}),
+    "Planner":   frozenset({"shell"}),
+    "Keeper":    frozenset({"shell"}),
     "Scheduler": frozenset({"shell"}),
 }
 

@@ -8,10 +8,10 @@ from questchain.config import get_active_agent_path, get_agents_path
 
 AGENT_CLASSES: list[tuple[str, str, str]] = [
     ("Custom",    "🌀", "Unspecialized — custom-configured tools"),
-    ("Sage",      "📚", "Master of files and knowledge management"),
+    ("Keeper",    "📚", "Master of files and knowledge management"),
     ("Explorer",  "🔭", "Explorer of the web and information"),
-    ("Architect", "⚒️",  "Builder and coder"),
-    ("Oracle",    "🔮", "Planner and strategist"),
+    ("Builder",   "⚒️",  "Builder and coder"),
+    ("Planner",   "🔮", "Planner and strategist"),
     ("Scheduler", "⏱️",  "Scheduler and automation specialist"),
 ]
 DEFAULT_CLASS = "Custom"
@@ -19,10 +19,10 @@ DEFAULT_CLASS = "Custom"
 # Rich color for each class — used to tint the agent name in the terminal UI.
 CLASS_COLORS: dict[str, str] = {
     "Custom":    "bright_blue",
-    "Sage":      "yellow",
+    "Keeper":    "yellow",
     "Explorer":  "cyan",
-    "Architect": "orange3",
-    "Oracle":    "magenta",
+    "Builder":   "orange3",
+    "Planner":   "magenta",
     "Scheduler":  "green",
 }
 
@@ -33,21 +33,24 @@ _FILE_TOOLS = ["read_file", "write_file", "edit_file", "ls", "glob", "grep"]
 
 CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Custom":    None,
-    "Sage":      [*_FILE_TOOLS],
+    "Keeper":    [*_FILE_TOOLS],
     "Explorer":  ["web_search", "web_browse"],
-    "Architect": [*_FILE_TOOLS, "shell", "claude_code"],
-    "Oracle":    [*_FILE_TOOLS],
+    "Builder":   [*_FILE_TOOLS, "shell", "claude_code"],
+    "Planner":   [*_FILE_TOOLS],
     "Scheduler": ["cron"],
 }
 
 # Migrate old class names from saved agent JSON to the current names.
 _CLASS_MIGRATIONS: dict[str, str] = {
     "Wanderer":  "Custom",
-    "Archivist": "Sage",
+    "Archivist": "Keeper",
+    "Sage":      "Keeper",
     "Scout":     "Explorer",
+    "Architect": "Builder",
+    "Oracle":    "Planner",
 }
 
-SAGE_SYSTEM_PROMPT = """\
+KEEPER_SYSTEM_PROMPT = """\
 You are {agent_name}, a knowledge and file management specialist running locally via Ollama.
 
 ## Rules
@@ -68,7 +71,7 @@ You are {agent_name}, a web research and information specialist running locally 
 - Summarize findings clearly with sources cited.
 """
 
-ARCHITECT_SYSTEM_PROMPT = """\
+BUILDER_SYSTEM_PROMPT = """\
 You are {agent_name}, a software builder and coder running locally via Ollama.
 
 ## Rules
@@ -79,14 +82,16 @@ You are {agent_name}, a software builder and coder running locally via Ollama.
 - To create a custom tool, write `/workspace/tools/<name>.py` with an `async def <name>(...)` function and a docstring. It must be enabled per-agent in settings before it's available.
 """
 
-ORACLE_SYSTEM_PROMPT = """\
+PLANNER_SYSTEM_PROMPT = """\
 You are {agent_name}, a strategic planner and analyst running locally via Ollama.
 
 ## Rules
-- Break complex problems into clear, actionable steps.
-- Research before planning: use web_search to gather current information.
-- Document plans and decisions with write_todos or file tools.
-- Reason step-by-step; think before acting.
+- Always start by clarifying the goal and any constraints before planning.
+- Break every complex task into clear, numbered, actionable steps with explicit dependencies.
+- Write plans to files so they persist and can be reviewed or revised.
+- Reason step-by-step out loud before committing to an approach — show your thinking.
+- Identify risks and open questions; flag blockers explicitly.
+- Never skip the planning phase — even urgent tasks benefit from a quick structured plan.
 """
 
 SENTINEL_SYSTEM_PROMPT = """\
@@ -101,11 +106,11 @@ You are {agent_name}, a scheduling and automation specialist running locally via
 
 PRESET_AGENTS = [
     {
-        "name": "Sage",
+        "name": "Keeper",
         "model": None,
-        "system_prompt": SAGE_SYSTEM_PROMPT,
+        "system_prompt": KEEPER_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS],
-        "class_name": "Sage",
+        "class_name": "Keeper",
     },
     {
         "name": "Explorer",
@@ -115,18 +120,18 @@ PRESET_AGENTS = [
         "class_name": "Explorer",
     },
     {
-        "name": "Architect",
+        "name": "Builder",
         "model": None,
-        "system_prompt": ARCHITECT_SYSTEM_PROMPT,
+        "system_prompt": BUILDER_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS, "shell", "claude_code"],
-        "class_name": "Architect",
+        "class_name": "Builder",
     },
     {
-        "name": "Oracle",
+        "name": "Planner",
         "model": None,
-        "system_prompt": ORACLE_SYSTEM_PROMPT,
+        "system_prompt": PLANNER_SYSTEM_PROMPT,
         "tools": [*_FILE_TOOLS],
-        "class_name": "Oracle",
+        "class_name": "Planner",
     },
     {
         "name": "Scheduler",

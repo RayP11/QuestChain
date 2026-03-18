@@ -86,10 +86,10 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
 | Custom | 🌀 | You decide | You configure |
-| Sage | 📚 | Files & knowledge | File tools |
+| Keeper | 📚 | Files & knowledge | File tools |
 | Explorer | 🔭 | Research & discovery | Web search + browse |
-| Architect | ⚒️ | Code & systems | Files, shell, Claude Code |
-| Oracle | 🔮 | Planning & strategy | File tools |
+| Builder | ⚒️ | Code & systems | Files, shell, Claude Code |
+| Planner | 🔮 | Planning & strategy | File tools |
 | Scheduler | ⏱️ | Automation | Cron only |
 
 ---

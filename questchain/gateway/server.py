@@ -156,10 +156,10 @@ async def serve_app_js() -> Response:
 
 _CLASS_IMAGES: dict[str, list[str]] = {
     "Custom":    ["Pixel_idle.png",                        "evolve2.png",                           "draft-evolve-3.png"],
-    "Sage":      ["Sage1.png",                             "Sage2.png",                             "Sage3.png"],
+    "Keeper":    ["Sage1.png",                             "Sage2.png",                             "Sage3.png"],
     "Explorer":  ["Explorer1-jukebox-bg-removed.png",      "Explorer2-jukebox-bg-removed.png",      "Explorer3-jukebox-bg-removed.png"],
-    "Architect": ["Arch1-jukebox-bg-removed.png",          "Arch2-jukebox-bg-removed.png",          "Arch3-jukebox-bg-removed.png"],
-    "Oracle":    ["Oracle1-jukebox-bg-removed.png",        "Oracle2-jukebox-bg-removed.png",        "Oracle3-jukebox-bg-removed.png"],
+    "Builder":   ["Arch1-jukebox-bg-removed.png",          "Arch2-jukebox-bg-removed.png",          "Arch3-jukebox-bg-removed.png"],
+    "Planner":   ["Oracle1-jukebox-bg-removed.png",        "Oracle2-jukebox-bg-removed.png",        "Oracle3-jukebox-bg-removed.png"],
     "Scheduler": ["Scheduler1-jukebox-bg-removed.png",     "Scheduler2-jukebox-bg-removed.png",     "Scheduler3-jukebox-bg-removed.png"],
 }
 

@@ -471,7 +471,7 @@ function renderChatAgentList() {
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
-const CLASS_ICONS = { Custom:'🌀', Sage:'📚', Explorer:'🔭', Architect:'⚒️', Oracle:'🔮', Scheduler:'⏱️' };
+const CLASS_ICONS = { Custom:'🌀', Keeper:'📚', Explorer:'🔭', Builder:'⚒️', Planner:'🔮', Scheduler:'⏱️' };
 // Use the bundled character image (served relative to the page)
 const AGENT_IMAGE_SRC = 'data:image/png;base64,'; // placeholder; real image injected below
 
