@@ -1,0 +1,58 @@
+site_name: QuestChain
+site_description: A fully local, autonomous AI agent framework powered by Ollama — no cloud, no subscriptions, nothing leaving your machine.
+site_url: https://rayp11.github.io/QuestChain/
+repo_url: https://github.com/RayP11/QuestChain
+repo_name: RayP11/QuestChain
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: amber
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - announce.dismiss
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Telegram Setup: telegram.md
+  - Command Guide: cli-reference.md
+  - What Can It Do: capabilities.md
+  - Your Agents: agent-classes.md
+  - Quests: quest-system.md
+  - Progression: progression.md
+  - Models: models.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/RayP11/QuestChain
+      name: GitHub
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/C8Rc3u7KKx
+      name: Discord
+
+copyright: QuestChain — No cloud. No cost. No compromise.
