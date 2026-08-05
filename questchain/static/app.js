@@ -34,7 +34,9 @@ const State = {
   viewingAgentId: '',    // agent currently shown in stats view (may differ from active)
   quests: [],
   selectedQuestName: null,
-  page: 'chat',
+  battleLog: [],       // array of {text, agentName, icon, time}, max 20
+  agentStatus: {},     // agent_id → 'idle' | 'thinking' | 'tool:toolname'
+  page: 'map',
   settings: null,
   editingAgentId: null,
   pendingEditId: null,   // agent to open in edit form once settings load
@@ -106,6 +108,9 @@ function onToken(msg) {
   State.streamEl.textContent += msg.content;
   State.streamEl.classList.add('stream-cursor');
   scrollToBottom();
+  // Battle map: mark active agent as thinking
+  State.agentStatus[State.activeAgentId] = 'thinking';
+  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
 }
 
 function onToolCall(msg) {
@@ -115,6 +120,10 @@ function onToolCall(msg) {
   el.innerHTML = `<span class="dot"></span>${escHtml(msg.name)}`;
   document.getElementById('messages').appendChild(el);
   scrollToBottom();
+  // Battle map: mark agent as working, log tool call
+  State.agentStatus[State.activeAgentId] = 'tool:' + msg.name;
+  pushBattleLog(State.activeAgentId, `Used ${msg.name}`);
+  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
 }
 
 function onDone(msg) {
@@ -129,6 +138,10 @@ function onDone(msg) {
   document.querySelectorAll('.tool-pill .dot').forEach(d => d.style.animation = 'none');
   // refresh stats after response
   send({ type: 'get_stats' });
+  // Battle map: mark agent as idle, log completion
+  State.agentStatus[State.activeAgentId] = 'idle';
+  pushBattleLog(State.activeAgentId, 'Completed response');
+  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
 }
 
 function onAgents(msg) {
@@ -141,6 +154,8 @@ function onAgents(msg) {
   updateChatHeader();
   // Render stats panel directly from enriched agents data — no extra roundtrip
   renderStatsFromAgents();
+  // Refresh battle map if visible
+  if (State.page === 'map') renderBattleMap();
   // Refresh quest agent selector if quests page is open
   if (State.page === 'quests') {
     const q = State.quests.find(x => x.name === State.selectedQuestName);
@@ -174,11 +189,13 @@ function onStats(msg) {
 function onQuests(msg) {
   State.quests = msg.quests || [];
   renderQuestList();
+  if (State.page === 'map') renderBattleMap();
 }
 
 function onSettings(msg) {
   State.settings = msg;
   if (State.page === 'settings') renderSettings();
+  if (State.page === 'map') renderBattleMap();
   // Handle a deferred edit triggered from the agent roster
   if (State.pendingEditId) {
     const id = State.pendingEditId;
@@ -694,6 +711,225 @@ function clearEditor() {
   renderQuestList();
 }
 
+// ── Cron helpers ──────────────────────────────────────────────
+function cronToHuman(expr) {
+  if (!expr) return '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return expr;
+  const [min, hour, dom, mon, dow] = parts;
+
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const monNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Format time portion
+  let time = '';
+  if (min !== '*' && hour !== '*') {
+    const h = parseInt(hour, 10);
+    const m = parseInt(min, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    time = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+  } else if (hour !== '*' && min === '*') {
+    time = `every minute of hour ${hour}`;
+  } else if (hour === '*' && min !== '*') {
+    time = `at :${String(parseInt(min,10)).padStart(2,'0')} every hour`;
+  }
+
+  // Interval patterns
+  if (min.startsWith('*/') || hour.startsWith('*/')) {
+    if (min.startsWith('*/')) {
+      const n = parseInt(min.slice(2), 10);
+      return `Every ${n} min${n > 1 ? 's' : ''}`;
+    }
+    if (hour.startsWith('*/')) {
+      const n = parseInt(hour.slice(2), 10);
+      return `Every ${n} hour${n > 1 ? 's' : ''}`;
+    }
+  }
+
+  // Schedule description
+  let schedule = '';
+  if (dow !== '*' && dow !== '?') {
+    const days = dow.split(',').map(d => {
+      const n = parseInt(d, 10);
+      return isNaN(n) ? d : (dayNames[n] || d);
+    });
+    schedule = days.join(', ');
+  } else if (dom !== '*') {
+    schedule = `day ${dom}`;
+    if (mon !== '*') schedule += ` of ${monNames[parseInt(mon,10)] || mon}`;
+  } else if (mon !== '*') {
+    schedule = monNames[parseInt(mon,10)] || mon;
+  } else {
+    schedule = 'Daily';
+  }
+
+  return time ? `${schedule} at ${time}` : schedule;
+}
+
+// ── Battle Map ────────────────────────────────────────────────
+
+function pushBattleLog(agentId, text) {
+  const agent = State.agents.find(a => a.id === agentId);
+  const name = agent ? agent.name : 'Agent';
+  const icon = agent ? (CLASS_ICONS[agent.class_name] || '🌀') : '🌀';
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 8);
+  State.battleLog.push({ text, agentName: name, icon, time });
+  if (State.battleLog.length > 20) State.battleLog.shift();
+}
+
+function renderBattleMap() {
+  // Party count
+  const countEl = document.getElementById('map-party-count');
+  if (countEl) countEl.textContent = `Party: ${State.agents.length} agent${State.agents.length !== 1 ? 's' : ''}`;
+
+  // Objectives zone
+  const objZone = document.getElementById('map-objectives');
+  const questTilesHtml = State.quests.map(q => {
+    const label = _questAgentLabel(q);
+    const statusClass = q.agent_id ? (q.cron ? 'gold' : 'assigned') : 'open';
+    return `
+      <div class="map-quest-tile ${statusClass}" data-name="${escAttr(q.name)}">
+        <div class="map-quest-icon">⚔</div>
+        <div class="map-quest-body">
+          <div class="map-quest-title">${escHtml(q.title || q.name)}</div>
+          <div class="map-quest-assign">${label ? '◀── ' + escHtml(label) : '(Open)'}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const agentOpts = State.agents.map(a =>
+    `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`
+  ).join('');
+
+  // Cron jobs
+  const cronJobs = State.settings?.cron_jobs || [];
+  const cronHtml = cronJobs.length ? cronJobs.map(j => {
+    const statusClass = j.enabled !== false ? 'on' : 'off';
+    const statusLabel = j.enabled !== false ? 'ON' : 'OFF';
+    return `
+      <div class="map-cron-tile">
+        <div class="map-cron-icon">⏰</div>
+        <div class="map-cron-body">
+          <div class="map-cron-name">${escHtml(j.name || j.id)}</div>
+          <div class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))}</div>
+        </div>
+        <span class="map-cron-status ${statusClass}">${statusLabel}</span>
+      </div>`;
+  }).join('') : '';
+
+  // Quests section (always shown)
+  let html = '<div class="map-section-label">Quests</div><div class="map-section-content">';
+  if (State.quests.length > 0) {
+    html += questTilesHtml;
+  } else {
+    html += '<div class="map-empty">No active quests</div>';
+  }
+  html += `<button id="map-quest-add-btn">+ New Quest</button>
+     <div id="map-quest-form">
+       <input id="map-qf-name" type="text" placeholder="Quest name" />
+       <select id="map-qf-agent"><option value="">Any agent</option>${agentOpts}</select>
+       <textarea id="map-qf-content" placeholder="Quest details (optional)"></textarea>
+       <div class="map-quest-form-actions">
+         <button class="btn-ghost" id="map-qf-cancel">Cancel</button>
+         <button class="btn-primary" id="map-qf-save">Create</button>
+       </div>
+     </div></div>`;
+
+  // Cron section
+  if (cronJobs.length > 0) {
+    html += '<div class="map-section-label">Cron</div><div class="map-section-content">' + cronHtml + '</div>';
+  }
+
+  objZone.innerHTML = html;
+
+  objZone.querySelectorAll('.map-quest-tile').forEach(el => {
+    el.addEventListener('click', () => {
+      selectQuest(el.dataset.name);
+      switchPage('quests');
+    });
+  });
+
+  document.getElementById('map-quest-add-btn').addEventListener('click', () => {
+    const form = document.getElementById('map-quest-form');
+    form.classList.add('open');
+    document.getElementById('map-quest-add-btn').style.display = 'none';
+    document.getElementById('map-qf-name').focus();
+  });
+
+  document.getElementById('map-qf-cancel').addEventListener('click', () => {
+    document.getElementById('map-quest-form').classList.remove('open');
+    document.getElementById('map-quest-add-btn').style.display = '';
+  });
+
+  document.getElementById('map-qf-save').addEventListener('click', () => {
+    const name = document.getElementById('map-qf-name').value.trim();
+    if (!name) { document.getElementById('map-qf-name').focus(); return; }
+    const content = document.getElementById('map-qf-content').value;
+    const agent_id = document.getElementById('map-qf-agent').value;
+    send({ type: 'create_quest', name, content, agent_id, cron: '' });
+    document.getElementById('map-quest-form').classList.remove('open');
+    document.getElementById('map-quest-add-btn').style.display = '';
+  });
+
+  // Party zone
+  const partyZone = document.getElementById('map-party');
+  if (State.agents.length === 0) {
+    partyZone.innerHTML = '<div class="map-empty">No agents yet — create one in Settings</div>';
+  } else {
+    partyZone.innerHTML = State.agents.map((a, i) => {
+      const icon = CLASS_ICONS[a.class_name] || '🌀';
+      const level = a.progression?.level || a.level || 1;
+      const prog = a.progression || {};
+      const xpThis = prog.xp_this_level || 0;
+      const xpLeft = prog.xp_next_level || 100;
+      const xpTotal = xpThis + xpLeft;
+      const pct = xpTotal > 0 ? Math.min(100, Math.round(xpThis / xpTotal * 100)) : 0;
+      const status = State.agentStatus[a.id] || 'idle';
+      const statusClass = status === 'thinking' ? 'thinking' : (status.startsWith('tool:') ? 'working' : 'idle');
+      const isActive = a.id === State.activeAgentId;
+      return `
+        <div class="map-agent-tile ${statusClass}${isActive ? ' active-turn' : ''}" data-id="${escAttr(a.id)}">
+          <img class="map-agent-img" src="/agent-image?agent_id=${encodeURIComponent(a.id)}" alt="${escAttr(a.name)}" onerror="this.style.opacity='0.15'" />
+          <div class="map-agent-body">
+            <div class="map-agent-name">${icon} ${escHtml(a.name)}</div>
+            <div class="map-agent-level">Lv.${level}</div>
+            <div class="map-agent-xp-track"><div class="map-agent-xp-fill" style="width:${pct}%"></div></div>
+            <div class="map-agent-connector">${isActive ? '──▶' : ''}</div>
+          </div>
+          <div class="map-status-dot"></div>
+        </div>`;
+    }).join('');
+    partyZone.querySelectorAll('.map-agent-tile').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.id;
+        if (id !== State.activeAgentId) {
+          State.activeAgentId = id;
+          State.viewingAgentId = id;
+          send({ type: 'switch_agent', agent_id: id });
+          renderChatAgentList();
+          renderRoster();
+          updateChatHeader();
+        }
+        switchPage('chat');
+      });
+    });
+  }
+
+}
+
+function updateBattleTileStatus(agentId) {
+  const tile = document.querySelector(`.map-agent-tile[data-id="${agentId}"]`);
+  if (!tile) return;
+  const status = State.agentStatus[agentId] || 'idle';
+  tile.classList.remove('idle', 'thinking', 'working', 'active-turn');
+  if (status === 'thinking') tile.classList.add('thinking');
+  else if (status.startsWith('tool:')) tile.classList.add('working');
+  else tile.classList.add('idle');
+  if (agentId === State.activeAgentId) tile.classList.add('active-turn');
+}
+
 // ── Navigation ────────────────────────────────────────────────
 function switchPage(page) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -702,6 +938,12 @@ function switchPage(page) {
   if (btn) btn.classList.add('active');
   document.getElementById(`page-${page}`).classList.add('active');
   State.page = page;
+  if (page === 'map') {
+    send({ type: 'get_agents' });
+    send({ type: 'get_quests' });
+    send({ type: 'get_settings' });
+    renderBattleMap();
+  }
   if (page === 'agent') {
     renderStatsFromAgents();
     send({ type: 'get_agents' });
