@@ -4,32 +4,17 @@ import httpx
 from langchain_ollama import ChatOllama
 
 from questchain.config import (
-    QUESTCHAIN_RESPONSE_CACHE,
     MODEL_PRESETS,
     OLLAMA_BASE_URL,
     OLLAMA_NUM_GPU,
     OLLAMA_NUM_THREAD,
-    get_response_cache_path,
 )
-
-_cache_initialized = False
-
-
-def _maybe_init_cache() -> None:
-    """Set up LangChain's global LLM response cache on first call (if enabled)."""
-    global _cache_initialized
-    if _cache_initialized or not QUESTCHAIN_RESPONSE_CACHE:
-        return
-    from questchain.cache import setup_llm_cache
-    setup_llm_cache(get_response_cache_path())
-    _cache_initialized = True
 
 
 def get_model(model_name: str, base_url: str | None = None) -> ChatOllama:
     """Create a ChatOllama instance for the given model.
 
     Reads GPU/thread settings from config (OLLAMA_NUM_GPU, OLLAMA_NUM_THREAD).
-    Also initializes the LLM response cache the first time if QUESTCHAIN_RESPONSE_CACHE=true.
 
     Args:
         model_name: Ollama model name (e.g. 'qwen2.5:7b')
@@ -38,8 +23,6 @@ def get_model(model_name: str, base_url: str | None = None) -> ChatOllama:
     Returns:
         Configured ChatOllama instance.
     """
-    _maybe_init_cache()
-
     base_url = base_url or OLLAMA_BASE_URL
     preset = MODEL_PRESETS.get(model_name, {})
     num_ctx = preset.get("num_ctx", 32768)

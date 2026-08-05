@@ -2093,25 +2093,6 @@ async def _repl_loop(
                     response_future.set_exception(e)
 
 
-async def web_only(host: str = "127.0.0.1", port: int = 8765) -> None:
-    """Start the web UI gateway without the CLI REPL."""
-    from questchain.gateway.server import setup as _gw_setup, start_gateway_server
-
-    agent_manager = AgentManager()
-    agent_manager.seed_preset_agents()
-
-    web_queue: asyncio.Queue = asyncio.Queue()
-    _gw_setup(agent_manager, None, None, web_queue)
-    await start_gateway_server(host=host, port=port)
-    console.print(f"[bold green]QuestChain Web UI[/bold green] → [cyan]http://{host}:{port}[/cyan]")
-    console.print("[dim]Press Ctrl+C to stop[/dim]")
-
-    try:
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
-
-
 def main(
     model_name: str | None = None,
     thread_id: str | None = None,

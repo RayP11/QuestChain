@@ -16,9 +16,9 @@ def parse_args():
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["start", "web"],
+        choices=["start"],
         default="start",
-        help="Command to run: 'start' (default) launches the CLI, 'web' starts only the web UI",
+        help="Command to run: 'start' (default) launches the CLI",
     )
     parser.add_argument(
         "-m", "--model",
@@ -107,12 +107,6 @@ def main():
         for name, preset in MODEL_PRESETS.items():
             marker = " <-- default" if name == OLLAMA_MODEL else ""
             print(f"  {name:20s} {preset['description']}{marker}")
-        return
-
-    if args.command == "web":
-        import asyncio
-        from questchain.cli import web_only
-        asyncio.run(web_only(host=args.web_host, port=args.web_port))
         return
 
     quest_minutes = None if args.no_quests else args.quests

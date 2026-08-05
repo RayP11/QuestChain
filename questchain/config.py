@@ -37,12 +37,6 @@ OLLAMA_NUM_GPU: int | None = int(_num_gpu_env) if _num_gpu_env else None
 _num_thread_env = os.getenv("OLLAMA_NUM_THREAD", "")
 OLLAMA_NUM_THREAD: int | None = int(_num_thread_env) if _num_thread_env else None
 
-# --- Response cache settings ---
-# When enabled, identical LLM prompts are served from a SQLite cache instead
-# of re-invoking Ollama. Useful when the same question is asked repeatedly.
-# Set QUESTCHAIN_RESPONSE_CACHE=true in your .env to enable.
-QUESTCHAIN_RESPONSE_CACHE = os.getenv("QUESTCHAIN_RESPONSE_CACHE", "false").lower() in ("1", "true", "yes")
-
 # --- Tavily settings ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
@@ -143,11 +137,6 @@ def get_history_path() -> Path:
 def get_cron_jobs_path() -> Path:
     """Get the path to the cron jobs JSON file."""
     return ensure_data_dir() / "cron_jobs.json"
-
-
-def get_response_cache_path() -> Path:
-    """Get the path to the LLM response cache SQLite database."""
-    return ensure_data_dir() / "response_cache.db"
 
 
 def get_thread_ids_path() -> Path:

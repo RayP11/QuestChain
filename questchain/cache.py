@@ -1,18 +1,11 @@
 """Response caching utilities for QuestChain.
 
-Two caching layers are provided:
+**Tool result cache** (``tool_cache``): A lightweight in-process TTL decorator
+for wrapping sync or async tool functions.  Cache lives in memory for the
+duration of the process — useful for web search or browse calls where the
+same URL/query may be issued more than once in a session.
 
-1. **LLM response cache** (``setup_llm_cache``): Uses LangChain's SQLiteCache to
-   persist LLM responses keyed by prompt + model.  Identical prompts are served
-   from disk instead of re-invoking Ollama.  Enabled by setting
-   ``QUESTCHAIN_RESPONSE_CACHE=true`` in your .env file.
-
-2. **Tool result cache** (``tool_cache``): A lightweight in-process TTL decorator
-   for wrapping sync or async tool functions.  Cache lives in memory for the
-   duration of the process — useful for web search or browse calls where the
-   same URL/query may be issued more than once in a session.
-
-Usage example (tool cache)::
+Usage example::
 
     from questchain.cache import tool_cache
 
@@ -27,25 +20,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
-
-
-def setup_llm_cache(db_path: Path) -> None:
-    """Configure LangChain's global LLM response cache using SQLite.
-
-    Must be called before any LLM is invoked.  Subsequent calls to
-    ``setup_llm_cache`` with the same path are safe (no-op).
-
-    Args:
-        db_path: Path to the SQLite cache database file.
-                 The parent directory is created automatically.
-    """
-    from langchain_community.cache import SQLiteCache
-    from langchain_core.globals import set_llm_cache
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    set_llm_cache(SQLiteCache(database_path=str(db_path)))
 
 
 def tool_cache(ttl_seconds: int = 300) -> Callable:
