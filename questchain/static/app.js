@@ -226,7 +226,7 @@ function renderSettings() {
       chip.addEventListener('click', () => {
         const model = chip.dataset.model;
         if (model && model !== s.model_name) {
-          if (confirm(`Set global model to "${model}" and clear per-agent overrides?`)) {
+          if (confirm(`Set global model to "${model}" and clear per-agent overrides? Restart QuestChain to apply this change.`)) {
             send({ type: 'set_model', model, apply_all: true });
           }
         }

@@ -89,6 +89,8 @@ def _init_metrics(agent_def: dict, agent) -> MetricsManager:
     except Exception:
         pass
     _metrics = mm
+    from questchain.gateway.server import update_metrics
+    update_metrics(mm)
     return mm
 
 
@@ -153,9 +155,9 @@ class _AudioRouter:
             await _play_audio(wav_bytes)
 
 
-def _make_agent_from_def(agent_def: dict, audio_router=None, **_ignored) -> object:
+def _make_agent_from_def(agent_def: dict, audio_router=None, *, default_model=None) -> object:
     """Create a QuestChain agent from an agent definition dict."""
-    return make_agent_from_def(agent_def, audio_router)
+    return make_agent_from_def(agent_def, audio_router, default_model=default_model)
 
 
 def _robot_face() -> Text:
@@ -864,7 +866,6 @@ async def _run_model_selector(
     do_apply = apply_all.lower() not in ("n", "no")
 
     _save_env_key("OLLAMA_MODEL", chosen)
-    session_state["model_name"] = chosen
 
     if do_apply:
         for a in agent_manager.all_agents():
@@ -1566,6 +1567,7 @@ async def repl(
     session_state = {
         "thread_id": thread_id or str(uuid.uuid4()),
         "model_name": effective_model,
+        "default_model": model_name,
         "agent_manager": agent_manager,
     }
 
@@ -1603,7 +1605,7 @@ async def repl(
     audio_router = _AudioRouter()
 
     try:
-        agent = _make_agent_from_def(active_def, audio_router)
+        agent = _make_agent_from_def(active_def, audio_router, default_model=model_name)
     except Exception as e:
         console.print(f"[bold red]Failed to create agent:[/bold red] {e}")
         return
@@ -1771,8 +1773,8 @@ async def _run_with_quests(
             # Reload so the name (and any other changes) take effect immediately
             new_def = agent_manager.get_active()
             try:
-                agent_holder["agent"] = _make_agent_from_def(new_def, audio_router)
-                session_state["model_name"] = new_def.get("model") or OLLAMA_MODEL
+                agent_holder["agent"] = _make_agent_from_def(new_def, audio_router, default_model=session_state["default_model"])
+                session_state["model_name"] = agent_holder["agent"].model.model_name
                 _init_progression(new_def)
                 _init_metrics(new_def, agent_holder["agent"])
             except Exception:
@@ -1897,8 +1899,9 @@ async def _repl_loop(
                     new_def = agent_manager.get(new_id)
                     if new_def:
                         try:
-                            new_agent = _make_agent_from_def(new_def, audio_router)
+                            new_agent = _make_agent_from_def(new_def, audio_router, default_model=session_state["default_model"])
                             agent_holder["agent"] = new_agent
+                            session_state["model_name"] = new_agent.model.model_name
                             _init_progression(new_def)
                             _init_metrics(new_def, new_agent)
                             _agent_label = _build_agent_label(new_def, _progression)
@@ -1977,9 +1980,9 @@ async def _repl_loop(
                     chosen = await run_agent_menu(console, session, agent_manager)
                     if chosen is not None:
                         try:
-                            new_agent = _make_agent_from_def(chosen, audio_router)
+                            new_agent = _make_agent_from_def(chosen, audio_router, default_model=session_state["default_model"])
                             agent_holder["agent"] = new_agent
-                            session_state["model_name"] = chosen.get("model") or OLLAMA_MODEL
+                            session_state["model_name"] = new_agent.model.model_name
                             agent_manager.set_active(chosen["id"])
                             _init_progression(chosen)
                             _init_metrics(chosen, new_agent)

@@ -95,11 +95,14 @@ def create_questchain_agent(
     )
 
 
-def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
+def make_agent_from_def(agent_def: dict, audio_router=None, *, default_model: str | None = None) -> "Agent":
     """Create a QuestChain agent from an agent definition dict.
 
     Moved here from cli.py so quest_runner.py and scheduler.py can import it
     without creating a circular dependency through cli.py.
+
+    Per-agent models take precedence over the session's default_model. When
+    neither is supplied, create_questchain_agent uses the configured default.
     """
     from pathlib import Path
     from questchain.progression import ProgressionManager, level_personality
@@ -118,7 +121,7 @@ def make_agent_from_def(agent_def: dict, audio_router=None) -> "Agent":
     hint = level_personality(record.level)
 
     return create_questchain_agent(
-        model_name=agent_def.get("model"),
+        model_name=agent_def.get("model") or default_model,
         on_audio=audio_router,
         system_prompt_override=agent_def.get("system_prompt"),
         tools_filter=None if agent_def.get("tools") == "all" else agent_def.get("tools"),

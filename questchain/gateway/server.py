@@ -417,8 +417,6 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             try:
                 from questchain.onboarding import _save_env_key
                 _save_env_key("OLLAMA_MODEL", model)
-                global _model_name
-                _model_name = model
                 if apply_all and _agent_manager:
                     for a in _agent_manager.all_agents():
                         if not a.get("built_in"):
@@ -633,7 +631,7 @@ def _settings_payload() -> dict:
 
     return {
         "thread_id": _thread_id,
-        "model_name": _model_name,
+        "model_name": _metrics.get_record().model_name if _metrics else _model_name,
         "available_models": available_models,
         "model_presets": list(MODEL_PRESETS.keys()),
         "agents": agents,

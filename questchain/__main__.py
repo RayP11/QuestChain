@@ -80,8 +80,8 @@ def parse_args():
 
 def do_update() -> None:
     """Re-run the appropriate installer to update QuestChain."""
-    _WIN  = "https://raw.githubusercontent.com/RayP11/QuestChain/main/install.ps1"
-    _UNIX = "https://raw.githubusercontent.com/RayP11/QuestChain/main/install.sh"
+    _WIN  = "https://raw.githubusercontent.com/RayP11/QuestChain/master/install.ps1"
+    _UNIX = "https://raw.githubusercontent.com/RayP11/QuestChain/master/install.sh"
 
     print("Updating QuestChain...")
 
