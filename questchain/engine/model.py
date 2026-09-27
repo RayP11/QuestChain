@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -77,9 +78,10 @@ class OllamaModel:
         think_buf = ""
         in_think = False
 
-        stream = await self._client.chat(**kwargs)
+        completed = False
         try:
             async with asyncio.timeout(300):
+                stream = await self._client.chat(**kwargs)
                 async for part in stream:
                     msg = part.message
 
@@ -100,11 +102,21 @@ class OllamaModel:
                             })
 
                     if part.done:
+                        completed = True
                         yield Chunk(tool_calls=tool_calls, done=True)
         except asyncio.TimeoutError:
             logger.warning("Ollama stream timed out after 300s")
-            yield Chunk(text="\n[Response timed out]", done=False)
-            yield Chunk(tool_calls=[], done=True)
+            raise TimeoutError("The model response timed out after 300 seconds.") from None
+        if not completed:
+            raise RuntimeError("The model stream ended before completion.")
+
+    async def chat_structured(self, messages: list[dict], schema: dict) -> dict:
+        """One bounded, tool-free routing call with a schema-constrained result."""
+        async with asyncio.timeout(120):
+            result = await self._client.chat(model=self.model_name, messages=messages, stream=False,
+                                             format=schema, think=False,
+                                             options={**self._options, "temperature": 0, "num_predict": 512})
+        return json.loads(result.message.content or "")
 
     async def chat(
         self,

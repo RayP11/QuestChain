@@ -2,7 +2,7 @@
 
 <img src="assets/QuestChain-LOGO.png" alt="QuestChain" width="400"/>
 
-# Truly Local. Always On. Ready for Quests.
+# Truly Local. Always On. Ready for Tasks.
 
 ### Your AI assistant, running on your hardware, working for you around the clock.
 
@@ -29,7 +29,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 - [Why QuestChain?](#why-questchain)
 - [RPG Progression](#rpg-progression)
-- [Quests](#quests)
+- [Cron Jobs](#cron-jobs)
 - [Install](#install)
 - [What It Can Do](#what-it-can-do)
 - [Built for the Edge](#built-for-the-edge)
@@ -85,47 +85,40 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
 | Custom | 🌀 | You decide | You configure |
+| Coordinator | 🧭 | Routes work and communicates status | No execution tools |
 | Keeper | 📚 | Files & knowledge | File tools |
 | Explorer | 🔭 | Research & discovery | Web search + browse |
-| Builder | ⚒️ | Code & systems | Files, shell, Claude Code |
+| Builder | ⚒️ | Code & systems | Files and shell; optional Claude Code |
 | Planner | 🔮 | Planning & strategy | File tools |
 | Scheduler | ⏱️ | Automation | Cron only |
 
 ---
 
-## Quests
+## Coordinator and specialists
 
-<div align="center">
-<img src="assets/Overnight-Worker-Quest.png" alt="QuestChain working overnight" width="300"/>
-</div>
+Chat with **Perseus** to route work to **Argus** (research), **Athena** (workspace knowledge), **Talos** (building), or **Zeus** (planning and advice). Each specialist streams its own response under its own name. Direct chat is always available.
 
-QuestChain can work autonomously in the background on a timer. Every 60 minutes (configurable), it picks the first quest from `workspace/quests/` and completes it. If no quests are pending, it stays silent.
+Create additional agents in the web UI, terminal, or Telegram with a name, tools, system prompt, and guidance describing when the coordinator should call them. Legacy agents are archived under `~/.questchain/legacy` and can be migrated explicitly through any interface. [Agent guide](docs/agent-classes.md).
 
-**Quests** are individual `.md` files in `workspace/quests/`, one file per task. Write whatever you want the agent to do:
+## Cron Jobs
 
-```markdown
-# workspace/quests/find-api-docs.md
-Find the REST API docs for the weather service and save a summary to /workspace/memory/weather-api.md
+Automate recurring work from the **Cron Jobs** page, the terminal `/cron` menu, or Telegram `/cron` commands. Jobs share one persistent scheduler and run while QuestChain is open.
+
+Each job has a name, instructions, a schedule, timezone, and assigned agent. The web UI uses a standard time selector; terminal and Telegram commands accept cron expressions. Create, edit, pause, resume, run now, or delete a job. The web UI shows its next run, last status, and result. Results also appear in the terminal, or on Telegram when connected.
+
+```text
+/cron add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
+/cron list
+/cron show JOB_ID
+/cron pause JOB_ID
+/cron resume JOB_ID
+/cron run JOB_ID
+/cron delete JOB_ID
 ```
 
-The agent reads the quest, uses all the tools at its disposal to complete the task, then deletes the file automatically. Results are shown in the terminal and on Telegram if configured.
+Use weekday names (`mon`–`sun`); numeric weekdays follow APScheduler: Monday=0, Sunday=6. Pausing or deleting a job prevents future runs; a run already underway finishes.
 
-Use `/quest` to open the interactive quest manager to create, view, and delete quests with arrow keys:
-
-```
- Quests   [n] new  [d] delete  [Esc] close
- ──────────────────────────────────────────
- ▶ find-api-docs.md
-   refactor-auth-module.md
-```
-
-```bash
-# Run with a custom interval (minutes)
-questchain start --quests 30
-
-# Disable the quest runner
-questchain start --no-quests
-```
+The old quest folder and periodic quest runner have been retired. Existing quest files remain on disk and are no longer executed. Recreate desired recurring tasks as cron jobs. The `--quests` and `--no-quests` startup flags have been removed.
 
 ---
 
@@ -171,8 +164,6 @@ On first run, QuestChain walks you through a short onboarding conversation and o
 questchain start                      # Start with default model
 questchain start -m qwen3:4b          # Use a specific model
 questchain start -t <thread-id>       # Resume a previous conversation
-questchain start --quests 30          # Set quest runner interval (minutes)
-questchain start --no-quests          # Disable the quest runner
 questchain start --web                # Start with web UI (gateway + CLI)
 ```
 
@@ -223,7 +214,6 @@ python -m questchain
 - 📱 **Telegram Bot:** Access QuestChain remotely from your phone
 - 💾 **Persistent Memory:** Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output:** Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
-- 🔄 **Quests:** Autonomously checks your task list and works in the background on a timer
 
 ---
 
@@ -289,7 +279,7 @@ Run `/telegram` inside QuestChain and it walks you through the setup:
 2. Message [@userinfobot](https://t.me/userinfobot) → copy your numeric user ID
 3. Paste both into the `/telegram` wizard. Credentials are saved automatically.
 
-Restart QuestChain and the bot starts alongside the CLI. The same conversation thread and memory is shared between CLI and Telegram. Switch between them mid-conversation.
+Restart QuestChain and the bot starts alongside the CLI. Telegram conversations are scoped to the destination chat and do not share the terminal's conversation history.
 
 ---
 

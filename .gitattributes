@@ -1,0 +1,2 @@
+# Preserve the checksum of the vendored browser bundle on every platform.
+questchain/static/markdown-it.min.js -text

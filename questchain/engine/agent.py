@@ -5,7 +5,7 @@ The loop:
   2. Compact if context is tight
   3. Add user message
   4. Stream model response
-  5. If tool calls → execute (parallel) → append results → goto 4
+  5. If tool calls → execute in order → append results → goto 4
   6. If text → yield tokens to caller → done
 """
 
@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 _MAX_ITERATIONS = 30
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+class IterationLimitError(RuntimeError):
+    pass
 
 
 class Agent:
@@ -114,19 +118,15 @@ class Agent:
                     ],
                 })
 
-                # Notify CLI / caller of each tool call
-                if on_tool_call:
-                    for tc in tool_calls:
-                        try:
-                            await on_tool_call(tc["name"], tc["args"])
-                        except Exception as e:
-                            logger.debug("on_tool_call callback raised: %s", e)
-
-                # Execute tools in parallel
-                results = await self.tools.execute_parallel(tool_calls)
+                # Validate current permissions immediately before each execution.
+                results = []
+                for tc in tool_calls:
+                    if on_tool_call:
+                        await on_tool_call(tc["name"], tc["args"])
+                    results.extend(await self.tools.execute_parallel([tc]))
                 for r in results:
                     content = r.get("content", "")
-                    if isinstance(content, str) and content.startswith("Error running"):
+                    if isinstance(content, str) and content.startswith("Error"):
                         self.last_tool_errors += 1
                 self.last_iterations = iteration + 1
                 context.extend(results)
@@ -136,6 +136,8 @@ class Agent:
 
             else:
                 # Final answer
+                if not full_text.strip():
+                    raise RuntimeError("The model returned an empty response.")
                 context.add({"role": "assistant", "content": full_text})
                 context.save()
                 return
@@ -143,59 +145,7 @@ class Agent:
         logger.warning(
             "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
         )
-
-    async def run_quest(
-        self,
-        thread_id: str,
-        quest_path: "Path | None" = None,
-        keep_file: bool = False,
-    ) -> str | None:
-        """Pick and complete a quest from workspace/quests/.
-
-        Args:
-            thread_id: Conversation thread identifier.
-            quest_path: Specific quest file to run. If None, picks the
-                        alphabetically-first quest in workspace/quests/.
-
-        Returns the agent's summary response, or None if there are no quests.
-        Deletes the quest file on completion.
-        """
-        from questchain.config import WORKSPACE_DIR
-
-        if quest_path is None:
-            quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-            if not quests_dir.exists():
-                return None
-            quest_files = sorted(quests_dir.glob("*.md"))
-            if not quest_files:
-                return None
-            quest_path = quest_files[0]
-
-        if not quest_path.exists():
-            return None
-
-        quest_name = quest_path.name
-        quest_content = quest_path.read_text(encoding="utf-8").strip()
-
-        prompt = (
-            f"QUEST: Complete the following task (from {quest_name}).\n\n"
-            f"{quest_content}\n\n"
-            f"Work autonomously. Do NOT ask for clarification — make your best judgment "
-            f"call and proceed (e.g. create missing files, infer intent from context). "
-            f"When finished, present your actual findings, results, or produced content "
-            f"directly in your response — not a description of steps taken."
-        )
-
-        tokens: list[str] = []
-        async for chunk in self.run(prompt, thread_id=thread_id, max_iterations=15):
-            tokens.append(chunk)
-
-        response = _THINK_RE.sub("", "".join(tokens)).strip()
-
-        if not keep_file:
-            await asyncio.to_thread(quest_path.unlink, True)
-
-        return response or None
+        raise IterationLimitError(f"Agent reached its limit of {max_iterations} tool steps.")
 
     # ------------------------------------------------------------------
     # Internal

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -83,6 +85,8 @@ _metrics: "MetricsManager | None" = None
 _web_queue: asyncio.Queue | None = None
 _model_name: str = ""
 _thread_id: str = ""
+_runtime = None
+_clients: dict[int, dict] = {}
 
 
 def update_thread_id(tid: str) -> None:
@@ -97,13 +101,15 @@ def setup(
     metrics: "MetricsManager | None",
     web_queue: asyncio.Queue,
     model_name: str = "",
+    runtime=None,
 ) -> None:
-    global _agent_manager, _progression, _metrics, _web_queue, _model_name
+    global _agent_manager, _progression, _metrics, _web_queue, _model_name, _runtime
     _agent_manager = agent_manager
     _progression = progression
     _metrics = metrics
     _web_queue = web_queue
     _model_name = model_name
+    _runtime = runtime
 
 
 def update_progression(progression: "ProgressionManager | None") -> None:
@@ -154,7 +160,18 @@ async def serve_app_js() -> Response:
     return Response(_get_app_js(), media_type="application/javascript")
 
 
+@app.get("/markdown-it.min.js")
+async def serve_markdown_parser() -> FileResponse:
+    return FileResponse(Path(__file__).parent.parent / "static" / "markdown-it.min.js", media_type="application/javascript")
+
+
+@app.get("/chat-markdown.js")
+async def serve_chat_markdown() -> FileResponse:
+    return FileResponse(Path(__file__).parent.parent / "static" / "chat-markdown.js", media_type="application/javascript")
+
+
 _CLASS_IMAGES: dict[str, list[str]] = {
+    "Router":    ["Pixel_idle.png", "evolve2.png", "draft-evolve-3.png"],
     "Custom":    ["Pixel_idle.png",                        "evolve2.png",                           "draft-evolve-3.png"],
     "Keeper":    ["Sage1.png",                             "Sage2.png",                             "Sage3.png"],
     "Explorer":  ["Explorer1-jukebox-bg-removed.png",      "Explorer2-jukebox-bg-removed.png",      "Explorer3-jukebox-bg-removed.png"],
@@ -209,12 +226,25 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             return
 
     await ws.accept()
+    conversation = ws.query_params.get("conversation", "")
+    if not re.fullmatch(r"web-[a-zA-Z0-9-]{1,100}", conversation):
+        conversation = "web-" + uuid.uuid4().hex
+    _clients[id(ws)] = {"conversation_id": conversation, "agent_id": _agent_manager.get_active_id() if _agent_manager else "default"}
     bus = get_bus()
     event_q = bus.subscribe()
 
     async def _send_loop() -> None:
         while True:
             event = await event_q.get()
+            state = _clients[id(ws)]
+            if event.get("conversation_id") and event["conversation_id"] != state["conversation_id"]:
+                if state.get("cron_id") and event["conversation_id"] == "cron-" + state["cron_id"]:
+                    await _send_cron_history(ws)
+                continue
+            if event["type"] == "resync_required" and _runtime:
+                await _send_conversation(ws)
+                await _send_cron_history(ws)
+                continue
             try:
                 await ws.send_json(event)
             except Exception:
@@ -242,10 +272,16 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             try:
                 msg = json.loads(raw)
                 await _handle_inbound(ws, msg)
+            except WebSocketDisconnect:
+                break
             except json.JSONDecodeError:
                 logger.debug("WebSocket: invalid JSON from client")
-            except Exception:
+            except Exception as exc:
                 logger.warning("WebSocket: error handling inbound message", exc_info=True)
+                try:
+                    await ws.send_json({"type": "error", "error": str(exc)})
+                except (WebSocketDisconnect, RuntimeError):
+                    break
 
     # Push current state to the new client immediately
     await _push_initial_state(ws)
@@ -256,6 +292,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         done, pending = await asyncio.wait(
             [send_task, recv_task], return_when=asyncio.FIRST_COMPLETED
         )
+        for task in done:
+            try:
+                await task
+            except (WebSocketDisconnect, RuntimeError):
+                pass
         for t in pending:
             t.cancel()
             try:
@@ -269,6 +310,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if not t.done():
                 t.cancel()
         bus.unsubscribe(event_q)
+        _clients.pop(id(ws), None)
 
 
 # ── Initial state push ────────────────────────────────────────────────────────
@@ -277,8 +319,10 @@ async def _push_initial_state(ws: WebSocket) -> None:
     try:
         await ws.send_json({"type": "agents", **_agents_payload()})
         await ws.send_json({"type": "stats", **_stats_payload()})
-        await ws.send_json({"type": "quests", "quests": _list_quests()})
+        await ws.send_json({"type": "cron_jobs", "jobs": _list_cron_jobs()})
         await ws.send_json({"type": "settings", **_settings_payload()})
+        if _runtime:
+            await _send_conversation(ws)
     except Exception:
         logger.debug("Failed to push initial state to WebSocket client", exc_info=True)
 
@@ -297,6 +341,51 @@ def _sanitize_prompt(raw: str | None) -> str | None:
 
 async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
     t = msg.get("type")
+
+    if _runtime and t == "get_cron_history":
+        state = _clients.get(id(ws))
+        if state:
+            cron_id = msg.get("cron_id", "")
+            if cron_id and cron_id not in {job["id"] for job in _list_cron_jobs()}:
+                raise ValueError("Cron job not found.")
+            state["cron_id"] = cron_id
+            await _send_cron_history(ws)
+        return
+
+    if _runtime and t in {"chat", "switch_agent", "new_thread", "get_conversation", "cancel_run", "retry_run"}:
+        from questchain.runtime import TaskRequest
+        state = _clients.setdefault(id(ws), {"conversation_id": "web-" + uuid.uuid4().hex,
+                                              "agent_id": _agent_manager.get_active_id()})
+        try:
+            if t == "chat":
+                agent_id = msg.get("agent_id") or state["agent_id"]
+                run_id = _runtime.submit(TaskRequest(
+                    text=msg.get("message", ""), agent_id=agent_id, conversation_id=state["conversation_id"],
+                    source="web", reply_to_run_id=msg.get("reply_to_run_id", ""), destination=state["conversation_id"],
+                    occurrence_key=(f"web:{state['conversation_id']}:{msg['request_id']}" if msg.get("request_id") else None)))
+                await ws.send_json({"type": "run_accepted", "run_id": run_id, "conversation_id": state["conversation_id"]})
+            elif t == "switch_agent":
+                agent_id = msg.get("agent_id", "")
+                if not _agent_manager.get(agent_id):
+                    raise ValueError("Agent not found.")
+                state["agent_id"] = agent_id
+                await ws.send_json({"type": "agent_selected", "agent_id": agent_id})
+            elif t == "new_thread":
+                state["conversation_id"] = "web-" + uuid.uuid4().hex
+                await _send_conversation(ws)
+            elif t == "get_conversation":
+                await _send_conversation(ws)
+            else:
+                run_id = msg.get("run_id", "")
+                if _runtime.store.get(run_id)["conversation_id"] != state["conversation_id"]:
+                    raise ValueError("Run does not belong to this conversation.")
+                if t == "cancel_run":
+                    _runtime.cancel(run_id)
+                else:
+                    _runtime.retry(run_id)
+        except (ValueError, TypeError, AttributeError) as exc:
+            await ws.send_json({"type": "error", "action": t, "error": str(exc)})
+        return
 
     if t == "chat":
         text = (msg.get("message") or "").strip()[:_MAX_CHAT_CHARS]
@@ -319,85 +408,96 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
     elif t == "get_stats":
         await ws.send_json({"type": "stats", **_stats_payload(msg.get("agent_id"))})
 
-    elif t == "get_quests":
-        await ws.send_json({"type": "quests", "quests": _list_quests()})
+    elif t == "get_cron_jobs":
+        await ws.send_json({"type": "cron_jobs", "jobs": _list_cron_jobs()})
 
-    elif t == "create_quest":
-        name = (msg.get("name") or "").strip()
-        content = msg.get("content") or ""
-        agent_id = (msg.get("agent_id") or "").strip()
-        cron_expr = (msg.get("cron") or "").strip()
-        if name:
-            _save_quest(name, content, agent_id, cron_expr)
-            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
-
-    elif t == "update_quest":
-        name = msg.get("name") or ""
-        content = msg.get("content") or ""
-        agent_id = (msg.get("agent_id") or "").strip()
-        cron_expr = (msg.get("cron") or "").strip()
-        if name:
-            _save_quest(name, content, agent_id, cron_expr)
-            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
-
-    elif t == "delete_quest":
-        name = msg.get("name") or ""
-        if name:
-            _delete_quest(name)
-            get_bus().publish_nowait({"type": "quests", "quests": _list_quests()})
+    elif t in ("save_cron", "delete_cron", "toggle_cron", "run_cron"):
+        from questchain.scheduler import get_scheduler
+        try:
+            scheduler = get_scheduler()
+            job_id = msg.get("cron_id", "")
+            if t == "save_cron":
+                values = dict(name=msg.get("name", ""), prompt=msg.get("prompt", ""),
+                              cron_expression=msg.get("cron_expression", ""),
+                              timezone_str=msg.get("timezone", "UTC"), agent_id=msg.get("agent_id") or None)
+                if not all(isinstance(v, str) for k, v in values.items() if k != "agent_id"):
+                    raise ValueError("Job fields must be text.")
+                job = scheduler.update_job(job_id, **values) if job_id else scheduler.add_job(**values)
+                job_id = job["id"]
+            elif t == "delete_cron":
+                scheduler.remove_job(job_id)
+            elif t == "toggle_cron":
+                job = scheduler.get_job(job_id)
+                scheduler.set_enabled(job_id, not job.get("enabled", True))
+            else:
+                scheduler.run_now(job_id)
+            await ws.send_json({"type": "cron_saved", "cron_id": job_id, "action": t})
+        except (ValueError, KeyError, RuntimeError, TypeError) as exc:
+            await ws.send_json({"type": "cron_error", "message": str(exc)})
 
     elif t == "get_settings":
         await ws.send_json({"type": "settings", **_settings_payload()})
-
-    elif t == "delete_cron":
-        cron_id = msg.get("cron_id", "")
-        if cron_id:
-            _delete_cron_job(cron_id)
-            get_bus().publish_nowait({"type": "settings", **_settings_payload()})
 
     elif t == "new_thread":
         if _web_queue is not None:
             fut: asyncio.Future = asyncio.get_event_loop().create_future()
             await _web_queue.put(("__new_thread__", fut))
 
-    elif t == "create_agent":
+    elif t == "delete_legacy_agent":
         if _agent_manager:
-            name = (msg.get("name") or "").strip()
-            if name:
-                from questchain.agents import CLASS_TOOL_PRESETS
-                class_name = msg.get("class_name") or "Custom"
-                # Use tools from the message if provided; fall back to class preset.
-                # "all" means every available tool (same as CLI Custom default).
-                msg_tools = msg.get("tools")
-                if msg_tools is not None:
-                    tools: list | str = msg_tools
-                else:
-                    preset = CLASS_TOOL_PRESETS.get(class_name)
-                    tools = preset if preset is not None else "all"
-                _agent_manager.add(
-                    name=name,
-                    model=msg.get("model") or None,
-                    system_prompt=_sanitize_prompt(msg.get("system_prompt")),
-                    tools=tools,
-                    class_name=class_name,
-                )
+            try:
+                removed = _agent_manager.delete_legacy(msg.get("agent_id", ""))
+                await ws.send_json({"type": "legacy_deleted", "agent_id": removed["id"], "name": removed["name"]})
+                get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+            except (ValueError, TypeError, OSError) as exc:
+                await ws.send_json({"type": "legacy_error", "error": str(exc)})
+
+    elif t == "migrate_legacy_agent":
+        if _agent_manager:
+            try:
+                saved = _agent_manager.migrate_legacy(msg.get("agent_id", ""))
+                await ws.send_json({"type": "legacy_migrated", "agent_id": saved["id"], "name": saved["name"]})
                 get_bus().publish_nowait({"type": "agents", **_agents_payload()})
                 get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+            except (ValueError, TypeError) as exc:
+                await ws.send_json({"type": "legacy_error", "error": str(exc)})
+
+    elif t == "create_agent":
+        if _agent_manager:
+            try:
+                from questchain.agents import CLASS_TOOL_PRESETS, CLASS_GUIDANCE
+                class_name = msg.get("class_name") or "Custom"
+                saved = _agent_manager.add(
+                    name=msg.get("name", ""),
+                    model=msg.get("model") or None,
+                    system_prompt=msg.get("system_prompt"),
+                    tools=msg.get("tools", CLASS_TOOL_PRESETS.get(class_name) or []),
+                    class_name=class_name,
+                    when_to_call=msg.get("when_to_call", CLASS_GUIDANCE.get(class_name, "")),
+                    when_not_to_call=msg.get("when_not_to_call", ""),
+                    routing_examples=msg.get("routing_examples", []),
+                    routable=msg.get("routable", True),
+                )
+                await ws.send_json({"type": "agent_saved", "agent_id": saved["id"]})
+                get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                get_bus().publish_nowait({"type": "settings", **_settings_payload()})
+            except (ValueError, TypeError) as exc:
+                await ws.send_json({"type": "agent_error", "error": str(exc)})
 
     elif t == "update_agent":
         if _agent_manager:
             agent_id = msg.get("agent_id", "")
-            allowed = {"name", "model", "system_prompt", "class_name", "tools"}
+            allowed = {"name", "model", "system_prompt", "class_name", "tools", "when_to_call",
+                       "when_not_to_call", "routing_examples", "routable"}
             kwargs = {k: v for k, v in msg.items() if k in allowed}
-            if "system_prompt" in kwargs:
-                kwargs["system_prompt"] = _sanitize_prompt(kwargs["system_prompt"])
             if agent_id and kwargs:
                 try:
                     _agent_manager.update(agent_id, **kwargs)
+                    await ws.send_json({"type": "agent_saved", "agent_id": agent_id})
                     get_bus().publish_nowait({"type": "agents", **_agents_payload()})
                     get_bus().publish_nowait({"type": "settings", **_settings_payload()})
-                except Exception:
-                    logger.warning("update_agent failed for %s", agent_id, exc_info=True)
+                except (ValueError, TypeError) as exc:
+                    await ws.send_json({"type": "agent_error", "error": str(exc)})
 
     elif t == "delete_agent":
         if _agent_manager:
@@ -431,6 +531,19 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
 
 # ── Payload builders ──────────────────────────────────────────────────────────
 
+async def _send_cron_history(ws) -> None:
+    state = _clients.get(id(ws), {})
+    if _runtime and state.get("cron_id"):
+        records = _runtime.snapshot("cron-" + state["cron_id"])["runs"]
+        await ws.send_json({"type": "cron_history", "cron_id": state["cron_id"], "runs": records[-40:]})
+
+
+async def _send_conversation(ws) -> None:
+    state = _clients.get(id(ws))
+    if state and _runtime:
+        await ws.send_json({"type": "conversation", **_runtime.snapshot(state["conversation_id"]),
+                            "selected_agent_id": state["agent_id"]})
+
 def _agents_payload() -> dict:
     if _agent_manager is None:
         return {"agents": [], "active_id": ""}
@@ -443,8 +556,11 @@ def _agents_payload() -> dict:
     from questchain.progression import ProgressionManager
     from questchain.stats import MetricsManager
     enriched = []
+    from questchain.agents import ROLE_LABELS, tool_issues
     for agent in agents:
         a = dict(agent)
+        a["role_label"] = ROLE_LABELS.get(a.get("class_name"), "Custom")
+        a["availability_issues"] = tool_issues(a)
         agent_id = agent["id"]
         class_name = agent.get("class_name", "Custom")
         # Progression
@@ -473,6 +589,7 @@ def _agents_payload() -> dict:
             and getattr(_metrics, "_agent_id", None) == agent_id
             and agent_id == active_id
         ):
+            _metrics.load()
             metrics_src = _metrics.get_record()
         else:
             try:
@@ -546,6 +663,7 @@ def _stats_payload(agent_id: str | None = None) -> dict:
         and getattr(_metrics, "_agent_id", None) == effective_agent_id
     )
     if metrics_agent_matches:
+        _metrics.load()
         m = _metrics.get_record()
         metrics_data = {
             "prompt_count": m.prompt_count,
@@ -592,7 +710,7 @@ def _settings_payload() -> dict:
         TAVILY_API_KEY, TELEGRAM_BOT_TOKEN, MODEL_PRESETS, get_cron_jobs_path,
     )
     from questchain.tools import is_claude_code_available
-    from questchain.agents import AGENT_CLASSES, SELECTABLE_TOOLS
+    from questchain.agents import AGENT_CLASSES, SELECTABLE_TOOLS, CLASS_GUIDANCE, CLASS_TOOL_PRESETS, preset_prompt, ROLE_LABELS, tool_issues
     from questchain.config import WORKSPACE_DIR as _ws_dir
     from questchain.engine.workspace_tools import get_tool_entries as _ws_tool_entries
 
@@ -602,13 +720,7 @@ def _settings_payload() -> dict:
     except Exception:
         available_models = []
 
-    cron_jobs: list = []
-    jobs_path = get_cron_jobs_path()
-    if jobs_path.exists():
-        try:
-            cron_jobs = _json.loads(jobs_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    cron_jobs = _list_cron_jobs()
 
     agents: list[dict] = []
     if _agent_manager:
@@ -620,6 +732,11 @@ def _settings_payload() -> dict:
                 "model": a.get("model") or "",
                 "system_prompt": a.get("system_prompt") or "",
                 "tools": a.get("tools", "all"),
+                "when_to_call": a.get("when_to_call", ""),
+                "when_not_to_call": a.get("when_not_to_call", ""),
+                "routing_examples": a.get("routing_examples", []),
+                "routable": a.get("routable", False),
+                "availability_issues": tool_issues(a),
             })
 
     agent_classes = [{"name": c[0], "icon": c[1], "description": c[2]} for c in AGENT_CLASSES]
@@ -635,7 +752,13 @@ def _settings_payload() -> dict:
         "available_models": available_models,
         "model_presets": list(MODEL_PRESETS.keys()),
         "agents": agents,
+        "legacy_agents": [{k: a.get(k) for k in ("id", "name", "class_name", "model", "tools")}
+                          for a in _agent_manager.legacy_agents()] if _agent_manager else [],
         "agent_classes": agent_classes,
+        "role_labels": ROLE_LABELS,
+        "agent_presets": {c[0]: {"tools": CLASS_TOOL_PRESETS.get(c[0]) or [],
+                                 "system_prompt": preset_prompt(c[0]), "when_to_call": CLASS_GUIDANCE.get(c[0], "")}
+                          for c in AGENT_CLASSES},
         "selectable_tools": selectable_tools,
         "cron_jobs": cron_jobs,
         "integrations": {
@@ -649,103 +772,36 @@ def _settings_payload() -> dict:
 
 # ── Cron job helpers ──────────────────────────────────────────────────────────
 
-def _delete_cron_job(cron_id: str) -> None:
-    # If the live scheduler is running, remove via it — this updates both the
-    # in-memory job list and persists to disk atomically, preventing the deleted
-    # job from being resurrected when the scheduler next calls _save_jobs().
+def _list_cron_jobs() -> list[dict]:
+    from questchain.scheduler import get_scheduler
     try:
-        from questchain.scheduler import get_scheduler
-        get_scheduler().remove_job(cron_id)
-        return
-    except (RuntimeError, KeyError):
-        # RuntimeError = scheduler not running; KeyError = job not found in it
-        pass
-    except Exception:
-        pass
-
-    # Fallback: scheduler not running — edit the file directly.
-    import json as _json
-    from questchain.config import get_cron_jobs_path
-    jobs_path = get_cron_jobs_path()
-    if not jobs_path.exists():
-        return
-    try:
-        jobs = _json.loads(jobs_path.read_text(encoding="utf-8"))
-        jobs = [j for j in jobs if j.get("id") != cron_id]
-        jobs_path.write_text(_json.dumps(jobs, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-
-# ── Quest file helpers ────────────────────────────────────────────────────────
-
-def _quests_dir() -> Path:
-    from questchain.config import WORKSPACE_DIR
-    d = WORKSPACE_DIR / "workspace" / "quests"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _list_quests() -> list[dict]:
-    from questchain.quest_meta import parse_quest, cron_is_due
-    quests = []
-    for f in sorted(_quests_dir().glob("*.md")):
-        try:
-            meta, body = parse_quest(f)
-            # Pull title from first # heading in body, or filename
-            title = f.stem
-            for line in body.splitlines():
-                line = line.strip()
-                if line.startswith("#"):
-                    title = line.lstrip("#").strip()
-                    break
-            cron_expr = meta.get("cron", "")
-            quests.append({
-                "name": f.name,
-                "title": title,
-                "content": body,      # body only — no frontmatter
-                "agent_id": meta.get("agent", ""),
-                "cron": cron_expr,
-                "cron_due": bool(cron_expr and cron_is_due(f)),
-            })
-        except Exception:
-            pass
-    return quests
-
-
-def _save_quest(name: str, content: str, agent_id: str = "", cron_expr: str = "") -> None:
-    from questchain.quest_meta import render_quest, parse_quest
-    if not name.endswith(".md"):
-        name = name + ".md"
-    # Sanitize filename
-    name = "".join(c for c in name if c.isalnum() or c in "-_. ")
-    meta: dict = {}
-    if agent_id:
-        meta["agent"] = agent_id
-    if cron_expr:
-        meta["cron"] = cron_expr
-        # Preserve existing last_run if updating a cron quest
-        existing_path = _quests_dir() / name
-        if existing_path.exists():
-            try:
-                existing_meta, _ = parse_quest(existing_path)
-                if "last_run" in existing_meta:
-                    meta["last_run"] = existing_meta["last_run"]
-            except Exception:
-                pass
-    (_quests_dir() / name).write_text(render_quest(meta, content), encoding="utf-8")
-
-
-def _delete_quest(name: str) -> None:
-    quests_dir = _quests_dir().resolve()
-    path = (quests_dir / name).resolve()
-    if path == quests_dir or quests_dir not in path.parents:
-        return  # path traversal attempt
-    if path.exists() and path.suffix == ".md":
-        path.unlink()
+        return get_scheduler().list_jobs()
+    except RuntimeError:
+        return []
 
 
 # ── Uvicorn launcher ──────────────────────────────────────────────────────────
+
+def _handle_loop_error(loop, context, previous=None) -> None:
+    # Windows can report a reset while disposing an already-disconnected socket.
+    # This is a client lifecycle event, not an error in the running task.
+    if (isinstance(context.get("exception"), ConnectionResetError)
+            and "_ProactorBasePipeTransport._call_connection_lost" in context.get("message", "")):
+        logger.debug("Browser connection closed during transport cleanup")
+        return
+    if previous:
+        previous(loop, context)
+    else:
+        loop.default_exception_handler(context)
+
+
+def install_connection_error_handler() -> None:
+    from functools import partial
+    loop = asyncio.get_running_loop()
+    current = loop.get_exception_handler()
+    if getattr(current, "func", None) is not _handle_loop_error:
+        loop.set_exception_handler(partial(_handle_loop_error, previous=current))
+
 
 async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Start uvicorn in the current event loop as a background task."""
@@ -756,6 +812,7 @@ async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> Non
     _ws_token = QUESTCHAIN_WS_TOKEN
 
     import uvicorn
+    install_connection_error_handler()
 
     config = uvicorn.Config(
         app,

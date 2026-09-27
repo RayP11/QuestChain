@@ -21,11 +21,10 @@ _SEP = "─"
 
 from questchain import __version__
 from questchain.agent import create_questchain_agent, make_agent_from_def
-from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, get_dynamic_selectable_tools
+from questchain.agents import AGENT_CLASSES, AgentManager, BUILTIN_AGENT, CLASS_COLORS, CLASS_TOOL_PRESETS, DEFAULT_CLASS, ROLE_LABELS, SELECTABLE_TOOLS, get_dynamic_selectable_tools
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS, XPGrant, level_personality
 from questchain.stats import MetricsManager
 from questchain.config import (
-    DEFAULT_QUEST_MINUTES,
     OLLAMA_MODEL,
     TAVILY_API_KEY,
     get_history_path,
@@ -48,7 +47,7 @@ def _get_class_display(class_name: str) -> str:
     """Return 'icon Name' for a class, e.g. '🔭 Scout'."""
     for cname, icon, _ in AGENT_CLASSES:
         if cname == class_name:
-            return f"{icon} {cname}"
+            return f"{icon} {ROLE_LABELS.get(cname, cname)}"
     return class_name
 
 
@@ -101,7 +100,11 @@ async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
         console.rule(agent_label, style="dim", characters=_SEP)
     else:
         console.print(_SEP * width, style="dim")
-    result = await session.prompt_async("❯ ")
+    from questchain.gateway.server import install_connection_error_handler
+    # prompt_toolkit's dumb-terminal path installs its handler even when the
+    # flag is false. Install the narrow disconnect filter after prompt setup.
+    result = await session.prompt_async("❯ ", set_exception_handler=False,
+                                        pre_run=install_connection_error_handler)
     console.print(_SEP * width, style="dim")
     return result
 
@@ -285,7 +288,7 @@ async def show_stats(agent_def: dict) -> None:
     lines: list[str] = [
         f"[bold]{agent_def.get('name', 'QuestChain')}[/bold]  ·  {class_display}  ·  [bold cyan]Level {record.level}[/bold cyan]{prestige_badge}",
         f"  [{bar}]  {xp_display}",
-        f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Quests: [cyan]{record.quests_completed}[/cyan]",
+        f"  Total XP: [cyan]{record.total_xp}[/cyan]   Turns: [cyan]{record.turns_completed}[/cyan]   Jobs: [cyan]{record.jobs_completed}[/cyan]",
     ]
     if record.current_streak > 1:
         streak_bonus = " [bold yellow](+50% XP)[/bold yellow]" if record.current_streak >= 7 else ""
@@ -365,9 +368,13 @@ def show_metrics(mm: MetricsManager) -> None:
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
-    ("/cron",         "List scheduled cron jobs"),
+    ("/cron",         "Manage scheduled cron jobs"),
     ("/exit",         "Exit QuestChain"),
     ("/help",         "Show all available commands"),
+    ("/legacy",       "List archived agents; /legacy migrate ID restores one"),
+    ("/runs",         "List runs in this conversation"),
+    ("/retry",        "Retry the last run (or a run ID)"),
+    ("/cancel",       "Cancel a queued or running task"),
     ("/history",      "Browse and switch past conversations"),
     ("/level",        "Show agent level and achievements"),
     ("/model",        "Change the global model for all agents"),
@@ -376,7 +383,6 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
     ("/speak",        "Set up Kokoro TTS voice output"),
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
-    ("/quest",        "Manage quests — one-off or scheduled tasks for the agent"),
     ("/tavily",       "Set up Tavily web search API key"),
     ("/telegram",     "Set up Telegram bot credentials"),
     ("/tools",        "List all available agent tools"),
@@ -490,45 +496,78 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
 
+    if cmd == "/legacy" or cmd.startswith("/legacy "):
+        manager = session_state.get("agent_manager")
+        if manager is None:
+            console.print("Agent manager is unavailable.")
+            return True
+        parts = command.strip().split()
+        try:
+            if len(parts) == 3 and parts[1].lower() == "migrate":
+                saved = manager.migrate_legacy(parts[2])
+                console.print(f"Migrated {saved['name']} [{saved['id']}]. Automatic routing is off; review it with /agents.", markup=False)
+            elif len(parts) == 1:
+                archived = manager.legacy_agents()
+                for agent in archived:
+                    console.print(f"{agent['id']} · {agent['name']} · {agent.get('class_name', 'Custom')}", markup=False)
+                console.print("Use /legacy migrate ID to restore one agent." if archived else "No legacy agents to migrate.")
+            else:
+                raise ValueError("Use /legacy or /legacy migrate ID.")
+        except ValueError as exc:
+            console.print(str(exc), style="yellow", markup=False)
+        return True
+
     if cmd == "/tools":
-        from questchain.config import TAVILY_API_KEY
-        text = (
-            "[bold]Built-in tools[/bold] (always available):\n"
-            "  read_file, write_file, edit_file, ls, glob, grep, execute\n"
-            "\n[bold]Custom tools:[/bold]\n"
-            "  claude_code — delegate coding tasks to Claude Code\n"
-            "  cron_add, cron_list, cron_remove — scheduled jobs (Telegram)\n"
-        )
-        if TAVILY_API_KEY:
-            text += "  web_search, web_browse — [blue]enabled[/blue]\n"
-        else:
-            text += "  web_search, web_browse — [yellow]disabled (no TAVILY_API_KEY)[/yellow]\n"
-        console.print(Panel(text, title="Tools", border_style="cyan"))
+        manager = session_state.get("agent_manager")
+        definition = manager.get_active() if manager else BUILTIN_AGENT
+        from questchain.agents import tool_issues
+        tools = definition.get("tools", [])
+        selected = "all available" if tools == "all" else ", ".join(tools) or "none"
+        text = f"{definition['name']} · selected tools: {selected}"
+        issues = tool_issues(definition)
+        if issues:
+            text += "\n" + "\n".join(issues)
+        console.print(Panel(Text(text), title="Agent tools", border_style="cyan"))
         return True
 
-
-    if cmd == "/quest":
-        session_state["run_quest_menu"] = True
+    if cmd == "/runs":
+        runtime = session_state.get("runtime")
+        runs = runtime.store.runs("cli-" + session_state["thread_id"]) if runtime else []
+        for run in runs:
+            if not run.get("parent_run_id"):
+                console.print(f"{run['id']} · {run.get('result_agent_name', run['agent_name'])} · {run['status']}", markup=False)
+        if not runs:
+            console.print("No runs in this conversation.")
         return True
+
+    if cmd and cmd.split()[0] in {"/cancel", "/retry"}:
+        runtime = session_state.get("runtime")
+        run_id = command.strip().split(maxsplit=1)[1] if " " in command.strip() else session_state.get("last_run_id")
+        try:
+            if runtime is None or not run_id:
+                raise ValueError("No previous run. Use /runs to list this conversation's runs.")
+            run = runtime.store.get(run_id)
+            if run["conversation_id"] != "cli-" + session_state["thread_id"]:
+                raise ValueError("Run does not belong to this terminal conversation.")
+            if cmd.split()[0] == "/cancel":
+                runtime.cancel(run_id)
+                console.print("Cancellation requested.")
+            else:
+                session_state["retry_run_id"] = run_id
+        except ValueError as exc:
+            console.print(str(exc), style="yellow", markup=False)
+        return True
+
 
     if cmd == "/cron":
-        import json
-        from questchain.config import get_cron_jobs_path
-        jobs_path = get_cron_jobs_path()
-        jobs = []
-        if jobs_path.exists():
-            try:
-                jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        if jobs:
-            lines = []
-            for j in jobs:
-                status = "[blue]on[/blue]" if j.get("enabled", True) else "[dim]off[/dim]"
-                lines.append(f"  [{j['id']}] {j['name']} — {j['cron_expression']} ({status})")
-            console.print(Panel("\n".join(lines), title="Cron Jobs", border_style="cyan"))
-        else:
-            console.print("[dim]No cron jobs configured.[/dim]")
+        session_state["run_cron_menu"] = True
+        return True
+    if cmd.startswith("/cron "):
+        from questchain.cron_commands import execute
+        try:
+            console.print(execute(command.strip()[6:]), markup=False)
+        except (ValueError, KeyError, RuntimeError) as exc:
+            console.print(str(exc), style="red", markup=False)
         return True
 
     if cmd == "/onboard":
@@ -574,8 +613,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /new                   - Start a new conversation\n"
             "  /model                 - Change the global model for all agents\n"
             "  /tools                 - List available tools\n"
-            "  /quest                 - Manage quests (one-off or scheduled tasks)\n"
-            "  /cron                  - List scheduled cron jobs\n"
+            "  /cron                  - Manage scheduled cron jobs\n"
             "  /onboard               - Re-run the onboarding flow\n"
             "  /tavily                - Set up Tavily web search API key\n"
             "  /claudecode            - Set up Claude Code CLI integration\n"
@@ -586,6 +624,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
             "  /prestige              - Prestige reset (requires Level 20)\n"
             "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
             "  /history               - Browse and switch past conversations\n"
+            "  /legacy [migrate ID]   - List or migrate archived agents\n"
+            "  /runs                  - List this conversation’s runs\n"
+            "  /retry [run ID]        - Explicitly retry a task\n"
+            "  /cancel [run ID]       - Cancel a queued or running task\n"
             "  /exit                  - Exit QuestChain\n"
             "  /help                  - Show this help message"
         )
@@ -598,7 +640,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
 async def _prompt_line(session: PromptSession, prompt_text: str) -> str:
     """Prompt for a line of input, returning stripped text."""
     try:
-        return (await session.prompt_async(prompt_text)).strip()
+        return (await session.prompt_async(prompt_text, set_exception_handler=False)).strip()
     except (EOFError, KeyboardInterrupt):
         return ""
 
@@ -630,180 +672,38 @@ async def _inline_file_editor(file_path, title: str) -> bool:
     return True
 
 
-async def _quest_menu(session: PromptSession, agent_manager=None) -> None:
-    """Keyboard-driven quest management menu (arrow keys + Enter)."""
-    from prompt_toolkit import Application
-    from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import HSplit, Window
-    from prompt_toolkit.layout.controls import FormattedTextControl
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.styles import Style as PTStyle
-    from questchain.config import WORKSPACE_DIR
-    from questchain.quest_meta import parse_quest, render_quest
-
-    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-    quests_dir.mkdir(parents=True, exist_ok=True)
-
-    def _load_quests():
-        return sorted(quests_dir.glob("*.md"))
-
-    def _quest_agent_label(f):
-        """Return label showing agent name and cron schedule if present."""
-        try:
-            meta, _ = parse_quest(f)
-            parts = []
-            agent_id = meta.get("agent", "")
-            if agent_id and agent_manager:
-                agent_def = agent_manager.get(agent_id)
-                if agent_def:
-                    parts.append(f"[{agent_def['name']}]")
-            elif agent_id:
-                parts.append(f"[{agent_id[:8]}]")
-            cron_expr = meta.get("cron", "")
-            if cron_expr:
-                parts.append(f"⏰ {cron_expr}")
-            return (" " + " ".join(parts)) if parts else ""
-        except Exception:
-            pass
-        return ""
-
-    quest_files = _load_quests()
-    state = {"idx": 0, "files": quest_files, "exit": False, "open_editor": None, "new_quest": False, "delete": False}
-
-    def _render():
-        lines = [("class:header", " Quests   [n] new  [d] delete  [Esc] close\n")]
-        lines.append(("class:sep", " " + "─" * 42 + "\n"))
-        files = state["files"]
-        if not files:
-            lines.append(("class:dim", " No quests yet. Press n to create one.\n"))
-        else:
-            for i, f in enumerate(files):
-                label = _quest_agent_label(f)
-                if i == state["idx"]:
-                    lines.append(("class:selected", f" ▶ {f.name}{label}\n"))
-                else:
-                    lines.append(("class:item", f"   {f.name}{label}\n"))
-        return lines
-
-    content = FormattedTextControl(text=_render, focusable=True)
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _up(event):
-        if state["files"] and state["idx"] > 0:
-            state["idx"] -= 1
-            content.text = _render
-
-    @kb.add("down")
-    def _down(event):
-        if state["files"] and state["idx"] < len(state["files"]) - 1:
-            state["idx"] += 1
-            content.text = _render
-
-    @kb.add("enter")
-    def _enter(event):
-        if state["files"]:
-            state["open_editor"] = state["files"][state["idx"]]
-            event.app.exit()
-
-    @kb.add("n")
-    def _new(event):
-        state["new_quest"] = True
-        event.app.exit()
-
-    @kb.add("d")
-    def _delete(event):
-        if state["files"]:
-            state["delete"] = True
-            event.app.exit()
-
-    @kb.add("escape")
-    @kb.add("c-c")
-    def _close(event):
-        state["exit"] = True
-        event.app.exit()
-
-    layout = Layout(Window(content))
-    style = PTStyle.from_dict({
-        "header":   "bold #aaddff",
-        "sep":      "dim",
-        "selected": "bg:#004080 #ffffff bold",
-        "item":     "#cccccc",
-        "dim":      "dim italic",
-    })
-    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True)
-
+async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
+    """Interactive manager backed by the same scheduler as web and Telegram."""
+    from questchain.cron_commands import execute
+    from questchain.scheduler import get_scheduler
     while True:
-        state["open_editor"] = None
-        state["new_quest"] = False
-        state["delete"] = False
-        state["exit"] = False
-        state["files"] = _load_quests()
-        if state["idx"] >= len(state["files"]):
-            state["idx"] = max(0, len(state["files"]) - 1)
-        content.text = _render
-
-        await app.run_async()
-
-        if state["exit"]:
-            break
-
-        if state["new_quest"]:
-            name = await _prompt_line(session, "Quest name (slug, no spaces): ")
-            if name.strip():
-                slug = name.strip().rstrip(".md")
-                new_path = quests_dir / f"{slug}.md"
-
-                # Optional agent assignment
-                meta: dict = {}
+        console.print(execute("list"), markup=False)
+        action = (await _prompt_line(session, "Cron action [add/edit/show/pause/resume/run/delete, Enter=close]: ")).strip()
+        if not action:
+            return
+        try:
+            if action in ("add", "edit"):
+                scheduler = get_scheduler()
+                job_id = await _prompt_line(session, "Job ID: ") if action == "edit" else ""
+                old = scheduler.get_job(job_id) if job_id else {}
+                async def field(label, key, default=""):
+                    value = await _prompt_line(session, f"{label} [{old.get(key, default)}]: ")
+                    return value or old.get(key, default)
+                name = await field("Name", "name")
+                schedule = await field("Schedule (minute hour day month weekday; use mon-sun)", "cron_expression", "0 9 * * *")
+                tz = await field("Timezone", "timezone", "UTC")
+                prompt = await field("Instructions", "prompt")
                 if agent_manager:
-                    agents = agent_manager.all_agents()
-                    if agents:
-                        console.print("\n[dim]Assign to agent? (Enter to skip)[/dim]")
-                        for i, a in enumerate(agents, 1):
-                            console.print(f"  {i}. [cyan]{a['name']}[/cyan]")
-                        raw = await _prompt_line(session, f"Pick [1-{len(agents)}] or Enter: ")
-                        if raw.strip().isdigit():
-                            idx = int(raw.strip()) - 1
-                            if 0 <= idx < len(agents):
-                                meta = {"agent": agents[idx]["id"]}
-                                console.print(f"[dim]Assigned to {agents[idx]['name']}[/dim]")
-
-                # Optional cron schedule
-                cron_expr = await _prompt_line(
-                    session, "Cron schedule? (Enter to skip, e.g. '0 9 * * 1' for Mon 9am): "
-                )
-                if cron_expr.strip():
-                    try:
-                        from croniter import croniter as _croniter
-                        from datetime import datetime as _dt
-                        _croniter(cron_expr.strip(), _dt.now())  # validate
-                        meta["cron"] = cron_expr.strip()
-                        # Show next run
-                        _it = _croniter(cron_expr.strip(), _dt.now())
-                        _next = _it.get_next(_dt)
-                        console.print(f"  [dim]⏰ Next run: {_next.strftime('%a %b %d %Y %H:%M')}[/dim]")
-                    except Exception:
-                        console.print("[yellow]  Invalid cron expression — skipped.[/yellow]")
-
-                new_path.write_text(render_quest(meta, ""), encoding="utf-8")
-                await _inline_file_editor(new_path, new_path.name)
-            continue
-
-        if state["delete"] and state["files"]:
-            target = state["files"][state["idx"]]
-            confirm = await _prompt_line(session, f"Delete '{target.name}'? [y/N]: ")
-            if confirm.lower() in ("y", "yes"):
-                target.unlink(missing_ok=True)
-                console.print(f"[red]Deleted[/red] {target.name}")
-            continue
-
-        if state["open_editor"]:
-            await _inline_file_editor(state["open_editor"], state["open_editor"].name)
-            continue
-
-        break
+                    console.print("Agents: " + ", ".join(f"{a['id']}={a['name']}" for a in agent_manager.all_agents()), markup=False)
+                agent_id = await field("Agent ID (default agent if blank)", "agent_id")
+                values = dict(name=name, cron_expression=schedule, timezone_str=tz, prompt=prompt, agent_id=agent_id or None)
+                job = scheduler.update_job(job_id, **values) if job_id else scheduler.add_job(**values)
+                console.print(f"Saved cron job [{job['id']}] {job['name']}", markup=False)
+            else:
+                job_id = await _prompt_line(session, "Job ID: ")
+                console.print(execute(f"{action} {job_id}"), markup=False)
+        except (ValueError, KeyError, RuntimeError) as exc:
+            console.print(str(exc), style="red", markup=False)
 
 
 async def _run_model_selector(
@@ -943,7 +843,7 @@ async def run_agent_menu(
     def _render():
         agents = state["agents"]
         active_id = state["active_id"]
-        lines = [("class:header", " Agents   [n] new  [Esc] close\n")]
+        lines = [("class:header", " Agents   [n] new  [Esc] close   /legacy to migrate old agents\n")]
         lines.append(("class:sep", " " + "─" * 54 + "\n"))
         for i, a in enumerate(agents):
             name = a["name"]
@@ -1167,148 +1067,67 @@ def _parse_tool_selection(raw: str, fallback) -> list[str] | str:
     return selected if selected else fallback
 
 
-async def _run_create_wizard(
-    console: Console,
-    session: PromptSession,
-    agent_manager: AgentManager,
-) -> dict | None:
-    """Inline create wizard for a new agent."""
-    console.print()
-    console.print(Panel("[bold]Create a new agent[/bold]", border_style="blue"))
-
-    name = await _prompt_line(session, "Agent name: ")
+async def _configure_agent(console, session, agent_manager, agent_def=None):
+    from questchain.agents import CLASS_GUIDANCE, preset_prompt
+    existing = agent_def or {}
+    editing = bool(agent_def)
+    console.print(Panel("Edit agent — Enter keeps the current value" if editing else "Create an agent", border_style="blue"))
+    name = await _prompt_line(session, f"Name [{existing.get('name', '')}]: ")
+    name = name or existing.get("name", "")
     if not name:
-        console.print("[yellow]Cancelled.[/yellow]")
         return None
-
-    model_raw = await _prompt_model_line(session, f"Model [{OLLAMA_MODEL}]: ")
-    model = model_raw if model_raw else None
-
-    console.print()
-    console.print("[bold]Agent class:[/bold]")
-    for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1):
-        console.print(f"  {i}. {icon} [cyan]{cname}[/cyan] — {desc}")
-    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter={DEFAULT_CLASS}: ")
-    chosen_class = DEFAULT_CLASS
-    if class_raw.isdigit():
-        idx = int(class_raw) - 1
-        if 0 <= idx < len(AGENT_CLASSES):
-            chosen_class = AGENT_CLASSES[idx][0]
-
-    preset = CLASS_TOOL_PRESETS.get(chosen_class)
-    if preset is None:
-        # Custom: user configures tools manually
-        console.print()
-        console.print("[bold]Custom tools[/bold] (filesystem tools always available):")
+    model = await _prompt_model_line(session, f"Model [{existing.get('model') or OLLAMA_MODEL}]: ")
+    for i, (role, icon, description) in enumerate(AGENT_CLASSES, 1):
+        console.print(f"  {i}. {icon} {role} — {description}")
+    chosen = await _prompt_line(session, f"Role [{existing.get('class_name', DEFAULT_CLASS)}]: ")
+    role = existing.get("class_name", DEFAULT_CLASS)
+    if chosen.isdigit() and 1 <= int(chosen) <= len(AGENT_CLASSES):
+        role = AGENT_CLASSES[int(chosen) - 1][0]
+    selected = existing.get("tools", CLASS_TOOL_PRESETS.get(role) or [])
+    if role == "Router":
+        selected = []
+        console.print("Coordinator access: routing and status only.")
+    else:
         for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
-            tag = _tool_availability_tag(tool_name)
-            console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
-        console.print()
-        include_all_raw = await _prompt_line(session, "Include all tools? [Y/n or numbers]: ")
-        if include_all_raw.lower() in ("", "y", "yes"):
-            tools: list[str] | str = "all"
-        elif include_all_raw.lower() in ("n", "no"):
-            selection_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-            tools = _parse_tool_selection(selection_raw, "all")
-        else:
-            tools = _parse_tool_selection(include_all_raw, "all")
-    else:
-        tools = preset
-        preset_names = ", ".join(preset) if preset else "built-in only"
-        console.print(f"  [dim]Tools preset for {chosen_class}: {preset_names}[/dim]")
+            console.print(f"  {i}. {tool_name} — {description}{_tool_availability_tag(tool_name)}")
+        raw = await _prompt_line(session, f"Tools [{selected}]: numbers, 'none', 'all', or Enter to keep: ")
+        if raw.lower() == "all":
+            selected = "all"
+        elif raw.lower() == "none":
+            selected = []
+        elif raw:
+            selected = _parse_tool_selection(raw, [])
+    prompt = await _prompt_line(session, "System prompt (Enter for current or role preset): ")
+    guidance = await _prompt_line(session, f"When to call [{existing.get('when_to_call', CLASS_GUIDANCE.get(role, ''))}]: ")
+    guidance = guidance or existing.get("when_to_call", CLASS_GUIDANCE.get(role, ""))
+    if guidance == "-":
+        guidance = ""
+    routable = existing.get("routable", bool(guidance))
+    automatic = await _prompt_line(session, f"Allow automatic routing? [{'Y/n' if routable else 'y/N'}]: ")
+    if automatic:
+        routable = automatic.lower() in ("y", "yes")
+    exclusions = await _prompt_line(session, "When NOT to call (Enter to keep, '-' to clear): ")
+    examples = await _prompt_line(session, "Example requests separated by ';' (Enter to keep, '-' to clear): ")
+    values = dict(name=name, model=model or existing.get("model"), class_name=role, tools=selected,
+                  system_prompt=prompt or existing.get("system_prompt") or preset_prompt(role),
+                  when_to_call=guidance, routable=routable,
+                  when_not_to_call="" if exclusions == "-" else exclusions or existing.get("when_not_to_call", ""),
+                  routing_examples=[] if examples == "-" else [e.strip() for e in examples.split(";") if e.strip()] if examples else existing.get("routing_examples", []))
+    try:
+        saved = agent_manager.update(existing["id"], **values) if editing else agent_manager.add(**values)
+    except ValueError as exc:
+        console.print(str(exc), style="red", markup=False)
+        return None
+    console.print(f"Saved {saved['name']} · {ROLE_LABELS.get(role, role)}. Automatic routing: {'on' if routable else 'off'}.", style="blue", markup=False)
+    return saved
 
-    console.print()
-    console.print("System prompt (Enter for default QuestChain prompt):")
-    prompt_raw = await _prompt_line(session, "> ")
-    system_prompt = prompt_raw if prompt_raw else None
 
-    agent_def = agent_manager.add(name, model, system_prompt, tools, class_name=chosen_class)
-    console.print()
-    console.print(f"[blue]✓ Agent '[bold]{name}[/bold]' created.[/blue] Use [cyan]/agents[/cyan] to activate it.")
-    return agent_def
+async def _run_create_wizard(console, session, agent_manager):
+    return await _configure_agent(console, session, agent_manager)
 
 
-async def _run_edit_wizard(
-    console: Console,
-    session: PromptSession,
-    agent_manager: AgentManager,
-    agent_def: dict,
-) -> None:
-    """Inline edit wizard for an existing agent. Enter keeps the current value."""
-    name = agent_def["name"]
-    console.print()
-    console.print(Panel(f"[bold]Editing '{name}'[/bold] — Enter to keep current value.", border_style="blue"))
-
-    name_raw = await _prompt_line(session, f"Name [{name}]: ")
-    new_name = name_raw if name_raw else name
-
-    current_model_display = agent_def.get("model") or OLLAMA_MODEL
-    model_raw = await _prompt_model_line(session, f"Model [{current_model_display}]: ")
-    new_model = model_raw if model_raw else agent_def.get("model")
-
-    current_tools = agent_def.get("tools", "all")
-    if current_tools == "all":
-        current_tools_display = "all"
-    else:
-        current_tools_display = ", ".join(current_tools) if current_tools else "none"
-
-    # Show class preset hint
-    _edit_class_for_hint = agent_def.get("class_name", DEFAULT_CLASS)
-    _preset = CLASS_TOOL_PRESETS.get(_edit_class_for_hint)
-    _preset_hint = (
-        f"  [dim]Class preset ({_edit_class_for_hint}): {', '.join(_preset) if _preset else 'built-in only'}[/dim]"
-        if _preset is not None else ""
-    )
-
-    console.print()
-    console.print("[bold]Custom tools[/bold] (filesystem tools always available):")
-    if _preset_hint:
-        console.print(_preset_hint)
-    for i, (tool_name, description) in enumerate(SELECTABLE_TOOLS, 1):
-        tag = _tool_availability_tag(tool_name)
-        console.print(f"  {i}. [cyan]{tool_name}[/cyan] — {description}{tag}")
-    console.print()
-
-    include_all_raw = await _prompt_line(
-        session, f"Include all tools? current=[{current_tools_display}] [Y/n or numbers]: "
-    )
-    if include_all_raw.lower() in ("", "y", "yes"):
-        new_tools: list[str] | str = "all"
-    elif include_all_raw.lower() in ("n", "no"):
-        sel_raw = await _prompt_line(session, "Select (comma-separated numbers): ")
-        new_tools = _parse_tool_selection(sel_raw, current_tools) if sel_raw else current_tools
-    else:
-        new_tools = _parse_tool_selection(include_all_raw, current_tools)
-
-    console.print()
-    console.print("System prompt (Enter to keep current):")
-    prompt_raw = await _prompt_line(session, "> ")
-    new_system_prompt = prompt_raw if prompt_raw else agent_def.get("system_prompt")
-
-    current_class = agent_def.get("class_name", DEFAULT_CLASS)
-    console.print()
-    console.print(f"[bold]Agent class:[/bold] (current: {_get_class_display(current_class)})")
-    for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1):
-        console.print(f"  {i}. {icon} [cyan]{cname}[/cyan] — {desc}")
-    class_raw = await _prompt_line(session, f"Pick [1-{len(AGENT_CLASSES)}], Enter=keep current: ")
-    new_class = current_class
-    if class_raw.isdigit():
-        idx = int(class_raw) - 1
-        if 0 <= idx < len(AGENT_CLASSES):
-            new_class = AGENT_CLASSES[idx][0]
-
-    agent_manager.update(
-        agent_def["id"],
-        name=new_name,
-        model=new_model,
-        tools=new_tools,
-        system_prompt=new_system_prompt,
-        class_name=new_class,
-    )
-    if _progression is not None and _progression._agent_id == agent_def["id"]:
-        _progression.update_class(new_class)
-    console.print()
-    console.print(f"[blue]✓ Agent '[bold]{new_name}[/bold]' updated.[/blue]")
+async def _run_edit_wizard(console, session, agent_manager, agent_def):
+    await _configure_agent(console, session, agent_manager, agent_def)
 
 
 async def show_history(session: PromptSession, session_state: dict) -> None:
@@ -1321,7 +1140,20 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
     from prompt_toolkit.styles import Style as PTStyle
     from questchain.memory.store import get_thread_history
 
-    rows = get_thread_history()
+    runtime = session_state.get("runtime")
+    if runtime:
+        from datetime import datetime
+        conversations = {}
+        for run in runtime.store.runs():
+            if run["source"] != "cli" or run.get("parent_run_id"):
+                continue
+            tid = run["conversation_id"].removeprefix("cli-")
+            entry = conversations.setdefault(tid, dict(thread_id=tid, first_message=run["text"]))
+            entry["last_active"] = datetime.fromisoformat(run["created_at"])
+        rows = sorted(conversations.values(), key=lambda entry: entry["last_active"], reverse=True)
+        rows += [{**row, "legacy": True} for row in get_thread_history() if row["thread_id"] not in conversations]
+    else:
+        rows = get_thread_history()
     if not rows:
         console.print("[dim]No past conversations found.[/dim]")
         return
@@ -1398,6 +1230,14 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
 
     if state["chosen"] is not None:
         chosen = state["chosen"]
+        if chosen.get("legacy"):
+            from questchain.engine.context import ContextManager
+            console.print("Legacy transcript (original authors were not recorded).", style="dim")
+            for message in ContextManager(chosen["thread_id"]).messages:
+                if message.get("role") in {"user", "assistant"}:
+                    console.print(message["role"], style="bold")
+                    console.print(str(message.get("content", "")), markup=False)
+            return
         session_state["thread_id"] = chosen["thread_id"]
         preview = (chosen["first_message"] or "")[:60]
         console.print(f"[blue]Switched to thread[/blue] [dim]{chosen['thread_id']}[/dim]")
@@ -1405,133 +1245,30 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
             console.print(f"[dim]{preview}[/dim]")
 
 
-async def run_agent_stream(
-    agent,
-    user_input: str,
-    config: dict,
-    agent_name: str = "QuestChain",
-    progression: ProgressionManager | None = None,
-    is_quest: bool = False,
-) -> tuple[str, XPGrant | None]:
-    """Stream agent response to the console, returning (full_text, xp_grant)."""
-    from rich.live import Live
-    from rich.spinner import Spinner
-
-    thread_id = config.get("configurable", {}).get("thread_id", "default")
-    full_response = ""
-    past_spinner = False
-    tools_this_turn: list[str] = []
-
-    live = Live(
-        Spinner("dots", text=Text(" " + random.choice([
-            "Casting…", "Channeling…", "Weaving…", "Conjuring…",
-            "Enchanting…", "On the quest…", "Scouting…", "Forging…",
-        ]), style="blue"), style="blue"),
-        console=console,
-        refresh_per_second=10,
-        transient=True,
-    )
-    live.start(refresh=True)
-
-    def _stop_spinner():
-        nonlocal past_spinner
-        if not past_spinner:
-            past_spinner = True
-            live.stop()
-            if progression is not None:
-                rec = progression.get_record()
-                color = CLASS_COLORS.get(rec.class_name, "bright_white")
-                console.print(f"[bold {color}]{agent_name}[/bold {color}]  [dim]Lv.{rec.level}[/dim]")
-            else:
-                console.print(f"[bold blue]{agent_name}[/bold blue]")
-
-    try:
-        from questchain.gateway.events import get_bus as _get_bus
-        _bus = _get_bus()
-    except Exception:
-        _bus = None
-
-    async def _on_tool_call(tool_name: str, tool_args: dict) -> None:
-        _stop_spinner()
-        console.print()
-        print_tool_call(tool_name, tool_args)
-        tools_this_turn.append(tool_name)
-        if progression is not None:
-            progression.record_tool_call(tool_name)
-        if _bus:
-            _bus.publish_nowait({"type": "tool_call", "name": tool_name})
-
-    # Stream tokens into a Live Markdown display that updates in-place.
-    live_md: Live | None = None
-
-    async for token in agent.run(user_input, thread_id=thread_id, on_tool_call=_on_tool_call):
-        if live_md is None:
-            _stop_spinner()
-            live_md = Live(
-                Markdown(""),
-                console=console,
-                refresh_per_second=8,
-                transient=False,
-            )
-            live_md.start(refresh=True)
-        full_response += token
-        live_md.update(Markdown(full_response))
-        if _bus:
-            _bus.publish_nowait({"type": "token", "content": token})
-
-    if live_md is not None:
-        live_md.stop()
-
-    _stop_spinner()  # no-op if already stopped; handles the zero-token edge case
-    console.print()
-    if _bus:
-        _bus.publish_nowait({"type": "assistant_done", "content": full_response})
-
-    xp_grant: XPGrant | None = None
-    if progression is not None:
-        xp_grant = progression.award_xp(
-            tools_this_turn,
-            is_quest=is_quest,
-            response_chars=len(full_response),
-        )
-    if _metrics is not None and not is_quest:
-        _metrics.record_turn(
-            response_chars=len(full_response),
-            tool_errors=agent.last_tool_errors,
-            chain_depth=agent.last_iterations,
-        )
-    if _bus:
-        from questchain.gateway.server import _stats_payload, _agents_payload
-        _bus.publish_nowait({"type": "stats", **_stats_payload()})
-        _bus.publish_nowait({"type": "agents", **_agents_payload()})
-    return full_response, xp_grant
-
-
-async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_router: "_AudioRouter", agent_manager: "AgentManager"):
+async def _maybe_start_telegram(agent_holder: dict, model_name: str, audio_router: "_AudioRouter", agent_manager: "AgentManager", busy_lock=None, runtime=None):
     """Start Telegram bot alongside the CLI if token is configured.
 
-    Returns ``(send_fn, stop_fn, telegram_queue, set_runner)`` or four Nones.
+    Returns ``(send_fn, stop_fn, telegram_queue)`` or three Nones.
     """
     from questchain.config import TELEGRAM_BOT_TOKEN
     if not TELEGRAM_BOT_TOKEN:
-        return None, None, None, None
+        return None, None, None
     try:
         from questchain.telegram import run_telegram_alongside_cli
         telegram_queue: asyncio.Queue = asyncio.Queue()
-        send_fn, stop_fn, set_runner = await run_telegram_alongside_cli(
-            agent_holder, model_name, telegram_queue, audio_router, agent_manager
+        send_fn, stop_fn = await run_telegram_alongside_cli(
+            agent_holder, model_name, telegram_queue, audio_router, agent_manager, busy_lock=busy_lock, runtime=runtime
         )
-        return send_fn, stop_fn, telegram_queue, set_runner
+        return send_fn, stop_fn, telegram_queue
     except Exception as e:
         console.print(f"[yellow]Telegram: failed to start ({e})[/yellow]")
-        return None, None, None, None
+        return None, None, None
 
 
 async def repl(
     model_name: str,
     thread_id: str | None = None,
     use_memory: bool = True,
-    quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
     enable_web: bool = False,
     web_host: str = "127.0.0.1",
     web_port: int = 8765,
@@ -1612,8 +1349,13 @@ async def repl(
 
     _init_metrics(active_def, agent)
     agent_holder = {"agent": agent}
-    telegram_send, telegram_stop, telegram_queue, telegram_set_runner = await _maybe_start_telegram(
-        agent_holder, effective_model, audio_router, agent_manager
+    agent_lock = asyncio.Lock()
+    from questchain.runtime import TaskRuntime
+    runtime = TaskRuntime(agent_manager, default_model=model_name, busy_lock=agent_lock, default_audio=_play_audio)
+    agent_holder["runtime"] = runtime
+    session_state.update(runtime=runtime, agent_manager=agent_manager)
+    telegram_send, telegram_stop, telegram_queue = await _maybe_start_telegram(
+        agent_holder, effective_model, audio_router, agent_manager, busy_lock=agent_lock, runtime=runtime
     )
     if telegram_send:
         console.print("[dim]Telegram: bot active[/dim]")
@@ -1623,7 +1365,7 @@ async def repl(
         try:
             from questchain.gateway.server import setup as _gw_setup, start_gateway_server
             web_queue = asyncio.Queue()
-            _gw_setup(agent_manager, _progression, _metrics, web_queue, effective_model)
+            _gw_setup(agent_manager, _progression, _metrics, web_queue, effective_model, runtime=runtime)
             await start_gateway_server(host=web_host, port=web_port)
             console.print(f"[dim]Web UI: http://{web_host}:{web_port}[/dim]")
             from questchain.gateway.server import update_thread_id
@@ -1633,112 +1375,35 @@ async def repl(
             web_queue = None
 
     try:
-        await _run_with_quests(
-            session, agent_holder, session_state, quest_minutes,
+        await _run_with_scheduler(
+            session, agent_holder, session_state,
             telegram_send=telegram_send,
             telegram_queue=telegram_queue,
-            telegram_set_runner=telegram_set_runner,
             audio_router=audio_router,
             agent_manager=agent_manager,
             web_queue=web_queue,
+            busy_lock=agent_lock,
         )
     finally:
         if telegram_stop:
             await telegram_stop()
+        await runtime.close()
 
 
-async def _run_with_quests(
+async def _run_with_scheduler(
     session: PromptSession,
     agent_holder: dict,
     session_state: dict,
-    quest_minutes: int | None,
     telegram_send=None,
     telegram_queue=None,
-    telegram_set_runner=None,
     audio_router=None,
     agent_manager: "AgentManager | None" = None,
     web_queue: asyncio.Queue | None = None,
+    busy_lock=None,
 ):
-    """Start the quest runner (if enabled), run the REPL, then clean up."""
-    from questchain.quest_runner import QuestRunner
-
-    runner: QuestRunner | None = None
+    """Start automation, run the REPL, then clean up."""
     scheduler = None
-    # Shared lock: held by the REPL while running agent; quest runner checks before ticking.
-    agent_lock = asyncio.Lock()
-
-    if quest_minutes is not None:
-        async def merged_callback(text: str, quest_agent_id: str = "") -> None:
-            console.print()
-            console.print(Panel(text, title="[bold blue]Quest[/bold blue]", border_style="blue"))
-            console.print()
-
-            # Award XP to the agent that actually completed the quest.
-            # If a non-active agent ran it, load their ProgressionManager from disk.
-            active_id = agent_manager.get_active_id() if agent_manager else ""
-            if quest_agent_id and quest_agent_id != active_id and agent_manager:
-                agent_def = agent_manager.get(quest_agent_id)
-                if agent_def:
-                    from questchain.progression import ProgressionManager as _PM
-                    quest_prog = _PM(agent_def["id"], agent_def.get("class_name", "Custom"))
-                    quest_prog.load()
-                    grant = quest_prog.award_xp([], is_quest=True)
-                    if grant.leveled_up:
-                        print_level_up(grant, agent_def.get("class_name", "Custom"))
-                        if telegram_send:
-                            try:
-                                await telegram_send(
-                                    f"⚔ {agent_def['name']} LEVEL UP (quest) — now Level {grant.new_level}!"
-                                )
-                            except Exception:
-                                pass
-                    for ach in grant.new_achievements:
-                        print_achievement_unlock(ach)
-                    try:
-                        from questchain.gateway.events import get_bus as _get_bus
-                        from questchain.gateway.server import _stats_payload, _agents_payload
-                        _get_bus().publish_nowait({"type": "stats", **_stats_payload(quest_agent_id)})
-                        _get_bus().publish_nowait({"type": "agents", **_agents_payload()})
-                    except Exception:
-                        pass
-            elif _progression is not None:
-                grant = _progression.award_xp([], is_quest=True)
-                if grant.leveled_up:
-                    print_level_up(grant, _progression.get_record().class_name)
-                    if telegram_send:
-                        try:
-                            await telegram_send(f"⚔ LEVEL UP (quest) — now Level {grant.new_level}!")
-                        except Exception:
-                            pass
-                for ach in grant.new_achievements:
-                    print_achievement_unlock(ach)
-                try:
-                    from questchain.gateway.events import get_bus as _get_bus
-                    from questchain.gateway.server import _stats_payload
-                    _get_bus().publish_nowait({"type": "stats", **_stats_payload()})
-                except Exception:
-                    pass
-
-            if telegram_send:
-                try:
-                    await telegram_send(text)
-                except Exception:
-                    pass
-
-        from questchain.agent import make_agent_from_def as _make_agent
-        runner = QuestRunner(
-            agent_holder=agent_holder,
-            send_callback=merged_callback,
-            interval_minutes=quest_minutes,
-            busy_lock=agent_lock,
-            agent_manager=agent_manager,
-            agent_factory=lambda d: _make_agent(d),
-        )
-        await runner.start()
-        session_state["quest_runner"] = runner
-        if telegram_set_runner is not None:
-            telegram_set_runner(runner)
-        console.print(f"[dim]Quest runner: every {quest_minutes} min[/dim]")
+    agent_lock = busy_lock or asyncio.Lock()
 
     # CronScheduler — enabled in CLI mode (Telegram mode creates its own instance)
     # Guard against double-initialization when Telegram is active.
@@ -1760,12 +1425,14 @@ async def _run_with_quests(
             send_callback=cron_callback,
             agent_manager=agent_manager,
             audio_router=audio_router,
+            busy_lock=agent_lock,
+            runtime=agent_holder.get("runtime"),
         )
         set_scheduler(scheduler)
         await scheduler.start()
         console.print("[dim]Scheduler: active[/dim]")
 
-    # First-run onboarding — guard with the lock so a fast quest tick can't interfere
+    # Keep onboarding and scheduled runs from using the agent concurrently.
     if not is_onboarded():
         async with agent_lock:
             completed = await run_onboarding(agent_holder["agent"], console, prompt_session=session)
@@ -1802,8 +1469,6 @@ async def _run_with_quests(
             web_queue=web_queue,
         )
     finally:
-        if runner:
-            await runner.stop()
         if scheduler:
             from questchain.scheduler import set_scheduler
             await scheduler.stop()
@@ -1937,13 +1602,6 @@ async def _repl_loop(
                 response_future.set_result("")
             continue
 
-        # Broadcast user message to web UI
-        try:
-            from questchain.gateway.events import get_bus as _get_bus
-            _get_bus().publish_nowait({"type": "user_message", "content": user_input, "source": source})
-        except Exception:
-            pass
-
         # Slash commands are CLI-only
         if source == "cli" and user_input.startswith("/"):
             result = handle_command(user_input, session_state)
@@ -1970,11 +1628,17 @@ async def _repl_loop(
                 if session_state.pop("run_model_selector", False) and agent_manager is not None:
                     await _run_model_selector(console, session, agent_manager, session_state)
 
+                if retry_id := session_state.pop("retry_run_id", None):
+                    from questchain.runtime.terminal import run_terminal_task
+                    retry_id = agent_holder["runtime"].retry(retry_id)
+                    await run_terminal_task(agent_holder["runtime"], None, console, run_id=retry_id)
+                    session_state["last_run_id"] = retry_id
+
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)
 
-                if session_state.pop("run_quest_menu", False):
-                    await _quest_menu(session, agent_manager=agent_manager)
+                if session_state.pop("run_cron_menu", False):
+                    await _cron_menu(session, agent_manager=agent_manager)
 
                 if session_state.pop("run_agent_menu", False) and agent_manager is not None:
                     chosen = await run_agent_menu(console, session, agent_manager)
@@ -1996,6 +1660,7 @@ async def _repl_loop(
                     await show_stats(agent_manager.get_active())
 
                 if session_state.pop("run_stats_metrics", False) and _metrics is not None:
+                    _metrics.load()
                     show_metrics(_metrics)
 
                 continue
@@ -2009,102 +1674,33 @@ async def _repl_loop(
             else:
                 audio_router.set_cli()
 
-        active_name = agent_manager.get_active()["name"] if agent_manager else "QuestChain"
+        from questchain.runtime import TaskRequest
+        from questchain.runtime.terminal import run_terminal_task
+        runtime = agent_holder["runtime"]
+        target_id = agent_config.get("agent_id") or agent_manager.get_active_id()
+        conversation_id = agent_config.get("configurable", {}).get("thread_id", session_state["thread_id"])
         try:
-            console.print()
-            # Interrupt any in-progress quest tick so the lock is freed promptly.
-            # asyncio's async-with guarantees the lock is released on cancellation.
-            for _rkey in ("quest_runner",):
-                _runner = session_state.get(_rkey)
-                if _runner is not None:
-                    await _runner.interrupt()
-            async with busy_lock if busy_lock else asyncio.Lock():
-                full_response, xp_grant = await run_agent_stream(
-                    agent_holder["agent"], user_input, agent_config,
-                    agent_name=active_name, progression=_progression,
-                )
-            if xp_grant and xp_grant.leveled_up and _progression is not None:
-                print_level_up(xp_grant, _progression.get_record().class_name)
-                if telegram_send:
-                    try:
-                        await telegram_send(f"⚔ LEVEL UP — now Level {xp_grant.new_level}!")
-                    except Exception:
-                        pass
-            if xp_grant:
-                for ach in xp_grant.new_achievements:
-                    print_achievement_unlock(ach)
-                    if telegram_send:
-                        try:
-                            await telegram_send(
-                                f"✦ Achievement unlocked: {ach.name} — {ach.description}"
-                            )
-                        except Exception:
-                            pass
+            result = await run_terminal_task(runtime, TaskRequest(user_input, target_id,
+                                             f"{source}-{conversation_id}", source), console)
+            session_state["last_run_id"] = result["id"]
             if response_future and not response_future.done():
-                response_future.set_result(full_response)
+                response_future.set_result(result["result"] or result["error"])
         except KeyboardInterrupt:
-            console.print("\n[yellow]Interrupted.[/yellow]")
+            console.print("Interrupted.", style="yellow")
+        except Exception as exc:
+            console.print(str(exc), style="red", markup=False)
             if response_future and not response_future.done():
-                response_future.set_result("")
-        except Exception as e:
-            if "does not support tools" in str(e):
-                bad_model = session_state.get("model_name", OLLAMA_MODEL)
-                console.print(
-                    f"\n[yellow]⚠ '{bad_model}' doesn't support tool calling.[/yellow]\n"
-                    f"  Switching to [cyan]{OLLAMA_MODEL}[/cyan] and retrying…"
-                )
-                try:
-                    fallback = _make_agent_from_def(BUILTIN_AGENT, audio_router)
-                    agent_holder["agent"] = fallback
-                    session_state["model_name"] = OLLAMA_MODEL
-                    if agent_manager:
-                        agent_manager.set_active("default")
-                    _init_progression(BUILTIN_AGENT)
-                    _init_metrics(BUILTIN_AGENT, fallback)
-                    console.print()
-                    async with busy_lock if busy_lock else asyncio.Lock():
-                        full_response, xp_grant = await run_agent_stream(
-                            fallback, user_input, agent_config,
-                            agent_name="QuestChain", progression=_progression,
-                        )
-                    if xp_grant and xp_grant.leveled_up and _progression is not None:
-                        print_level_up(xp_grant, _progression.get_record().class_name)
-                        if telegram_send:
-                            try:
-                                await telegram_send(f"⚔ LEVEL UP — now Level {xp_grant.new_level}!")
-                            except Exception:
-                                pass
-                    if xp_grant:
-                        for ach in xp_grant.new_achievements:
-                            print_achievement_unlock(ach)
-                            if telegram_send:
-                                try:
-                                    await telegram_send(
-                                        f"✦ Achievement unlocked: {ach.name} — {ach.description}"
-                                    )
-                                except Exception:
-                                    pass
-                    if response_future and not response_future.done():
-                        response_future.set_result(full_response)
-                except Exception as retry_err:
-                    console.print(f"\n[bold red]Error:[/bold red] {retry_err}")
-                    if response_future and not response_future.done():
-                        response_future.set_exception(retry_err)
-            else:
-                console.print(f"\n[bold red]Error:[/bold red] {e}")
-                if response_future and not response_future.done():
-                    response_future.set_exception(e)
+                response_future.set_exception(exc)
 
 
 def main(
     model_name: str | None = None,
     thread_id: str | None = None,
     use_memory: bool = True,
-    quest_minutes: int | None = DEFAULT_QUEST_MINUTES,
     enable_web: bool = False,
     web_host: str = "127.0.0.1",
     web_port: int = 8765,
 ):
     """Entry point for the QuestChain CLI."""
     model_name = model_name or OLLAMA_MODEL
-    asyncio.run(repl(model_name, thread_id, use_memory, quest_minutes, enable_web, web_host, web_port))
+    asyncio.run(repl(model_name, thread_id, use_memory, enable_web, web_host, web_port))

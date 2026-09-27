@@ -48,11 +48,9 @@ class ToolRegistry:
             return f"Error running {name}: {e}"
 
     async def execute_parallel(self, calls: list[dict]) -> list[dict]:
-        """Execute multiple tool calls concurrently. Returns tool result messages."""
-        results = await asyncio.gather(
-            *[self.execute(c["name"], c["args"]) for c in calls],
-            return_exceptions=True,
-        )
+        """Execute a batch in model order. The method name is retained for compatibility."""
+        # Tool batches can contain dependent workspace writes. Preserve model order.
+        results = [await self.execute(c["name"], c["args"]) for c in calls]
         messages = []
         for call, result in zip(calls, results):
             content = str(result) if not isinstance(result, Exception) else f"Error: {result}"

@@ -118,6 +118,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .msg { display: flex; gap: 10px; max-width: 80%; }
 .msg.user { align-self: flex-end; flex-direction: row-reverse; }
 .msg.assistant { align-self: flex-start; }
+.msg-content { min-width: 0; }
 
 .msg-avatar {
   width: 30px; height: 30px; border-radius: 50%;
@@ -132,7 +133,33 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   border-radius: var(--radius-lg);
   line-height: 1.55;
   font-size: 13.5px;
+  overflow-wrap: anywhere;
 }
+.msg-bubble p, .msg-bubble ul, .msg-bubble ol,
+.msg-bubble pre, .msg-bubble blockquote, .msg-bubble .markdown-table { margin: 0.75em 0; }
+.msg-bubble > :first-child { margin-top: 0; }
+.msg-bubble > :last-child { margin-bottom: 0; }
+.msg-bubble h1, .msg-bubble h2, .msg-bubble h3,
+.msg-bubble h4, .msg-bubble h5, .msg-bubble h6 { margin: 1em 0 0.45em; line-height: 1.3; }
+.msg-bubble h1 { font-size: 1.5em; }
+.msg-bubble h2 { font-size: 1.3em; }
+.msg-bubble h3 { font-size: 1.15em; }
+.msg-bubble h4, .msg-bubble h5, .msg-bubble h6 { font-size: 1em; }
+.msg-bubble ul, .msg-bubble ol { padding-left: 1.6em; }
+.msg-bubble li + li { margin-top: 0.25em; }
+.msg-bubble li > ul, .msg-bubble li > ol { margin: 0.25em 0; }
+.msg-bubble blockquote { padding-left: 12px; border-left: 3px solid var(--accent); }
+.msg-bubble blockquote > :first-child { margin-top: 0; }
+.msg-bubble blockquote > :last-child { margin-bottom: 0; }
+.msg-bubble a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.msg-bubble code { font-family: var(--mono); font-size: 0.9em; background: var(--bg); border-radius: 4px; padding: 0.12em 0.3em; }
+.msg-bubble pre { padding: 12px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--bg); overflow-x: auto; white-space: pre; overflow-wrap: normal; }
+.msg-bubble pre code { padding: 0; background: transparent; border-radius: 0; }
+.msg-bubble .markdown-table { max-width: 100%; overflow-x: auto; }
+.msg-bubble table { border-collapse: collapse; width: 100%; }
+.msg-bubble th, .msg-bubble td { border: 1px solid var(--border2); padding: 6px 10px; text-align: left; }
+.msg-bubble th { background: var(--surface3); font-weight: 600; }
+.msg-bubble hr { border: 0; border-top: 1px solid var(--border2); margin: 1em 0; }
 .msg.user .msg-bubble {
   background: var(--accent-dim);
   border: 1px solid rgba(60,184,255,0.2);
@@ -517,10 +544,10 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .roster-item-action:hover { background: var(--surface3); color: var(--text); }
 .roster-item-action.danger:hover { background: rgba(255,76,110,0.15); color: var(--red); }
 
-/* ── PAGE 3: QUESTS ─────────────────────────────────────────── */
-#page-quests { flex-direction: row; }
+/* ── PAGE 3: CRON JOBS ─────────────────────────────────────────── */
+#page-jobs { flex-direction: row; }
 
-#quests-sidebar {
+#jobs-sidebar {
   width: 280px;
   border-right: 1px solid var(--border);
   background: var(--surface);
@@ -528,12 +555,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   overflow: hidden;
   flex-shrink: 0;
 }
-.quests-header {
+.jobs-header {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
 }
-.quests-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.jobs-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
 .btn-new {
   display: flex; align-items: center; gap: 5px;
   padding: 5px 10px; border-radius: var(--radius);
@@ -543,14 +570,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   transition: all 0.15s;
 }
 .btn-new:hover { background: var(--accent-dim); border-color: rgba(60,184,255,0.3); }
-.quest-list {
+.job-list {
   flex: 1; min-height: 0; overflow-y: auto;
   padding: 8px;
   display: flex; flex-direction: column; gap: 2px;
 }
-.quest-list::-webkit-scrollbar { width: 3px; }
-.quest-list::-webkit-scrollbar-thumb { background: var(--border2); }
-.quest-item {
+.job-list::-webkit-scrollbar { width: 3px; }
+.job-list::-webkit-scrollbar-thumb { background: var(--border2); }
+.job-item {
   padding: 10px 12px;
   border-radius: var(--radius);
   cursor: pointer;
@@ -558,11 +585,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   transition: all 0.15s;
   display: flex; align-items: center; gap: 8px;
 }
-.quest-item:hover { background: var(--surface2); border-color: var(--border); }
-.quest-item.active { background: var(--accent-dim); border-color: rgba(60,184,255,0.2); }
-.quest-item-icon { font-size: 14px; flex-shrink: 0; }
-.quest-item-title { font-size: 12.5px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.quest-item-del {
+.job-item:hover { background: var(--surface2); border-color: var(--border); }
+.job-item.active { background: var(--accent-dim); border-color: rgba(60,184,255,0.2); }
+.job-item-icon { font-size: 14px; flex-shrink: 0; }
+.job-item-title { font-size: 12.5px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-item-del {
   width: 22px; height: 22px; border-radius: 5px;
   border: none; background: transparent;
   color: var(--text-muted); cursor: pointer;
@@ -570,24 +597,24 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-size: 12px; opacity: 0; transition: all 0.15s;
   flex-shrink: 0;
 }
-.quest-item:hover .quest-item-del { opacity: 1; }
-.quest-item-del:hover { background: rgba(255,76,110,0.15); color: var(--red); }
+.job-item:hover .job-item-del { opacity: 1; }
+.job-item-del:hover { background: rgba(255,76,110,0.15); color: var(--red); }
 
-.quest-empty {
+.job-empty {
   padding: 32px 16px; text-align: center;
   color: var(--text-muted); font-size: 12px; line-height: 1.6;
 }
-.quest-cron-badge {
+.job-cron-badge {
   font-size: 12px; flex-shrink: 0; opacity: 0.75; margin-right: 2px;
 }
-.quest-agent-badge {
+.job-agent-badge {
   font-size: 10px; padding: 1px 6px; border-radius: 10px;
   background: var(--accent-dim); color: var(--accent);
   border: 1px solid rgba(60,184,255,0.2); white-space: nowrap;
   flex-shrink: 0; margin-right: 4px;
 }
 
-#quest-editor {
+#job-editor {
   flex: 1; min-height: 0; display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -597,12 +624,12 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   display: flex; align-items: center; gap: 10px;
   background: var(--surface); flex-shrink: 0;
 }
-#quest-name-input {
+#job-name-input {
   flex: 1; background: transparent; border: none; outline: none;
   color: var(--text); font-size: 15px; font-weight: 600;
   font-family: var(--font);
 }
-#quest-name-input::placeholder { color: var(--text-muted); }
+#job-name-input::placeholder { color: var(--text-muted); }
 .btn-save {
   padding: 6px 14px; border-radius: var(--radius);
   border: 1px solid rgba(60,184,255,0.3);
@@ -610,18 +637,18 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   font-size: 12px; cursor: pointer; transition: all 0.15s;
 }
 .btn-save:hover { background: rgba(60,184,255,0.2); }
-#quest-agent-select {
+#job-agent-select {
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--text); font-size: 12px; border-radius: var(--radius);
   padding: 4px 8px; outline: none; cursor: pointer; max-width: 140px;
 }
-#quest-agent-select:focus { border-color: rgba(60,184,255,0.4); }
-#quest-content-input {
+#job-agent-select:focus { border-color: rgba(60,184,255,0.4); }
+#job-content-input {
   flex: 1; background: var(--bg); border: none; outline: none;
   color: var(--text); font-family: var(--mono); font-size: 13px;
   padding: 20px; resize: none; line-height: 1.7;
 }
-.quest-placeholder {
+.job-placeholder {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px;
   color: var(--text-muted); font-size: 13px;
@@ -668,6 +695,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .cron-status.on { background: rgba(60,255,160,0.12); color: var(--green); }
 .cron-status.off { background: var(--surface3); color: var(--text-muted); }
 .cron-empty { color: var(--text-muted); font-size: 12px; }
+#legacy-agent-list .cron-name { min-width: 0; overflow-wrap: anywhere; }
+#legacy-agent-list .btn-icon { flex-shrink: 0; white-space: nowrap; }
 
 /* agent table */
 .agent-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -741,23 +770,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   overflow-y: auto;
 }
 
-/* Quest tiles */
-.map-quest-tile {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 10px 14px;
-  cursor: pointer; transition: all 0.15s;
-  width: 100%;
-}
-.map-quest-tile:hover { border-color: var(--border2); background: var(--surface2); }
-.map-quest-tile.assigned { border-left: 3px solid var(--accent); }
-.map-quest-tile.gold { border-left: 3px solid var(--gold); }
-.map-quest-tile.open { border-left: 3px solid var(--text-muted); }
-.map-quest-icon { font-size: 16px; flex-shrink: 0; }
-.map-quest-body { flex: 1; min-width: 0; }
-.map-quest-title { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.map-quest-assign { font-size: 10px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px; }
-
 /* Agent tiles */
 .map-agent-tile {
   display: flex; align-items: center; gap: 10px;
@@ -791,39 +803,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .map-agent-tile.working .map-status-dot { background: var(--gold); animation: pulse 0.8s infinite; }
 .map-agent-tile.active-turn { box-shadow: 0 0 12px var(--accent-glow), inset 0 0 0 1px rgba(60,184,255,0.15); animation: activeTurnPulse 2s ease-in-out infinite; }
 
-
-/* Quick-add quest form */
-#map-quest-add-btn {
-  display: flex; align-items: center; gap: 5px;
-  padding: 6px 12px; border-radius: var(--radius);
-  border: 1px dashed var(--border2); background: transparent;
-  color: var(--text-dim); font-size: 12px; cursor: pointer;
-  transition: all 0.15s; width: 100%;
-  justify-content: center;
-}
-#map-quest-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-#map-quest-form {
-  display: none; flex-direction: column; gap: 8px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 12px;
-  width: 100%;
-}
-#map-quest-form.open { display: flex; }
-#map-quest-form input, #map-quest-form select {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 6px 10px;
-  color: var(--text); font-size: 12px; font-family: var(--font);
-  outline: none;
-}
-#map-quest-form input:focus, #map-quest-form select:focus { border-color: var(--accent); }
-#map-quest-form textarea {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 6px 10px;
-  color: var(--text); font-size: 12px; font-family: var(--mono);
-  outline: none; resize: vertical; min-height: 60px;
-}
-#map-quest-form textarea:focus { border-color: var(--accent); }
-.map-quest-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* Sections in objectives panel */
 .map-section-label {
@@ -877,6 +856,31 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .label-block { display: block; margin-bottom: 6px; }
 .text-muted-hint { color: var(--text-muted); font-weight: 400; }
 .agents-empty { padding: 16px; color: var(--text-muted); font-size: 12px; }
+
+#job-editor { min-width:0; padding:24px; overflow-y:auto; gap:10px; }
+#job-editor h2 { margin:0; font-size:20px; }
+#job-editor label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:5px; }
+#job-editor input, #job-editor select, #job-editor textarea { width:100%; box-sizing:border-box; color:var(--text); background:var(--surface); border:1px solid var(--border2); border-radius:6px; padding:10px; font:inherit; }
+#job-name-input { flex:0 0 auto; }
+#job-prompt-input { flex:0 0 auto; min-height:120px; resize:vertical; }
+.job-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.job-hint, #job-status { color:var(--text-dim); font-size:12px; line-height:1.5; margin:0; }
+.job-actions { display:flex; gap:8px; flex-wrap:wrap; }
+#job-message { font-size:13px; color:var(--accent); min-height:18px; margin:0; }
+.job-run-output { white-space:pre-wrap; overflow-wrap:anywhere; }
+#job-history details { margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:8px; }
+#job-history summary { cursor:pointer; }
+#job-result { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; margin:0; }
+.job-item { width:100%; text-align:left; background:transparent; color:var(--text); }
+@media(max-width:700px) { #page-jobs { flex-direction:column; overflow:auto; } #jobs-sidebar { width:100%; max-height:180px; flex-shrink:0; } #job-editor { overflow:visible; } .job-fields { grid-template-columns:1fr; } }
+#run-status { padding: 0 20px; max-height: 130px; overflow-y: auto; color: var(--text-muted); font-size: 12px; }
+.run-status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.routing-note { margin: 8px 0 8px 44px; color: var(--text-muted); font-size: 12px; }
+.run-outcome, #af-error { color: #e7ae69; font-size: 12px; white-space: pre-wrap; padding-top: 6px; }
+.agent-form details { color: var(--text-muted); font-size: 13px; }
+.agent-form details[open] { display: flex; flex-direction: column; gap: 8px; }
+.agent-form label { font-size: 12px; }
+.tool-chip { font-family: inherit; color: inherit; }
 </style>
 </head>
 <body>
@@ -896,7 +900,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
     </button>
 
-    <button class="nav-btn" data-page="quests" title="Quests">
+    <button class="nav-btn" data-page="jobs" title="Cron Jobs">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     </button>
 
@@ -939,12 +943,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           </button>
         </div>
 
+        <div id="run-status" aria-live="polite"></div>
         <div id="messages">
           <div class="msg assistant">
             <div class="msg-avatar">⚔</div>
             <div>
               <div class="msg-source-label">QuestChain</div>
-              <div class="msg-bubble">Ready for your quest. What shall we do?</div>
+              <div class="msg-bubble">Ready to help. What shall we do?</div>
             </div>
           </div>
         </div>
@@ -1049,7 +1054,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <div id="achievements-wrap">
             <div class="section-title">Achievements</div>
             <div class="achievements-list" id="achievements-list">
-              <span class="no-achievements">No achievements yet — start a quest!</span>
+              <span class="no-achievements">No achievements yet — start a conversation!</span>
             </div>
           </div>
         </div>
@@ -1065,30 +1070,30 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
-    <!-- PAGE 3: QUESTS -->
-    <div class="page" id="page-quests">
-      <div id="quests-sidebar">
-        <div class="quests-header">
-          <span class="quests-title">Quests</span>
-          <button class="btn-new" id="btn-new-quest">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New
-          </button>
-        </div>
-        <div class="quest-list" id="quest-list">
-          <div class="quest-empty">No quests yet.<br>Create one to get started.</div>
-        </div>
+    <!-- PAGE 3: CRON JOBS -->
+    <div class="page" id="page-jobs">
+      <div id="jobs-sidebar">
+        <div class="jobs-header"><span class="jobs-title">Cron Jobs</span><button class="btn-new" id="btn-new-job">+ New Job</button></div>
+        <div class="job-list" id="job-list"></div>
       </div>
-
-      <div id="quest-editor">
-        <div class="editor-header">
-          <input type="text" id="quest-name-input" placeholder="Quest filename (e.g. find-api-docs)">
-          <select id="quest-agent-select" title="Assign to agent">
-            <option value="">Any agent</option>
-          </select>
-<button class="btn-save" id="btn-save-quest">Save</button>
+      <div id="job-editor">
+        <h2>Automate a job</h2>
+        <p class="job-hint">Jobs run while QuestChain is open. Pause a job to stop future scheduled runs.</p>
+        <label for="job-name-input">Name</label><input id="job-name-input" maxlength="120" placeholder="Daily summary">
+        <div class="job-fields">
+          <div><label for="job-time-input">Time</label><input id="job-time-input" type="time" value="09:00" required step="60"></div>
+          <div><label for="job-repeat-select">Repeat</label><select id="job-repeat-select"><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Every week</option><option value="monthly">Every month</option><option value="existing" hidden>Existing schedule (unchanged)</option></select></div>
+          <div id="job-weekday-wrap" hidden><label for="job-weekday-select">Day of week</label><select id="job-weekday-select"><option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option></select></div>
+          <div id="job-monthday-wrap" hidden><label for="job-monthday-input">Day of month</label><input id="job-monthday-input" type="number" min="1" max="31" value="1" required></div>
+          <div><label for="job-timezone-input">Timezone</label><input id="job-timezone-input" value="UTC" placeholder="America/New_York"></div>
         </div>
-        <textarea id="quest-content-input" placeholder="Describe the quest in plain language or Markdown…&#10;&#10;Example:&#10;Find the REST API docs for the weather service and save a summary to workspace/memory/weather-api.md"></textarea>
+        <p class="job-hint" id="job-schedule-hint">Choose or type a time in the timezone above.</p>
+        <label for="job-agent-select">Agent</label><select id="job-agent-select"><option value="">Default agent</option></select>
+        <label for="job-prompt-input">Instructions</label><textarea id="job-prompt-input" maxlength="16000" placeholder="What should the agent do each time this job runs?"></textarea>
+        <div class="job-actions"><button class="btn-save" id="btn-save-job">Save Job</button><button class="btn-ghost" id="btn-run-job" disabled>Run Now</button><button class="btn-ghost" id="btn-toggle-job" disabled>Pause</button><button class="btn-ghost" id="btn-delete-job" disabled>Delete</button></div>
+        <p id="job-message" role="status" aria-live="polite"></p>
+        <p id="job-status"></p><pre id="job-result"></pre>
+        <h3>Run history</h3><div id="job-history" aria-live="polite"></div>
       </div>
     </div>
 
@@ -1144,24 +1149,38 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <div class="agent-form" id="agent-form">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Name</label>
-                <input class="form-input" id="af-name" type="text" placeholder="e.g. Research Bot">
+                <label class="form-label" for="af-name">Name</label>
+                <input class="form-input" id="af-name" type="text" maxlength="80" placeholder="e.g. Quill">
               </div>
               <div class="form-group">
-                <label class="form-label">Class</label>
+                <label class="form-label" for="af-class">Role preset</label>
                 <select class="form-select" id="af-class"></select>
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">Model (leave blank to use default)</label>
+              <label class="form-label" for="af-model">Model (leave blank to use default)</label>
               <input class="form-input mono" id="af-model" type="text" placeholder="e.g. qwen2.5:7b">
             </div>
             <div class="form-group">
-              <label class="form-label">System Prompt (optional)</label>
-              <textarea class="form-input form-textarea" id="af-prompt" placeholder="You are…"></textarea>
+              <label class="form-label" for="af-prompt">System prompt</label>
+              <textarea class="form-input form-textarea" id="af-prompt" maxlength="4000" placeholder="How should this agent work?"></textarea>
             </div>
+            <div class="form-group">
+              <label class="form-label" for="af-guidance">When to call this agent</label>
+              <textarea class="form-input form-textarea" id="af-guidance" maxlength="2000" placeholder="Describe the requests this agent should receive. The coordinator uses this to choose an agent."></textarea>
+              <label><input id="af-routable" type="checkbox" checked> Allow automatic routing</label>
+            </div>
+            <details>
+              <summary>Routing examples and exclusions</summary>
+              <label class="form-label" for="af-exclusions">When NOT to call</label>
+              <textarea class="form-input" id="af-exclusions" maxlength="2000" placeholder="Work this agent should leave to another specialist"></textarea>
+              <label class="form-label" for="af-examples">Example requests (one per line)</label>
+              <textarea class="form-input" id="af-examples" placeholder="Polish these release notes"></textarea>
+            </details>
+            <div id="af-error" role="alert"></div>
             <div class="form-group" id="af-tools-group">
-              <label class="form-label">Tools <span class="text-muted-hint">(leave all unselected for all built-in tools)</span></label>
+              <label class="form-label">Tools <span class="text-muted-hint">Select the tools this agent can use. No selection means no tools.</span></label>
+              <label><input id="af-all-tools" type="checkbox"> Allow all available built-in tools</label>
               <div class="tool-picker" id="af-tool-picker"></div>
             </div>
             <div class="form-actions">
@@ -1207,11 +1226,25 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
       </div>
 
+      <!-- Legacy agents -->
+      <div class="settings-section" id="legacy-agents-panel" hidden>
+        <div class="settings-section-header">
+          <span class="settings-section-title">Legacy agents</span>
+        </div>
+        <div class="settings-section-body">
+          <p class="text-muted-hint">Archived agents are inactive. Migrate one to keep its original name, tools, prompt and ID. Review its settings before enabling automatic routing.</p>
+          <div id="legacy-agent-list"></div>
+          <p id="legacy-agent-message" role="status"></p>
+        </div>
+      </div>
+
     </div><!-- /page-settings -->
 
   </div><!-- /pages -->
 </div><!-- /app -->
 
+<script src="/markdown-it.min.js"></script>
+<script src="/chat-markdown.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

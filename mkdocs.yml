@@ -29,7 +29,7 @@ nav:
   - Command Guide: cli-reference.md
   - What Can It Do: capabilities.md
   - Your Agents: agent-classes.md
-  - Quests: quest-system.md
+  - Cron Jobs: cron-jobs.md
   - Progression: progression.md
   - Models: models.md
 

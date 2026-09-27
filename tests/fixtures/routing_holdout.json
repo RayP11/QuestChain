@@ -1,0 +1,18 @@
+[
+  {"category":"clear","request":"Find the official release notes for the latest SQLite version and cite the source.","action":"dispatch","agent_id":"Explorer"},
+  {"category":"clear","request":"Research published benchmarks for local speech recognition engines, using primary sources.","action":"dispatch","agent_id":"Explorer"},
+  {"category":"clear","request":"Organize the notes already in my workspace into a searchable index.","action":"dispatch","agent_id":"Keeper"},
+  {"category":"clear","request":"Find the deployment decision we recorded in our local project documents.","action":"dispatch","agent_id":"Keeper"},
+  {"category":"clear","request":"Implement a CSV export button and test that quoted fields export correctly.","action":"dispatch","agent_id":"Builder"},
+  {"category":"clear","request":"Debug the failing database migration in this repository and fix it.","action":"dispatch","agent_id":"Builder"},
+  {"category":"clear","request":"Help prioritize our next release given one developer and a month of work.","action":"dispatch","agent_id":"Planner"},
+  {"category":"clear","request":"Advise whether to build offline support before adding another integration. Outline the tradeoffs.","action":"dispatch","agent_id":"Planner"},
+  {"category":"ambiguous","request":"Please finish it.","action":"clarify"},
+  {"category":"ambiguous","request":"Take care of my recurring thing.","action":"clarify"},
+  {"category":"ambiguous","request":"Can you help with a project?","action":"clarify"},
+  {"category":"ambiguous","request":"Something needs changing.","action":"clarify"},
+  {"category":"followup","request":"Include the publication dates too.","previous":"Find primary sources comparing offline speech recognition engines.","result":"I found three published benchmark reports and summarized their results.","action":"dispatch","agent_id":"Explorer"},
+  {"category":"followup","request":"Group those by project instead.","previous":"Index the documents in our workspace.","result":"I organized the notes alphabetically in the workspace index.","action":"dispatch","agent_id":"Keeper"},
+  {"category":"followup","request":"Also cover empty input in the tests.","previous":"Fix and test the CSV parser.","result":"I patched escaped quotes and added regression tests for malformed rows.","action":"dispatch","agent_id":"Builder"},
+  {"category":"followup","request":"Revise that for a team of three.","previous":"Plan the next release for a solo developer.","result":"Week one focuses on bug fixes, week two on export, then documentation and release verification.","action":"dispatch","agent_id":"Planner"}
+]

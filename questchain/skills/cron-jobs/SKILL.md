@@ -1,6 +1,6 @@
 ---
 name: cron-jobs
-description: Schedule recurring tasks that run automatically on a cron schedule and deliver results via Telegram
+description: Schedule recurring tasks that run automatically on a cron schedule in the web, terminal, or Telegram interfaces
 ---
 
 # Cron Jobs Skill
@@ -56,5 +56,5 @@ Cron uses a 5-field format: `minute hour day month weekday`
 
 - Always ask the user for their timezone if they don't specify one. Common timezones: `America/New_York`, `America/Chicago`, `America/Denver`, `America/Los_Angeles`, `Europe/London`, `Asia/Tokyo`.
 - Write clear, detailed prompts for jobs — the prompt is what gets sent to the agent when the job fires.
-- Cron jobs only work in Telegram mode (`--telegram`). If the user is in CLI mode, explain this.
+- Cron jobs run while QuestChain is open, with or without Telegram. Manage them through the Cron Jobs page or `/cron`; use `/cron help` for edit, pause, resume, run, and delete commands.
 - Each job gets its own conversation thread, so it won't interfere with the user's interactive chat.

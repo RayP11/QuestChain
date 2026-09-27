@@ -38,7 +38,7 @@ async def test_startup_model_matches_engine_chat_and_settings(monkeypatch, tmp_p
     monkeypatch.setattr(tools, "get_custom_tools", lambda *args, **kwargs: [])
     monkeypatch.setattr(tools, "is_claude_code_available", lambda: False)
     monkeypatch.setattr(server, "_get_speak_available", lambda: False)
-    monkeypatch.setattr(cli, "_maybe_start_telegram", AsyncMock(return_value=(None,) * 4))
+    monkeypatch.setattr(cli, "_maybe_start_telegram", AsyncMock(return_value=(None,) * 3))
     monkeypatch.setattr(server, "start_gateway_server", AsyncMock())
     get_active = cli.AgentManager.get_active
     monkeypatch.setattr(cli.AgentManager, "get_active", lambda self: {**get_active(self), "model": override})
@@ -56,8 +56,8 @@ async def test_startup_model_matches_engine_chat_and_settings(monkeypatch, tmp_p
         assert saved_settings == [("OLLAMA_MODEL", "next-launch:latest")]
         assert server._settings_payload()["model_name"] == captured["engine"]
 
-    monkeypatch.setattr(cli, "_run_with_quests", capture)
-    await cli.repl("chosen:latest", quest_minutes=None, enable_web=True)
+    monkeypatch.setattr(cli, "_run_with_scheduler", capture)
+    await cli.repl("chosen:latest", enable_web=True)
     assert captured == dict.fromkeys(("engine", "session", "chat", "settings"), override or "chosen:latest")
 
 

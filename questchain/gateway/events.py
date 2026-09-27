@@ -10,7 +10,7 @@ class EventBus:
         self._queues: list[asyncio.Queue] = []
 
     def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._queues.append(q)
         return q
 
@@ -21,11 +21,14 @@ class EventBus:
             pass
 
     async def publish(self, event: dict) -> None:
-        for q in list(self._queues):
-            await q.put(event)
+        self.publish_nowait(event)
 
     def publish_nowait(self, event: dict) -> None:
         for q in list(self._queues):
+            if q.full():
+                while not q.empty():
+                    q.get_nowait()
+                q.put_nowait({"type": "resync_required"})
             q.put_nowait(event)
 
 

@@ -10,7 +10,7 @@ Every agent starts at **Level 1** and grows stronger through real work — the m
 
 ## Leveling up
 
-Every conversation, every web search, every file it edits, every quest it completes — it all counts. Your agent earns XP automatically just by being used. Hit enough XP and it levels up, all the way from **Level 1 to Level 20**.
+Every conversation, every web search, every file it edits, every scheduled job it completes — it all counts. Your agent earns XP automatically just by being used. Hit enough XP and it levels up, all the way from **Level 1 to Level 20**.
 
 The more specialized the work, the more it grows. A Builder that ships code levels up faster than one that just chats. An Explorer that digs deep across multiple sources earns more than one that skims.
 

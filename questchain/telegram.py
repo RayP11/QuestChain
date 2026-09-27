@@ -18,7 +18,7 @@ from telegram.ext import (
     filters,
 )
 
-from questchain.agents import AGENT_CLASSES, AgentManager, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS
+from questchain.agents import AGENT_CLASSES, AgentManager, CLASS_TOOL_PRESETS, DEFAULT_CLASS, SELECTABLE_TOOLS, CLASS_GUIDANCE, preset_prompt, get_dynamic_selectable_tools, ROLE_LABELS
 from questchain.progression import ProgressionManager, TOTAL_ACHIEVEMENTS
 from questchain.stats import MetricsManager
 from questchain.config import (
@@ -118,11 +118,11 @@ _HELP_TEXT = (
     "/new — Start a fresh conversation\n"
     "/model — Show current model\n"
     "/tools — List available tools\n"
-    "/quest <text> — Add a new quest\n"
-    "/quests — List pending quests with descriptions\n"
-    "/cron — List scheduled cron jobs\n"
+    "/cron — Manage scheduled cron jobs\n"
     "/onboard — Re-run the onboarding flow\n"
     "/agents — Manage agents (list, switch, create, edit)\n"
+    "/cancel — Cancel agent creation or the current run\n"
+    "/retry — Retry the last run\n"
     "/level — Show agent level and achievements\n"
     "/stats — Show agent metrics (prompts, tokens, errors)\n"
     "/help — Show this help message\n"
@@ -174,219 +174,36 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    from questchain.config import TAVILY_API_KEY
-    text = (
-        "Built-in tools (always available):\n"
-        "  read_file, write_file, edit_file, ls, glob, grep, execute\n\n"
-        "Custom tools:\n"
-        "  claude_code — delegate coding tasks to Claude Code\n"
-        "  cron_add, cron_list, cron_remove — scheduled jobs\n"
-    )
-    if TAVILY_API_KEY:
-        text += "  web_search, web_browse — enabled"
-    else:
-        text += "  web_search, web_browse — disabled (no TAVILY_API_KEY)"
+    manager = context.bot_data.get("agent_manager")
+    if manager is None:
+        return await update.message.reply_text("Agent manager not available.")
+    from questchain.agents import tool_issues
+    definition = manager.get(context.chat_data.get("agent_id", manager.get_active_id())) or manager.get_active()
+    tools = definition.get("tools", [])
+    selected = "all available" if tools == "all" else ", ".join(tools) or "none"
+    text = f"{definition['name']} · selected tools: {selected}"
+    issues = tool_issues(definition)
+    if issues:
+        text += "\n" + "\n".join(issues)
     await update.message.reply_text(text)
 
 
 
 
 
-async def cmd_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /quest — start the three-step quest creation wizard."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    context.chat_data["creating_quest"] = {"step": "title"}
-    await update.message.reply_text(
-        "New quest — send /cancel at any time.\n\nStep 1/3 — What's the quest title?"
-    )
-
-
-async def _handle_quest_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Process wizard steps for quest creation. Returns True if message was consumed."""
-    state = context.chat_data.get("creating_quest")
-    if state is None:
-        return False
-
-    text = (update.message.text or "").strip()
-
-    if text.lower() == "/cancel":
-        context.chat_data.pop("creating_quest", None)
-        await update.message.reply_text("Cancelled.")
-        return True
-
-    step = state["step"]
-
-    if step == "title":
-        if not text:
-            await update.message.reply_text("Title can't be empty. What's the quest title?")
-            return True
-        state["title"] = text
-        state["step"] = "content"
-        await update.message.reply_text("Step 2/3 — Describe what the agent should do:")
-
-    elif step == "content":
-        if not text:
-            await update.message.reply_text("Content can't be empty. Describe the quest:")
-            return True
-
-        state["content"] = text
-        state["step"] = "agent"
-
-        # Build agent selection keyboard
-        agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
-        agents = agent_manager.all_agents() if agent_manager else []
-        keyboard = [
-            [InlineKeyboardButton(f"🤖 {a['name']}", callback_data=f"quest_agent:pick:{a['id']}")]
-            for a in agents
-        ]
-        keyboard.append([InlineKeyboardButton("⚔ Any agent (default)", callback_data="quest_agent:pick:none")])
-        await update.message.reply_text(
-            "Step 3/3 — Which agent should complete this quest?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-
-    return True
-
-
-async def _save_quest_from_wizard(
-    state: dict, agent_id: str | None
-) -> str:
-    """Write quest file and return its filename."""
-    import re
-    from questchain.config import WORKSPACE_DIR
-    from questchain.quest_meta import render_quest
-
-    title = state["title"]
-    content = state["content"]
-    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-    quests_dir.mkdir(parents=True, exist_ok=True)
-
-    words = re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
-    slug = "-".join(words[:5]) or "quest"
-    path = quests_dir / f"{slug}.md"
-    counter = 2
-    while path.exists():
-        path = quests_dir / f"{slug}-{counter}.md"
-        counter += 1
-
-    meta = {"agent": agent_id} if agent_id else {}
-    body = f"# {title}\n\n{content}"
-    path.write_text(render_quest(meta, body), encoding="utf-8")
-    return path.name
-
-
-async def callback_quest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle quest_agent: inline keyboard callbacks (agent selection)."""
-    query = update.callback_query
-    if not _is_owner(query.from_user.id):
-        await query.answer("This bot is private.")
-        return
-
-    await query.answer()
-    data = query.data or ""
-    # data format: "quest_agent:pick:<agent_id|none>"
-    parts = data.split(":", 2)
-    if len(parts) < 3:
-        return
-
-    state = context.chat_data.get("creating_quest")
-    if state is None or state.get("step") != "agent":
-        await query.edit_message_text("Quest wizard expired. Use /quest to start again.")
-        return
-
-    agent_id = parts[2] if parts[2] != "none" else None
-    filename = await _save_quest_from_wizard(state, agent_id)
-    context.chat_data.pop("creating_quest", None)
-
-    agent_label = ""
-    if agent_id:
-        agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
-        if agent_manager:
-            agent_def = agent_manager.get(agent_id)
-            if agent_def:
-                agent_label = f" (assigned to {agent_def['name']})"
-
-    await query.edit_message_text(
-        f"✓ Quest added: `{filename}`{agent_label}", parse_mode=ParseMode.MARKDOWN
-    )
-
-
-async def cmd_quests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /quests command — list pending quests with titles and descriptions."""
-    if not _is_owner(update.effective_user.id):
-        return await _reject(update)
-
-    from questchain.config import WORKSPACE_DIR
-    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
-    if not quests_dir.exists():
-        await update.message.reply_text("No quests pending.")
-        return
-    quest_files = sorted(quests_dir.glob("*.md"))
-    if not quest_files:
-        await update.message.reply_text("No quests pending.")
-        return
-
-    from questchain.quest_meta import parse_quest
-    agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
-    lines = [f"*Pending quests ({len(quest_files)}):*\n"]
-    for f in quest_files:
-        title = None
-        description = None
-        agent_label = ""
-        try:
-            meta, body = parse_quest(f)
-            for raw_line in body.splitlines():
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                if title is None:
-                    title = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
-                elif description is None and not stripped.startswith("#"):
-                    description = stripped
-                    break
-            assigned = meta.get("agent", "")
-            if assigned and agent_manager:
-                agent_def = agent_manager.get(assigned)
-                if agent_def:
-                    agent_label = f" \\[{agent_def['name']}]"
-        except Exception:
-            pass
-        title = title or f.stem
-        entry = f"• *{title}*{agent_label}"
-        if description:
-            entry += f"\n  _{description[:120]}{'…' if len(description) > 120 else ''}_"
-        lines.append(entry)
-
-    try:
-        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        await update.message.reply_text("\n".join(lines))
-
-
 async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /cron command — list scheduled cron jobs."""
+    """Manage the same persistent jobs as the terminal and web UI."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
-
-    import json
-    from questchain.config import get_cron_jobs_path
-    jobs_path = get_cron_jobs_path()
-    jobs = []
-    if jobs_path.exists():
-        try:
-            jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    if not jobs:
-        await update.message.reply_text("No cron jobs configured.")
-        return
-    lines = []
-    for j in jobs:
-        status = "on" if j.get("enabled", True) else "off"
-        lines.append(f"[{j['id']}] {j['name']} — {j['cron_expression']} ({status})")
-    await update.message.reply_text("\n".join(lines))
+    from questchain.cron_commands import execute
+    text = update.message.text or ""
+    command = text.partition(" ")[2]
+    try:
+        result = execute(command)
+    except (ValueError, KeyError, RuntimeError) as exc:
+        result = str(exc)
+    for chunk in _split_message(result):
+        await update.message.reply_text(chunk)
 
 
 async def cmd_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -412,7 +229,7 @@ async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active = agent_manager.get_active()
+    active = agent_manager.get(context.chat_data.get("agent_id", agent_manager.get_active_id())) or agent_manager.get_active()
     agent_id = active.get("id", "default")
     class_name = active.get("class_name", DEFAULT_CLASS)
     pm = ProgressionManager(agent_id, class_name)
@@ -433,7 +250,7 @@ async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = [
         f"📊 {active.get('name', 'QuestChain')} · Level {record.level}",
         f"[{bar}] {xp_display}",
-        f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Quests: {record.quests_completed}",
+        f"Total XP: {record.total_xp}  Turns: {record.turns_completed}  Jobs: {record.jobs_completed}",
     ]
     if record.current_streak > 1:
         streak_bonus = " (+50% XP)" if record.current_streak >= 7 else ""
@@ -464,7 +281,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active = agent_manager.get_active()
+    active = agent_manager.get(context.chat_data.get("agent_id", agent_manager.get_active_id())) or agent_manager.get_active()
     agent_id = active.get("id", "default")
     mm = MetricsManager(agent_id)
     mm.load()
@@ -501,7 +318,7 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active_id = agent_manager.get_active_id()
+    active_id = context.chat_data.get("agent_id", agent_manager.get_active_id())
     keyboard = []
     for agent_def in agent_manager.all_agents():
         agent_id = agent_def["id"]
@@ -514,13 +331,15 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             level_tag = f" Lv.{lv}"
         except Exception:
             level_tag = ""
-        label = f"{'✓ ' if is_active else '  '}{name}{level_tag}  ({model})"
+        label = f"{'✓ ' if is_active else ''}{name} · {ROLE_LABELS.get(agent_def.get('class_name'), 'Custom')}{level_tag}"
         row = [InlineKeyboardButton(label, callback_data=f"agent:pick:{agent_id}")]
         row.append(InlineKeyboardButton("✏️", callback_data=f"agent:edit:{agent_id}"))
         if not agent_def.get("built_in"):
             row.append(InlineKeyboardButton("🗑️", callback_data=f"agent:delete:{agent_id}"))
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton("➕ New agent", callback_data="agent:build")])
+    for archived in agent_manager.legacy_agents():
+        keyboard.append([InlineKeyboardButton(f"Migrate legacy: {archived['name']}", callback_data=f"agent:migrate:{archived['id']}")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("🔗 Agents", reply_markup=reply_markup)
@@ -538,12 +357,22 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
 
+    if data.startswith("agent:migrate:"):
+        if agent_manager is None:
+            return await query.edit_message_text("Agent manager not available.")
+        try:
+            saved = agent_manager.migrate_legacy(data[len("agent:migrate:"):])
+            await query.edit_message_text(f"Migrated {saved['name']} with its original ID. Automatic routing is off. Use /agents to review its settings.")
+        except ValueError as exc:
+            await query.edit_message_text(str(exc))
+        return
+
     if data.startswith("agent:pick:"):
         agent_id = data[len("agent:pick:"):]
         if agent_manager is None:
             await query.edit_message_text("Agent manager not available.")
             return
-        active_id = agent_manager.get_active_id()
+        active_id = context.chat_data.get("agent_id", agent_manager.get_active_id())
         if agent_id == active_id:
             return  # Already active — silently ignore
         agent_def = agent_manager.get(agent_id)
@@ -557,9 +386,8 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         from questchain.cli import _make_agent_from_def
         try:
             new_agent = _make_agent_from_def(agent_def, audio_router)
-            agent_holder["agent"] = new_agent
             context.bot_data["model_name"] = agent_def.get("model") or OLLAMA_MODEL
-            agent_manager.set_active(agent_id)
+            context.chat_data["agent_id"] = agent_id
             await query.edit_message_text(f"🔗 Switched to '{agent_def['name']}'.")
         except Exception as e:
             await query.edit_message_text(f"Failed to switch agent: {e}")
@@ -568,7 +396,7 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.chat_data["building_agent"] = {"step": "name", "data": {}}
         await query.edit_message_text(
             "Let's create a new agent. Send /cancel at any time.\n\n"
-            "Step 1/5 — What's the agent's name?"
+            "Name — What's the agent's name?"
         )
 
     elif data.startswith("agent:edit:"):
@@ -581,8 +409,9 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text(f"Agent not found: {agent_id}")
             return
         context.chat_data["building_agent"] = {
-            "step": "edit_name",
+            "step": "name",
             "data": {
+                **agent_def,
                 "edit_id": agent_id,
                 "name": agent_def["name"],
                 "model": agent_def.get("model"),
@@ -592,7 +421,7 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         }
         await query.edit_message_text(
             f"Editing '{agent_def['name']}'. Send '-' to keep the current value.\n\n"
-            f"Step 1/5 — New name? (current: {agent_def['name']})"
+            f"Name — New name? (current: {agent_def['name']})"
         )
 
     elif data.startswith("agent:delete:"):
@@ -631,243 +460,181 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Process wizard steps for agent creation/editing. Returns True if message was consumed."""
     state = context.chat_data.get("building_agent")
     if state is None:
         return False
-
     text = (update.message.text or "").strip()
-
-    # Allow cancellation at any step
     if text.lower() == "/cancel":
         context.chat_data.pop("building_agent", None)
         await update.message.reply_text("Cancelled.")
         return True
-
-    step = state["step"]
     data = state["data"]
-
-    # ── Create flow  (name → model → class → tools[if Custom] → prompt → confirm) ────
-
-    if step == "name":
-        if not text:
-            await update.message.reply_text("Name cannot be empty. What's the agent's name?")
-            return True
-        data["name"] = text
-        state["step"] = "model"
-        await update.message.reply_text(
-            f"Step 2/5 — Which model? (send empty for default: {OLLAMA_MODEL})"
-        )
-
-    elif step == "model":
-        data["model"] = text if text else None
-        state["step"] = "class"
-        class_lines = "\n".join(
-            f"  {i}. {icon} {cname} — {desc}"
-            for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1)
-        )
-        await update.message.reply_text(
-            f"Step 3/5 — Agent class:\n\n{class_lines}\n\n"
-            f"Send a number (1-{len(AGENT_CLASSES)}) or empty for Custom (custom tools)."
-        )
-
-    elif step == "class":
-        chosen_class = DEFAULT_CLASS
-        if text.isdigit():
-            idx = int(text) - 1
-            if 0 <= idx < len(AGENT_CLASSES):
-                chosen_class = AGENT_CLASSES[idx][0]
-        data["class_name"] = chosen_class
-        preset = CLASS_TOOL_PRESETS.get(chosen_class)
-        if preset is None:
-            # Custom: ask for tools
-            state["step"] = "tools"
-            tool_lines = "\n".join(
-                f"  {i}. {name} — {desc}"
-                for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
-            )
-            await update.message.reply_text(
-                f"Step 4/5 — Which tools? (filesystem tools always available)\n\n"
-                f"{tool_lines}\n\n"
-                f"Send comma-separated numbers (e.g. '1,2'), or 'all' for all tools."
-            )
-        else:
-            # Non-Custom: apply preset, skip tools step
-            data["tools"] = preset
-            state["step"] = "prompt"
-            preset_display = ", ".join(preset) if preset else "built-in tools only"
-            await update.message.reply_text(
-                f"Tools preset for {chosen_class}: {preset_display}\n\n"
-                f"Step 4/4 — System prompt? (send empty to use the default QuestChain prompt)"
-            )
-
-    elif step == "tools":
-        if text.lower() in ("", "all"):
-            data["tools"] = "all"
-        else:
-            selected: list[str] = []
-            for part in text.split(","):
-                part = part.strip()
-                if part.isdigit():
-                    idx = int(part) - 1
-                    if 0 <= idx < len(SELECTABLE_TOOLS):
-                        selected.append(SELECTABLE_TOOLS[idx][0])
-            data["tools"] = selected if selected else "all"
-        state["step"] = "prompt"
-        await update.message.reply_text(
-            "Step 5/5 — System prompt? (send empty to use the default QuestChain prompt)"
-        )
-
-    elif step == "prompt":
-        data["system_prompt"] = text if text else None
-        state["step"] = "confirm"
-        _tools = data.get("tools", "all")
-        tools_display = _tools if _tools == "all" else (", ".join(_tools) if _tools else "built-in only")
-        model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
-        prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
-        await update.message.reply_text(
-            f"Confirm new agent:\n\n"
-            f"Name: {data['name']}\n"
-            f"Class: {data.get('class_name', DEFAULT_CLASS)}\n"
-            f"Model: {model_display}\n"
-            f"Tools: {tools_display}\n"
-            f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
-            f"Send 'yes' to create, anything else to cancel."
-        )
-
-    elif step == "confirm":
-        if text.lower() in ("yes", "y"):
-            agent_manager: AgentManager | None = context.bot_data.get("agent_manager")
-            if agent_manager is None:
-                await update.message.reply_text("Agent manager not available.")
-                context.chat_data.pop("building_agent", None)
-                return True
-            agent_manager.add(
-                name=data["name"],
-                model=data.get("model"),
-                system_prompt=data.get("system_prompt"),
-                tools=data.get("tools", "all"),
-                class_name=data.get("class_name", DEFAULT_CLASS),
-            )
-            context.chat_data.pop("building_agent", None)
-            await update.message.reply_text(
-                f"✓ Agent '{data['name']}' created!\nUse /agents to activate it."
-            )
-        else:
-            context.chat_data.pop("building_agent", None)
-            await update.message.reply_text("Agent creation cancelled.")
-
-    # ── Edit flow  (edit_name → edit_model → edit_class → edit_tools → edit_prompt → edit_confirm) ──
-
-    elif step == "edit_name":
-        if text and text != "-":
-            data["name"] = text
-        state["step"] = "edit_model"
-        current_model = data.get("model") or OLLAMA_MODEL
-        await update.message.reply_text(
-            f"Step 2/5 — New model? (current: {current_model}, send '-' to keep)"
-        )
-
-    elif step == "edit_model":
-        if text and text != "-":
-            data["model"] = text
-        state["step"] = "edit_class"
-        current_class = data.get("class_name", DEFAULT_CLASS)
-        class_lines = "\n".join(
-            f"  {i}. {icon} {cname} — {desc}"
-            for i, (cname, icon, desc) in enumerate(AGENT_CLASSES, 1)
-        )
-        await update.message.reply_text(
-            f"Step 3/5 — Agent class? (current: {current_class})\n\n{class_lines}\n\n"
-            f"Send a number (1-{len(AGENT_CLASSES)}) or '-' to keep current."
-        )
-
-    elif step == "edit_class":
-        if text and text != "-" and text.isdigit():
-            idx = int(text) - 1
-            if 0 <= idx < len(AGENT_CLASSES):
-                data["class_name"] = AGENT_CLASSES[idx][0]
-        state["step"] = "edit_tools"
-        current_tools = data.get("tools", "all")
-        tools_display = current_tools if current_tools == "all" else (", ".join(current_tools) if current_tools else "built-in only")
-        current_class = data.get("class_name", DEFAULT_CLASS)
-        preset = CLASS_TOOL_PRESETS.get(current_class)
-        preset_hint = ""
-        if preset is not None:
-            preset_display = ", ".join(preset) if preset else "built-in only"
-            preset_hint = f"\nClass preset ({current_class}): {preset_display}"
-        tool_lines = "\n".join(
-            f"  {i}. {name} — {desc}"
-            for i, (name, desc) in enumerate(SELECTABLE_TOOLS, 1)
-        )
-        await update.message.reply_text(
-            f"Step 4/5 — Tools? (current: {tools_display}){preset_hint}\n\n"
-            f"{tool_lines}\n\n"
-            f"Send comma-separated numbers, 'all', or '-' to keep current."
-        )
-
-    elif step == "edit_tools":
-        if text and text != "-":
+    step = state["step"]
+    tools = get_dynamic_selectable_tools()
+    steps = ["name", "model", "class", "tools", "prompt", "guidance", "routable", "exclusions", "examples", "confirm"]
+    try:
+        if step == "name":
+            if text != "-":
+                data["name"] = text
+            if not data.get("name"):
+                raise ValueError("Name is required.")
+        elif step == "model":
+            if text != "-":
+                data["model"] = text or None
+            data.setdefault("model", None)
+        elif step == "class":
+            if text != "-":
+                if not text.isdigit() or not 1 <= int(text) <= len(AGENT_CLASSES):
+                    raise ValueError("Choose a role number or '-' for the current/default role.")
+                data["class_name"] = AGENT_CLASSES[int(text) - 1][0]
+            data.setdefault("class_name", DEFAULT_CLASS)
+            data.setdefault("tools", CLASS_TOOL_PRESETS.get(data["class_name"]) or [])
+        elif step == "tools":
             if text.lower() == "all":
                 data["tools"] = "all"
+            elif text.lower() == "none":
+                data["tools"] = []
+            elif text != "-":
+                indices = [part.strip() for part in text.split(",")]
+                if any(not i.isdigit() or not 1 <= int(i) <= len(tools) for i in indices):
+                    raise ValueError("Use tool numbers, 'none', 'all', or '-' to keep the shown selection.")
+                data["tools"] = [tools[int(i) - 1][0] for i in indices]
+            if data.get("class_name") == "Router" and data.get("tools"):
+                raise ValueError("A coordinator uses routing and status only. Select 'none'.")
+        elif step == "prompt":
+            if text != "-":
+                data["system_prompt"] = text
+            data["system_prompt"] = data.get("system_prompt") or preset_prompt(data.get("class_name", DEFAULT_CLASS))
+        elif step == "guidance":
+            if text != "-":
+                data["when_to_call"] = "" if text.lower() == "none" else text
+            data.setdefault("when_to_call", CLASS_GUIDANCE.get(data.get("class_name"), ""))
+        elif step == "routable":
+            if text.lower() not in ("yes", "no", "-", "y", "n"):
+                raise ValueError("Send yes or no.")
+            if text != "-":
+                data["routable"] = text.lower() in ("yes", "y")
+            data.setdefault("routable", bool(data.get("when_to_call")))
+            if data["routable"] and not data.get("when_to_call"):
+                state["step"] = "guidance"
+                raise ValueError("Describe when to call this agent before enabling routing. Send that guidance now.")
+        elif step == "exclusions":
+            if text != "-":
+                data["when_not_to_call"] = "" if text.lower() == "none" else text
+        elif step == "examples":
+            if text != "-":
+                data["routing_examples"] = [] if text.lower() == "none" else [e.strip() for e in text.split(";") if e.strip()]
+        elif step == "confirm":
+            if text.lower() in ("yes", "y"):
+                manager = context.bot_data["agent_manager"]
+                keys = ("name", "model", "class_name", "tools", "system_prompt", "when_to_call", "routable", "when_not_to_call", "routing_examples")
+                values = {key: data[key] for key in keys if key in data}
+                saved = manager.update(data["edit_id"], **values) if data.get("edit_id") else manager.add(**values)
+                await update.message.reply_text(f"Saved {saved['name']}. Use /agents to chat directly. Routing catalog refreshed.")
             else:
-                selected_edit: list[str] = []
-                for part in text.split(","):
-                    part = part.strip()
-                    if part.isdigit():
-                        idx = int(part) - 1
-                        if 0 <= idx < len(SELECTABLE_TOOLS):
-                            selected_edit.append(SELECTABLE_TOOLS[idx][0])
-                if selected_edit:
-                    data["tools"] = selected_edit
-        state["step"] = "edit_prompt"
-        current_prompt = data.get("system_prompt") or "(default)"
-        await update.message.reply_text(
-            f"Step 5/5 — System prompt?\n"
-            f"Current: {current_prompt[:100]}{'…' if len(current_prompt) > 100 else ''}\n\n"
-            f"Send new prompt, or '-' to keep current."
-        )
-
-    elif step == "edit_prompt":
-        if text and text != "-":
-            data["system_prompt"] = text
-        state["step"] = "edit_confirm"
-        current_tools = data.get("tools", "all")
-        tools_display = current_tools if current_tools == "all" else (", ".join(current_tools) if current_tools else "built-in only")
-        model_display = data.get("model") or f"{OLLAMA_MODEL} (default)"
-        prompt_display = data.get("system_prompt") or "(default QuestChain prompt)"
-        await update.message.reply_text(
-            f"Confirm updated agent:\n\n"
-            f"Name: {data['name']}\n"
-            f"Class: {data.get('class_name', DEFAULT_CLASS)}\n"
-            f"Model: {model_display}\n"
-            f"Tools: {tools_display}\n"
-            f"Prompt: {prompt_display[:200]}{'…' if len(prompt_display) > 200 else ''}\n\n"
-            f"Send 'yes' to save, anything else to cancel."
-        )
-
-    elif step == "edit_confirm":
-        if text.lower() in ("yes", "y"):
-            agent_manager_edit: AgentManager | None = context.bot_data.get("agent_manager")
-            if agent_manager_edit is None:
-                await update.message.reply_text("Agent manager not available.")
-                context.chat_data.pop("building_agent", None)
-                return True
-            agent_manager_edit.update(
-                data["edit_id"],
-                name=data["name"],
-                model=data.get("model"),
-                tools=data.get("tools", "all"),
-                system_prompt=data.get("system_prompt"),
-                class_name=data.get("class_name", DEFAULT_CLASS),
-            )
+                await update.message.reply_text("Cancelled.")
             context.chat_data.pop("building_agent", None)
-            await update.message.reply_text(f"✓ Agent '{data['name']}' updated!")
-        else:
-            context.chat_data.pop("building_agent", None)
-            await update.message.reply_text("Edit cancelled.")
-
+            return True
+        next_step = steps[steps.index(step) + 1]
+        state["step"] = next_step
+        prompts = {
+            "model": f"Model [{data.get('model') or OLLAMA_MODEL}]. Send '-' to keep the default/current value.",
+            "class": "Role — send a number, or '-' to keep:\n" + "\n".join(f"{i}. {ROLE_LABELS.get(c[0], c[0])}" for i, c in enumerate(AGENT_CLASSES, 1)),
+            "tools": f"Tools [{data.get('tools', [])}]. Select numbers, 'none', 'all', or '-' to keep:\n" + "\n".join(f"{i}. {name} — {desc}" for i, (name, desc) in enumerate(tools, 1)),
+            "prompt": "System prompt — how should this agent work? Send '-' for current or role preset.",
+            "guidance": "When should the coordinator call this agent?\nCurrent/preset: " + (data.get("when_to_call") or CLASS_GUIDANCE.get(data.get("class_name"), "(none)")) + "\nSend '-' to keep or 'none' for direct chat only.",
+            "routable": "Allow automatic routing? yes / no (direct chat remains available).",
+            "exclusions": "When NOT to call? Send exclusions, '-' to keep, or 'none'.",
+            "examples": "Example requests? Separate with ';', send '-' to keep, or 'none'.",
+            "confirm": "Confirm agent:\n" + "\n".join(f"{k}: {str(v)[:600]}" for k, v in data.items() if k in ("name", "class_name", "model", "tools", "system_prompt", "when_to_call", "routable", "when_not_to_call", "routing_examples")) + "\n\nSend yes to save, anything else to cancel.",
+        }
+        for chunk in _split_message(prompts[next_step]):
+            await update.message.reply_text(chunk)
+    except (ValueError, TypeError) as exc:
+        await update.message.reply_text(str(exc))
     return True
+
+
+async def cmd_cancel(update, context):
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+    if context.chat_data.pop("building_agent", None) is not None:
+        await update.message.reply_text("Agent creation cancelled.")
+        return
+    run_id = context.chat_data.get("last_run_id")
+    runtime = context.bot_data.get("runtime")
+    if runtime and run_id:
+        runtime.cancel(run_id)
+        await update.message.reply_text("Cancellation requested.")
+    else:
+        await update.message.reply_text("No run to cancel.")
+
+
+async def cmd_retry(update, context):
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+    runtime = context.bot_data.get("runtime")
+    run_id = context.chat_data.get("last_run_id")
+    if not runtime or not run_id:
+        await update.message.reply_text("No previous run to retry.")
+        return
+    try:
+        new_id = runtime.retry(run_id, audio_callback=_voice_delivery(update))
+        context.chat_data["last_run_id"] = new_id
+        await _deliver_runtime_result(runtime, new_id, update)
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+
+
+async def _deliver_runtime_result(runtime, run_id, update):
+    stop_typing = asyncio.Event()
+    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
+    try:
+        result = await runtime.wait(run_id)
+        author = result.get("result_agent_name", result["agent_name"])
+        text = f"{author} · {result['status']}\n\n{result['result']}"
+        if result["error"]:
+            text += "\n\n" + result["error"]
+        for chunk in _split_message(text):
+            try:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await update.message.reply_text(chunk)
+        runtime.mark_delivered(run_id)
+    except Exception as exc:
+        runtime.mark_delivered(run_id, str(exc))
+        logger.warning("Telegram result delivery failed: %s", exc)
+    finally:
+        stop_typing.set()
+        await typing_task
+
+
+def _voice_delivery(update):
+    async def deliver(wav_bytes):
+        import io
+        await update.message.reply_voice(voice=io.BytesIO(wav_bytes))
+    return deliver
+
+
+async def _submit_runtime_message(update, context, text):
+    from questchain.runtime import TaskRequest
+    runtime = context.bot_data.get("runtime")
+    manager = context.bot_data.get("agent_manager")
+    if not runtime or not manager:
+        await update.message.reply_text("The task runtime is not ready yet.")
+        return
+    chat_id = update.effective_chat.id
+    message_id = getattr(update.message, "message_id", None)
+    try:
+        run_id = runtime.submit(TaskRequest(text, context.chat_data.get("agent_id", manager.get_active_id()),
+            "telegram-" + _get_thread_id(chat_id), "telegram", destination=str(chat_id),
+            occurrence_key=f"telegram:{chat_id}:{message_id}" if message_id is not None else None,
+            audio_callback=_voice_delivery(update)))
+    except (ValueError, TypeError) as exc:
+        await update.message.reply_text(str(exc))
+        return
+    context.chat_data["last_run_id"] = run_id
+    await _deliver_runtime_result(runtime, run_id, update)
 
 
 async def _keep_typing(chat, stop: asyncio.Event) -> None:
@@ -956,43 +723,11 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Forward transcribed text directly to the agent via the telegram queue
     # (same path as a normal typed message)
-    if await _handle_quest_wizard(update, context):
-        return
     if await _handle_build_agent_wizard(update, context):
         return
 
     chat_id = update.effective_chat.id
-    telegram_queue = context.bot_data.get("telegram_queue")
-    if telegram_queue is None:
-        await update.message.reply_text("(Bot not ready yet, try again.)")
-        return
-
-    thread_id = _get_thread_id(chat_id)
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
-    loop = asyncio.get_event_loop()
-    response_future: asyncio.Future = loop.create_future()
-    await telegram_queue.put((text, config, response_future, update))
-
-    stop_typing = asyncio.Event()
-    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
-    try:
-        full_response = await response_future
-    except Exception:
-        logger.exception("Voice handler error")
-        full_response = "Sorry, an internal error occurred."
-    finally:
-        stop_typing.set()
-        await typing_task
-
-    if not full_response:
-        return
-
-    chunks = _split_message(full_response)
-    for chunk in chunks:
-        try:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(chunk)
+    await _submit_runtime_message(update, context, text)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1005,8 +740,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Intercept wizard messages first
-    if await _handle_quest_wizard(update, context):
-        return
     if await _handle_build_agent_wizard(update, context):
         return
 
@@ -1023,7 +756,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if onboarding_active:
-        thread_id = "onboarding"
+        # Onboarding has a small, explicit file-writing role; the selected router
+        # keeps its tool-free configuration.
+        from questchain.agent import create_questchain_agent
+        agent = create_questchain_agent(model_name=context.bot_data.get("model_name", OLLAMA_MODEL),
+                    tools_filter=["read_file", "write_file"], system_prompt_override=ONBOARDING_SYSTEM,
+                    agent_name="QuestChain")
+        thread_id = "onboarding-" + str(chat_id)
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
         await update.effective_chat.send_action(ChatAction.TYPING)
 
@@ -1035,7 +774,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if audio_router is not None:
             audio_router.set_telegram(update)
-        full_response = await _run_agent_collect(agent, message, config, update)
+        runtime = context.bot_data.get("runtime")
+        async with runtime.lock if runtime else asyncio.Lock():
+            full_response = await _run_agent_collect(agent, message, config, update)
         if audio_router is not None:
             audio_router.set_cli()
         if "ONBOARDING_COMPLETE" in full_response:
@@ -1044,42 +785,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             context.chat_data.pop("onboarding_intro_sent", None)
         return
 
-    # Normal message: hand off to the CLI REPL loop via queue
-    telegram_queue = context.bot_data.get("telegram_queue")
-    if telegram_queue is None:
-        # Should not happen in alongside mode, but guard anyway
-        logger.warning("telegram_queue not set; dropping message")
-        await update.message.reply_text("(Bot not ready yet, try again.)")
-        return
-
-    thread_id = _get_thread_id(chat_id)
-    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
-    loop = asyncio.get_event_loop()
-    response_future: asyncio.Future = loop.create_future()
-
-    await telegram_queue.put((user_text, config, response_future, update))
-
-    # Keep typing indicator alive while the REPL processes the message
-    stop_typing = asyncio.Event()
-    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
-    try:
-        full_response = await response_future
-    except Exception:
-        logger.exception("Message handler error")
-        full_response = "Sorry, an internal error occurred."
-    finally:
-        stop_typing.set()
-        await typing_task
-
-    if not full_response:
-        return
-
-    chunks = _split_message(full_response)
-    for chunk in chunks:
-        try:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(chunk)
+    await _submit_runtime_message(update, context, user_text)
 
 
 async def run_telegram_alongside_cli(
@@ -1088,6 +794,8 @@ async def run_telegram_alongside_cli(
     telegram_queue: asyncio.Queue,
     audio_router,
     agent_manager: "AgentManager | None" = None,
+    busy_lock=None,
+    runtime=None,
 ) -> tuple:
     """Start Telegram bot alongside the CLI REPL.
 
@@ -1105,15 +813,19 @@ async def run_telegram_alongside_cli(
                 "TELEGRAM_OWNER_ID is not set — all incoming messages will be "
                 "rejected. Set it to your Telegram user ID."
             )
-        return None, None, None
+        return None, None
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
+    if hasattr(builder, "concurrent_updates"):
+        builder = builder.concurrent_updates(4)
+    app = builder.build()
 
     app.bot_data["agent_holder"] = agent_holder
     app.bot_data["agent"] = agent_holder["agent"]  # legacy fallback
     app.bot_data["model_name"] = model_name
     app.bot_data["audio_router"] = audio_router
     app.bot_data["telegram_queue"] = telegram_queue
+    app.bot_data["runtime"] = runtime
     if agent_manager is not None:
         app.bot_data["agent_manager"] = agent_manager
 
@@ -1139,6 +851,8 @@ async def run_telegram_alongside_cli(
         agent=agent_holder["agent"],
         send_callback=send_to_owner,
         agent_manager=agent_manager,
+        busy_lock=busy_lock,
+        runtime=runtime,
     )
     set_scheduler(scheduler)
 
@@ -1148,15 +862,14 @@ async def run_telegram_alongside_cli(
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("tools", cmd_tools))
-    app.add_handler(CommandHandler("quest", cmd_quest))
-    app.add_handler(CommandHandler("quests", cmd_quests))
     app.add_handler(CommandHandler("cron", cmd_cron))
     app.add_handler(CommandHandler("onboard", cmd_onboard))
     app.add_handler(CommandHandler("agents", cmd_agent))
     app.add_handler(CommandHandler("level", cmd_level))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
+    app.add_handler(CommandHandler("retry", cmd_retry))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
-    app.add_handler(CallbackQueryHandler(callback_quest, pattern="^quest_agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
 
@@ -1175,15 +888,14 @@ async def run_telegram_alongside_cli(
         BotCommand("new", "Start a fresh conversation"),
         BotCommand("model", "Show current model"),
         BotCommand("tools", "List available tools"),
-        BotCommand("quest", "Add a new quest — /quest <description>"),
-        BotCommand("quests", "List pending quests with descriptions"),
-        BotCommand("tasks", "Show pending quests (filenames)"),
-        BotCommand("cron", "List scheduled cron jobs"),
+        BotCommand("cron", "Manage scheduled cron jobs"),
         BotCommand("onboard", "Re-run the onboarding flow"),
         BotCommand("agents", "Manage agents — list, switch, create, edit"),
         BotCommand("level", "Show agent level and achievements"),
         BotCommand("stats", "Show agent metrics (prompts, tokens, errors)"),
         BotCommand("help", "Show all commands"),
+        BotCommand("cancel", "Cancel the current run or agent creation"),
+        BotCommand("retry", "Retry the last run"),
     ])
     await app.start()
     await app.updater.start_polling()
@@ -1196,8 +908,4 @@ async def run_telegram_alongside_cli(
         await app.stop()
         await app.shutdown()
 
-    def set_runner(runner) -> None:
-        """Called by the CLI after the QuestRunner is started."""
-        app.bot_data["quest_runner"] = runner
-
-    return send_to_owner, stop_fn, set_runner
+    return send_to_owner, stop_fn

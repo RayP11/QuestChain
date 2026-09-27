@@ -171,7 +171,3 @@ def get_metrics_dir() -> Path:
     d = ensure_data_dir() / "metrics"
     d.mkdir(parents=True, exist_ok=True)
     return d
-
-
-# --- Quest runner settings ---
-DEFAULT_QUEST_MINUTES = 60

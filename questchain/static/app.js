@@ -27,13 +27,17 @@ const State = {
   ws: null,
   connected: false,
   streaming: false,
-  streamEl: null,        // current streaming bubble DOM element
+  messageEls: new Map(),
+  runs: new Map(),
+  routeEls: new Map(),
+  conversationId: sessionStorage.getItem('questchain-conversation') || 'web-' + crypto.randomUUID(),
+  lastSeq: 0,
   typingEl: null,        // typing indicator
   agents: [],
   activeAgentId: '',
   viewingAgentId: '',    // agent currently shown in stats view (may differ from active)
-  quests: [],
-  selectedQuestName: null,
+  jobs: [],
+  selectedJobId: null,
   battleLog: [],       // array of {text, agentName, icon, time}, max 20
   agentStatus: {},     // agent_id → 'idle' | 'thinking' | 'tool:toolname'
   page: 'map',
@@ -47,21 +51,24 @@ const _WS_TOKEN = document.querySelector('meta[name="ws-token"]')?.content || ''
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const tokenParam = _WS_TOKEN ? `?token=${encodeURIComponent(_WS_TOKEN)}` : '';
+  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}${_WS_TOKEN ? '&token=' + encodeURIComponent(_WS_TOKEN) : ''}`;
   const ws = new WebSocket(`${proto}://${location.host}/ws${tokenParam}`);
   State.ws = ws;
 
   ws.onopen = () => {
     State.connected = true;
     document.getElementById('conn-dot').className = 'connection-dot connected';
+    document.getElementById('conn-dot').title = 'Connected';
     ws.send(JSON.stringify({ type: 'get_agents' }));
     ws.send(JSON.stringify({ type: 'get_stats' }));
-    ws.send(JSON.stringify({ type: 'get_quests' }));
+    ws.send(JSON.stringify({ type: 'get_cron_jobs' }));
+    if (State.selectedJobId) ws.send(JSON.stringify({type: 'get_cron_history', cron_id: State.selectedJobId}));
   };
 
   ws.onclose = () => {
     State.connected = false;
     document.getElementById('conn-dot').className = 'connection-dot error';
+    document.getElementById('conn-dot').title = 'Disconnected';
     setTimeout(connect, 3000);
   };
 
@@ -80,73 +87,202 @@ function send(obj) {
 
 // ── Event router ──────────────────────────────────────────────
 function handleEvent(msg) {
+  if (msg.conversation_id && msg.type !== 'conversation') {
+    if (msg.conversation_id !== State.conversationId) return;
+    if (msg.seq && msg.seq <= State.lastSeq) return;
+    if (msg.seq) State.lastSeq = msg.seq;
+  }
   switch (msg.type) {
+    case 'conversation': onConversation(msg); break;
+    case 'run_status': onRunStatus(msg); break;
+    case 'routed': onRouted(msg); break;
+    case 'agent_selected':
+      State.activeAgentId = msg.agent_id;
+      State.viewingAgentId = msg.agent_id;
+      renderChatAgentList(); renderRoster(); updateChatHeader();
+      break;
+    case 'agent_saved':
+      document.getElementById('agent-form').classList.remove('open');
+      State.editingAgentId = null;
+      break;
+    case 'legacy_migrated':
+      document.getElementById('legacy-agent-message').textContent = `${msg.name} migrated. Automatic routing is off until you enable it in Edit.`;
+      break;
+    case 'legacy_deleted':
+      document.getElementById('legacy-agent-message').textContent = `${msg.name} deleted from the archive.`;
+      break;
+    case 'legacy_error': document.getElementById('legacy-agent-message').textContent = msg.error; break;
+    case 'agent_error': document.getElementById('af-error').textContent = msg.error; break;
+    case 'error':
+      removeTyping();
+      document.getElementById('run-status').textContent = msg.error;
+      document.getElementById('send-btn').disabled = false;
+      break;
+    case 'resync_required': send({type: 'get_conversation'}); break;
     case 'user_message':  onUserMessage(msg); break;
     case 'token':         onToken(msg); break;
     case 'tool_call':     onToolCall(msg); break;
     case 'assistant_done':onDone(msg); break;
     case 'agents':        onAgents(msg); break;
     case 'stats':         onStats(msg); break;
-    case 'quests':        onQuests(msg); break;
+    case 'cron_jobs': onJobs(msg); break;
+    case 'cron_history': renderCronHistory(msg); break;
+    case 'cron_error': document.getElementById('job-message').textContent = msg.message; break;
+    case 'cron_saved':
+      document.getElementById('job-message').textContent = msg.action === 'run_cron' ? 'Job queued.' : 'Changes saved.';
+      if (msg.action === 'save_cron') { State.pendingJobId = msg.cron_id; send({ type: 'get_cron_jobs' }); }
+      if (msg.action === 'delete_cron') clearJobEditor();
+      break;
     case 'settings':      onSettings(msg); break;
   }
 }
 
 // ── Chat events ───────────────────────────────────────────────
+const FINISHED = new Set(['completed', 'partial', 'failed', 'cancelled', 'interrupted', 'waiting_input']);
+
+function messageFor(msg, role = 'assistant') {
+  let wrap = State.messageEls.get(msg.message_id);
+  if (!wrap) {
+    wrap = appendMessage(role, '', role === 'user' ? 'You' : msg.agent_name);
+    wrap.dataset.messageId = msg.message_id;
+    State.messageEls.set(msg.message_id, wrap);
+  }
+  return wrap;
+}
+
 function onUserMessage(msg) {
   removeTyping();
-  appendMessage('user', msg.content, msg.source !== 'web' ? msg.source : null);
+  ChatMarkdown.set(messageFor(msg, 'user').querySelector('.msg-bubble'), msg.content);
 }
 
 function onToken(msg) {
   removeTyping();
-  if (!State.streaming || !State.streamEl) {
-    State.streaming = true;
-    const wrap = appendMessage('assistant', '', null, true);
-    State.streamEl = wrap.querySelector('.msg-bubble');
-  }
-  State.streamEl.textContent += msg.content;
-  State.streamEl.classList.add('stream-cursor');
+  const bubble = messageFor(msg).querySelector('.msg-bubble');
+  ChatMarkdown.append(bubble, msg.content);
+  bubble.classList.add('stream-cursor');
+  State.agentStatus[msg.agent_id] = 'thinking';
+  if (State.page === 'map') updateBattleTileStatus(msg.agent_id);
   scrollToBottom();
-  // Battle map: mark active agent as thinking
-  State.agentStatus[State.activeAgentId] = 'thinking';
-  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
 }
 
 function onToolCall(msg) {
-  removeTyping();
   const el = document.createElement('div');
   el.className = 'tool-pill';
-  el.innerHTML = `<span class="dot"></span>${escHtml(msg.name)}`;
+  el.textContent = `${msg.agent_name} · ${msg.name}`;
   document.getElementById('messages').appendChild(el);
+  State.agentStatus[msg.agent_id] = 'tool:' + msg.name;
+  pushBattleLog(msg.agent_id, `Used ${msg.name}`);
+  if (State.page === 'map') updateBattleTileStatus(msg.agent_id);
   scrollToBottom();
-  // Battle map: mark agent as working, log tool call
-  State.agentStatus[State.activeAgentId] = 'tool:' + msg.name;
-  pushBattleLog(State.activeAgentId, `Used ${msg.name}`);
-  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
 }
 
 function onDone(msg) {
-  if (State.streamEl) {
-    State.streamEl.classList.remove('stream-cursor');
-  }
-  State.streaming = false;
-  State.streamEl = null;
   removeTyping();
-  document.getElementById('send-btn').disabled = false;
-  // Stop all tool pill dots from pulsing
-  document.querySelectorAll('.tool-pill .dot').forEach(d => d.style.animation = 'none');
-  // refresh stats after response
-  send({ type: 'get_stats' });
-  // Battle map: mark agent as idle, log completion
-  State.agentStatus[State.activeAgentId] = 'idle';
-  pushBattleLog(State.activeAgentId, 'Completed response');
-  if (State.page === 'map') updateBattleTileStatus(State.activeAgentId);
+  const wrap = messageFor(msg);
+  const bubble = wrap.querySelector('.msg-bubble');
+  ChatMarkdown.set(bubble, msg.content);
+  bubble.classList.remove('stream-cursor');
+  let outcome = wrap.querySelector('.run-outcome');
+  if (!outcome) {
+    outcome = document.createElement('div');
+    outcome.className = 'run-outcome';
+    wrap.lastElementChild.appendChild(outcome);
+  }
+  outcome.textContent = msg.error ? `${msg.status}: ${msg.error}` : msg.status === 'waiting_input' ? 'Waiting for your input' : '';
+  onRunStatus(msg);
+  send({ type: 'get_stats', agent_id: msg.agent_id });
+  send({ type: 'get_agents' });
+  pushBattleLog(msg.agent_id, msg.status === 'completed' ? 'Completed response' : msg.status);
+  scrollToBottom();
+}
+
+function onRunStatus(msg) {
+  State.runs.set(msg.run_id, {...State.runs.get(msg.run_id), ...msg});
+  State.agentStatus[msg.agent_id] = FINISHED.has(msg.status) ? 'idle' : 'thinking';
+  if (State.page === 'map') updateBattleTileStatus(msg.agent_id);
+  renderRunStatus();
+}
+
+function renderRunStatus() {
+  const bar = document.getElementById('run-status');
+  bar.replaceChildren();
+  const roots = [...State.runs.values()].filter(r => !r.parent_run_id);
+  const active = roots.filter(r => !FINISHED.has(r.status));
+  State.streaming = active.length > 0;
+  for (const run of active) {
+    const row = document.createElement('div');
+    row.className = 'run-status-row';
+    const text = document.createElement('span');
+    text.textContent = `${run.destination_name || run.agent_name} · ${run.status}`;
+    const cancel = document.createElement('button');
+    cancel.className = 'btn-icon';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => send({type: 'cancel_run', run_id: run.run_id}));
+    row.append(text, cancel);
+    bar.appendChild(row);
+  }
+  const last = roots.at(-1);
+  if (last && FINISHED.has(last.status) && last.status !== 'completed') {
+    const row = document.createElement('div');
+    row.className = 'run-status-row';
+    const label = document.createElement('span');
+    label.textContent = `${last.agent_name} · ${last.status.replaceAll('_', ' ')}`;
+    const retry = document.createElement('button');
+    retry.className = 'btn-icon';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', () => send({type: 'retry_run', run_id: last.run_id}));
+    row.append(label, retry);
+    bar.appendChild(row);
+  }
+  document.getElementById('send-btn').disabled = !State.connected;
+}
+
+function onRouted(msg) {
+  onRunStatus(msg);
+  if (State.routeEls.has(msg.run_id)) return;
+  const el = document.createElement('div');
+  el.className = 'routing-note';
+  el.textContent = `${msg.agent_name} → ${msg.destination_name}`;
+  State.routeEls.set(msg.run_id, el);
+  document.getElementById('messages').appendChild(el);
+}
+
+function onConversation(msg) {
+  State.conversationId = msg.conversation_id;
+  sessionStorage.setItem('questchain-conversation', msg.conversation_id);
+  State.lastSeq = msg.seq;
+  State.messageEls.clear(); State.runs.clear(); State.routeEls.clear();
+  removeTyping();
+  document.getElementById('messages').replaceChildren();
+  if (msg.selected_agent_id) State.activeAgentId = msg.selected_agent_id;
+  for (const run of msg.runs || []) {
+    const event = {...run, run_id: run.id, content: run.result};
+    if (!run.parent_run_id) onUserMessage({...event, message_id: run.user_message_id, content: run.text});
+    if (run.child_run_id) {
+      const child = msg.runs.find(r => r.id === run.child_run_id);
+      if (child) onRouted({...event, destination_name: child.agent_name});
+    } else if (run.result || FINISHED.has(run.status)) {
+      if (FINISHED.has(run.status)) {
+        // Restore canonical messages without triggering redundant refresh requests.
+        const wrap = messageFor(event);
+        ChatMarkdown.set(wrap.querySelector('.msg-bubble'), run.result);
+        if (run.error) {
+          const outcome = document.createElement('div');
+          outcome.className = 'run-outcome'; outcome.textContent = `${run.status}: ${run.error}`;
+          wrap.lastElementChild.appendChild(outcome);
+        }
+      } else {
+        onToken({...event, content: run.result});
+      }
+    }
+    onRunStatus(event);
+  }
+  renderChatAgentList(); updateChatHeader(); renderRunStatus();
 }
 
 function onAgents(msg) {
   State.agents = msg.agents || [];
-  State.activeAgentId = msg.active_id || '';
+  if (!State.agents.some(a => a.id === State.activeAgentId)) State.activeAgentId = msg.active_id || '';
   // Always update viewing to match active when agents list refreshes
   State.viewingAgentId = State.activeAgentId;
   renderRoster();
@@ -156,11 +292,7 @@ function onAgents(msg) {
   renderStatsFromAgents();
   // Refresh battle map if visible
   if (State.page === 'map') renderBattleMap();
-  // Refresh quest agent selector if quests page is open
-  if (State.page === 'quests') {
-    const q = State.quests.find(x => x.name === State.selectedQuestName);
-    renderQuestAgentSelect(q ? (q.agent_id || '') : '');
-  }
+  if (State.page === 'jobs') renderJobAgentSelect(document.getElementById('job-agent-select').value);
 }
 
 function onStats(msg) {
@@ -186,10 +318,14 @@ function onStats(msg) {
   }
 }
 
-function onQuests(msg) {
-  State.quests = msg.quests || [];
-  renderQuestList();
+function onJobs(msg) {
+  State.jobs = msg.jobs || [];
+  if (State.pendingJobId) { selectJob(State.pendingJobId); State.pendingJobId = null; }
+  if (State.settings) State.settings.cron_jobs = State.jobs;
+  renderJobList();
+  renderJobStatus();
   if (State.page === 'map') renderBattleMap();
+  if (State.page === 'settings') renderSettings();
 }
 
 function onSettings(msg) {
@@ -212,7 +348,7 @@ function renderSettings() {
   if (!s) return;
 
   // Session
-  document.getElementById('settings-thread-id').textContent = s.thread_id || '—';
+  document.getElementById('settings-thread-id').textContent = State.conversationId || '—';
 
   // Model
   document.getElementById('settings-model-current').textContent = s.model_name || '—';
@@ -240,12 +376,12 @@ function renderSettings() {
   const tbody = document.getElementById('settings-agent-tbody');
   tbody.innerHTML = (s.agents || []).map(a => `
     <tr>
-      <td class="agent-tbl-name">${escHtml(a.name)}</td>
-      <td class="agent-tbl-class">${escHtml(a.class_name)}</td>
+      <td class="agent-tbl-name">${escHtml(a.name)}${a.availability_issues?.length ? `<small class="form-error">${escHtml(a.availability_issues.join("; "))}</small>` : ""}</td>
+      <td class="agent-tbl-class">${escHtml(roleLabel(a.class_name))}</td>
       <td class="agent-tbl-model">${escHtml(a.model || '—')}</td>
       <td><div class="agent-tbl-actions">
         <button class="btn-icon" data-edit-id="${escAttr(a.id)}">Edit</button>
-        ${a.id !== 'default' ? `<button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>` : ''}
+        <button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>
       </div></td>
     </tr>
   `).join('');
@@ -256,13 +392,25 @@ function renderSettings() {
     btn.addEventListener('click', () => deleteAgent(btn.dataset.deleteId));
   });
 
+  const archived = s.legacy_agents || [];
+  document.getElementById('legacy-agents-panel').hidden = archived.length === 0;
+  const legacyList = document.getElementById('legacy-agent-list');
+  legacyList.innerHTML = archived.map(a => `<div class="cron-row"><span class="cron-name">${escHtml(a.name)} · ${escHtml(a.class_name || 'Custom')} · ${escHtml(a.model || 'Default model')}<br><small>Tools: ${escHtml(a.tools === 'all' ? 'all available' : (a.tools || []).join(', ') || 'none')}</small></span><div class="agent-tbl-actions"><button class="btn-icon" data-migrate-id="${escAttr(a.id)}">Migrate ${escHtml(a.name)}</button><button class="btn-icon danger" data-delete-legacy-id="${escAttr(a.id)}" aria-label="Delete archived agent ${escAttr(a.name)}">Delete</button></div></div>`).join('');
+  legacyList.querySelectorAll('[data-migrate-id]').forEach(button => button.addEventListener('click', () => send({type: 'migrate_legacy_agent', agent_id: button.dataset.migrateId})));
+  legacyList.querySelectorAll('[data-delete-legacy-id]').forEach(button => button.addEventListener('click', () => {
+    const agent = archived.find(a => a.id === button.dataset.deleteLegacyId);
+    if (agent && confirm(`Delete archived agent "${agent.name}"? It will no longer be available to migrate.`)) {
+      send({type: 'delete_legacy_agent', agent_id: agent.id});
+    }
+  }));
+
   // Populate class <select> once
   const sel = document.getElementById('af-class');
   if (sel && !sel.options.length && s.agent_classes) {
     s.agent_classes.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.name;
-      opt.textContent = `${c.icon} ${c.name}`;
+      opt.textContent = `${c.icon} ${roleLabel(c.name)}`;
       sel.appendChild(opt);
     });
   }
@@ -273,7 +421,7 @@ function renderSettings() {
     cronBody.innerHTML = s.cron_jobs.map(j => `
       <div class="cron-row">
         <span class="cron-name">${escHtml(j.name || j.id)}</span>
-        <span class="cron-expr">${escHtml(j.cron_expression || '')}</span>
+        <span class="cron-expr">${escHtml(cronToHuman(j.cron_expression))}</span>
         <span class="cron-status ${j.enabled !== false ? 'on' : 'off'}">${j.enabled !== false ? 'ON' : 'OFF'}</span>
         <button class="btn-icon danger" data-cron-id="${escAttr(j.id)}">Remove</button>
       </div>
@@ -307,21 +455,28 @@ function renderToolPicker(selectedTools) {
   const tools = State.settings?.selectable_tools || [];
   picker.innerHTML = '';
   // selectedTools: "all" or array of names — "all" means nothing explicitly checked
-  const selected = Array.isArray(selectedTools) ? new Set(selectedTools) : new Set();
+  document.getElementById('af-all-tools').checked = selectedTools === 'all';
+  const selected = new Set(selectedTools === 'all' ? tools.filter(t => !t.workspace).map(t => t.name) : selectedTools || []);
   tools.forEach(t => {
-    const chip = document.createElement('div');
+    const chip = document.createElement('button');
+    chip.type = 'button';
     chip.className = 'tool-chip' + (selected.has(t.name) ? ' selected' : '');
     chip.dataset.name = t.name;
     chip.title = t.description;
     chip.innerHTML = escHtml(t.name) + (t.workspace ? ' <span class="ws-badge">[WS]</span>' : '');
-    chip.addEventListener('click', () => chip.classList.toggle('selected'));
+    chip.setAttribute('aria-pressed', String(selected.has(t.name)));
+    chip.addEventListener('click', () => {
+      document.getElementById('af-all-tools').checked = false;
+      chip.classList.toggle('selected');
+      chip.setAttribute('aria-pressed', String(chip.classList.contains('selected')));
+    });
     picker.appendChild(chip);
   });
 }
 
 function getSelectedTools() {
   const chips = document.querySelectorAll('#af-tool-picker .tool-chip.selected');
-  if (chips.length === 0) return 'all';
+  if (document.getElementById('af-all-tools').checked) return 'all';
   return Array.from(chips).map(c => c.dataset.name);
 }
 
@@ -330,8 +485,14 @@ function openAgentForm(agent) {
   document.getElementById('af-name').value = agent ? agent.name : '';
   document.getElementById('af-model').value = agent ? (agent.model || '') : '';
   document.getElementById('af-prompt').value = agent ? (agent.system_prompt || '') : '';
-  if (agent) document.getElementById('af-class').value = agent.class_name;
-  renderToolPicker(agent ? (agent.tools || 'all') : 'all');
+  document.getElementById('af-class').value = agent?.class_name || 'Custom';
+  document.getElementById('af-guidance').value = agent?.when_to_call || '';
+  document.getElementById('af-exclusions').value = agent?.when_not_to_call || '';
+  document.getElementById('af-examples').value = (agent?.routing_examples || []).join('\n');
+  document.getElementById('af-routable').checked = agent ? !!agent.routable : true;
+  document.getElementById('af-error').textContent = '';
+  renderToolPicker(agent ? (agent.tools || []) : []);
+  if (!agent) applyRolePreset();
   document.getElementById('agent-form').classList.add('open');
   document.getElementById('af-name').focus();
 }
@@ -376,6 +537,7 @@ function appendMessage(role, text, sourceLabel, streaming) {
   avatar.textContent = role === 'user' ? '👤' : '⚔';
 
   const inner = document.createElement('div');
+  inner.className = 'msg-content';
 
   if (sourceLabel) {
     const lbl = document.createElement('div');
@@ -386,7 +548,7 @@ function appendMessage(role, text, sourceLabel, streaming) {
 
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
-  bubble.textContent = text;
+  ChatMarkdown.set(bubble, text);
   inner.appendChild(bubble);
 
   wrap.appendChild(avatar);
@@ -436,7 +598,7 @@ function updateChatPortrait(agent) {
   const icon = CLASS_ICONS[className] || '🌀';
 
   document.getElementById('chat-portrait-class-icon').textContent = icon;
-  document.getElementById('chat-portrait-class-name').textContent = className;
+  document.getElementById('chat-portrait-class-name').textContent = roleLabel(className);
   document.getElementById('chat-portrait-name').textContent = agent.name || 'QuestChain';
   document.getElementById('chat-portrait-level').textContent = `Level ${level}`;
 
@@ -468,7 +630,7 @@ function renderChatAgentList() {
         <span class="chat-agent-item-icon">${icon}</span>
         <div class="chat-agent-item-info">
           <div class="chat-agent-item-name">${escHtml(a.name || 'Agent')}</div>
-          <div class="chat-agent-item-sub">Lv. ${level} · ${escHtml(a.class_name || 'Custom')}</div>
+          <div class="chat-agent-item-sub">Lv. ${level} · ${escHtml(roleLabel(a.class_name))}</div>
         </div>
       </div>`;
   }).join('');
@@ -488,7 +650,7 @@ function renderChatAgentList() {
 }
 
 // ── Agent stats rendering ─────────────────────────────────────
-const CLASS_ICONS = { Custom:'🌀', Keeper:'📚', Explorer:'🔭', Builder:'⚒️', Planner:'🔮', Scheduler:'⏱️' };
+const CLASS_ICONS = { Router:'🧭', Custom:'🌀', Keeper:'📚', Explorer:'🔭', Builder:'⚒️', Planner:'🔮', Scheduler:'⏱️' };
 // Use the bundled character image (served relative to the page)
 const AGENT_IMAGE_SRC = 'data:image/png;base64,'; // placeholder; real image injected below
 
@@ -539,7 +701,7 @@ function renderStats(msg) {
   const achs = prog.achievements || [];
   const achWrap = document.getElementById('achievements-list');
   if (achs.length === 0) {
-    achWrap.innerHTML = '<span class="no-achievements">No achievements yet — start a quest!</span>';
+    achWrap.innerHTML = '<span class="no-achievements">No achievements yet — start a conversation!</span>';
   } else {
     // Group by category
     const grouped = {};
@@ -591,7 +753,7 @@ function renderRoster() {
         <span class="roster-item-icon">${icon}</span>
         <div class="roster-item-info">
           <div class="roster-item-name">${escHtml(a.name || 'Agent')}</div>
-          <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(a.class_name || 'Custom')}</div>
+          <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(roleLabel(a.class_name))}</div>
         </div>
         ${isActive ? '<div class="roster-item-active-dot" title="Active in CLI"></div>' : ''}
         <div class="roster-item-actions">
@@ -634,137 +796,128 @@ function renderRoster() {
   });
 }
 
-// ── Quest rendering ───────────────────────────────────────────
-function _questAgentLabel(q) {
-  if (!q.agent_id) return '';
-  const agent = State.agents.find(a => a.id === q.agent_id);
-  return agent ? agent.name : q.agent_id.slice(0, 8);
-}
-
-function renderQuestAgentSelect(selectedId) {
-  const sel = document.getElementById('quest-agent-select');
-  if (!sel) return;
-  sel.innerHTML =
-    '<option value="">Any agent</option>' +
-    State.agents.map(a =>
-      `<option value="${escAttr(a.id)}" ${a.id === selectedId ? 'selected' : ''}>${escHtml(a.name)}</option>`
-    ).join('');
-}
-
-function renderQuestList() {
-  const list = document.getElementById('quest-list');
-  if (!State.quests.length) {
-    list.innerHTML = '<div class="quest-empty">No quests yet.<br>Create one to get started.</div>';
-    return;
+// ── Cron job editor ───────────────────────────────────────────
+function renderJobAgentSelect(id = '') {
+  const sel = document.getElementById('job-agent-select');
+  sel.innerHTML = '<option value="">Coordinator (Perseus)</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
+  if (id && !State.agents.some(a => a.id === id)) {
+    const missing = document.createElement('option');
+    missing.value = id; missing.textContent = `Archived or missing agent (${id}) — migrate or reassign`;
+    sel.appendChild(missing);
   }
-  list.innerHTML = State.quests.map(q => {
-    const label = _questAgentLabel(q);
-    const badge = label ? `<span class="quest-agent-badge">${escHtml(label)}</span>` : '';
-    const cronBadge = q.cron ? `<span class="quest-cron-badge" title="${escAttr(q.cron)}">⏰</span>` : '';
-    return `
-    <div class="quest-item ${q.name === State.selectedQuestName ? 'active' : ''}" data-name="${escAttr(q.name)}">
-      <span class="quest-item-icon">⚔</span>
-      <span class="quest-item-title">${escHtml(q.title || q.name)}</span>
-      ${cronBadge}${badge}
-      <button class="quest-item-del" data-name="${escAttr(q.name)}" title="Delete">✕</button>
-    </div>`;
-  }).join('');
-
-  list.querySelectorAll('.quest-item').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.quest-item-del')) return;
-      selectQuest(el.dataset.name);
-    });
-  });
-  list.querySelectorAll('.quest-item-del').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const name = btn.dataset.name;
-      if (confirm(`Delete quest "${name}"?`)) {
-        send({ type: 'delete_quest', name });
-        if (State.selectedQuestName === name) clearEditor();
-      }
-    });
-  });
+  sel.value = id;
+}
+function renderJobList() {
+  const list = document.getElementById('job-list');
+  list.innerHTML = State.jobs.length ? State.jobs.map(j => `<button class="job-item ${j.id === State.selectedJobId ? 'active' : ''}" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="job-item-title">${escHtml(j.name)}<br><small>${escHtml(cronToHuman(j.cron_expression))} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'}</small></span></button>`).join('') : '<div class="job-empty">No cron jobs yet. Create one to automate a task.</div>';
+  list.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => selectJob(el.dataset.jobId)));
+}
+function selectJob(id) {
+  const j = State.jobs.find(x => x.id === id);
+  if (!j) return;
+  State.selectedJobId = id;
+  document.getElementById('job-history').textContent = 'Loading run history…';
+  send({type: 'get_cron_history', cron_id: id});
+  document.getElementById('job-name-input').value = j.name;
+  loadJobSchedule(j.cron_expression);
+  document.getElementById('job-timezone-input').value = j.timezone;
+  document.getElementById('job-prompt-input').value = j.prompt;
+  renderJobAgentSelect(j.agent_id || '');
+  renderJobList(); renderJobStatus();
+}
+function clearJobEditor() {
+  State.selectedJobId = null;
+  document.getElementById('job-history').textContent = '';
+  send({type: 'get_cron_history', cron_id: ''});
+  document.getElementById('job-name-input').value = '';
+  document.getElementById('job-prompt-input').value = '';
+  loadJobSchedule('0 9 * * *');
+  document.getElementById('job-timezone-input').value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  document.getElementById('job-message').textContent = '';
+  renderJobAgentSelect(); renderJobList(); renderJobStatus();
+}
+function renderJobStatus() {
+  const j = State.jobs.find(x => x.id === State.selectedJobId);
+  for (const action of ['run','toggle','delete']) document.getElementById(`btn-${action}-job`).disabled = !j || (action === 'run' && j.running);
+  document.getElementById('btn-toggle-job').textContent = j?.enabled === false ? 'Resume' : 'Pause';
+  document.getElementById('job-status').textContent = j ? `ID: ${j.id} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'} · Next: ${j.next_run || 'Not scheduled'} · Last: ${j.last_status || 'Never run'}${j.last_run ? ' at ' + j.last_run : ''}${j.agent_issue ? ' · ' + j.agent_issue : ''}` : '';
+  document.getElementById('job-result').textContent = j?.last_result || '';
 }
 
-function selectQuest(name) {
-  State.selectedQuestName = name;
-  const q = State.quests.find(x => x.name === name);
-  if (q) {
-    document.getElementById('quest-name-input').value = q.name.replace(/\.md$/, '');
-    document.getElementById('quest-content-input').value = q.content;
-    renderQuestAgentSelect(q.agent_id || '');
-    const cronInput = document.getElementById('quest-cron-input');
-    if (cronInput) cronInput.value = q.cron || '';
-  }
-  renderQuestList();
-}
-
-function clearEditor() {
-  State.selectedQuestName = null;
-  document.getElementById('quest-name-input').value = '';
-  document.getElementById('quest-content-input').value = '';
-  const cronInput = document.getElementById('quest-cron-input');
-  if (cronInput) cronInput.value = '';
-  renderQuestAgentSelect(State.activeAgentId);
-  renderQuestList();
+function renderCronHistory(msg) {
+  if (msg.cron_id !== State.selectedJobId) return;
+  const records = msg.runs || [];
+  const roots = records.filter(r => !r.parent_run_id).reverse().slice(0, 20);
+  document.getElementById('job-history').innerHTML = roots.length ? roots.map(root => {
+    const child = records.find(r => r.parent_run_id === root.id);
+    const run = child || root;
+    const author = child ? `${root.agent_name} → ${child.agent_name}` : root.agent_name;
+    const running = !FINISHED.has(root.status);
+    return `<details ${running ? 'open' : ''}><summary>${escHtml(new Date(root.created_at).toLocaleString())} · ${escHtml(author)} · ${escHtml(root.status)}</summary><p>Delivery: ${escHtml(root.delivery_status || 'pending')} · Run: ${escHtml(root.id)}</p><pre class="job-run-output">${escHtml(run.result || (running ? 'Waiting for response…' : ''))}</pre>${run.error ? `<p class="form-error">${escHtml(run.error)}</p>` : ''}</details>`;
+  }).join('') : '<p>No runs yet.</p>';
 }
 
 // ── Cron helpers ──────────────────────────────────────────────
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+function parseJobSchedule(expr) {
+  const parts = (expr || '').trim().toLowerCase().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minute, hour, day, month, weekday] = parts;
+  if (!/^\d+$/.test(minute) || !/^\d+$/.test(hour) || +minute > 59 || +hour > 23 || month !== '*') return null;
+  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  if (day === '*' && weekday === '*') return { repeat: 'daily', time };
+  if (day === '*' && ['mon-fri', '0-4'].includes(weekday)) return { repeat: 'weekdays', time };
+  const weekIndex = WEEKDAYS.indexOf(weekday);
+  if (day === '*' && (weekIndex >= 0 || /^[0-6]$/.test(weekday))) return { repeat: 'weekly', time, weekday: WEEKDAYS[weekIndex >= 0 ? weekIndex : +weekday] };
+  if (weekday === '*' && /^\d+$/.test(day) && +day >= 1 && +day <= 31) return { repeat: 'monthly', time, day: +day };
+  return null;
+}
+function updateJobScheduleFields() {
+  const repeat = document.getElementById('job-repeat-select').value;
+  document.getElementById('job-weekday-wrap').hidden = repeat !== 'weekly';
+  document.getElementById('job-monthday-wrap').hidden = repeat !== 'monthly';
+  document.getElementById('job-time-input').disabled = repeat === 'existing';
+  document.getElementById('job-schedule-hint').textContent = repeat === 'existing'
+    ? 'This job uses a custom recurring schedule. It will stay unchanged unless you choose a new repeat option.'
+    : repeat === 'monthly' ? 'Choose or type a time in the timezone above. Months without the selected day are skipped.'
+    : 'Choose or type a time in the timezone above.';
+}
+function loadJobSchedule(expr) {
+  State.existingSchedule = expr;
+  const parsed = parseJobSchedule(expr);
+  const select = document.getElementById('job-repeat-select');
+  select.querySelector('[value="existing"]').hidden = !!parsed;
+  select.value = parsed?.repeat || 'existing';
+  document.getElementById('job-time-input').value = parsed?.time || '09:00';
+  document.getElementById('job-weekday-select').value = parsed?.weekday || 'mon';
+  document.getElementById('job-monthday-input').value = parsed?.day || 1;
+  updateJobScheduleFields();
+}
+function readJobSchedule() {
+  const repeat = document.getElementById('job-repeat-select').value;
+  if (repeat === 'existing') return State.existingSchedule;
+  const input = document.getElementById('job-time-input');
+  if (!input.reportValidity() || !input.value) return null;
+  const [hour, minute] = input.value.split(':').map(Number);
+  let day = '*', weekday = '*';
+  if (repeat === 'weekdays') weekday = 'mon-fri';
+  if (repeat === 'weekly') weekday = document.getElementById('job-weekday-select').value;
+  if (repeat === 'monthly') {
+    const dayInput = document.getElementById('job-monthday-input');
+    if (!dayInput.reportValidity()) return null;
+    day = dayInput.value;
+  }
+  return `${minute} ${hour} ${day} * ${weekday}`;
+}
+document.getElementById('job-repeat-select').addEventListener('change', updateJobScheduleFields);
 function cronToHuman(expr) {
-  if (!expr) return '';
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length < 5) return expr;
-  const [min, hour, dom, mon, dow] = parts;
-
-  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const monNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  // Format time portion
-  let time = '';
-  if (min !== '*' && hour !== '*') {
-    const h = parseInt(hour, 10);
-    const m = parseInt(min, 10);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    time = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-  } else if (hour !== '*' && min === '*') {
-    time = `every minute of hour ${hour}`;
-  } else if (hour === '*' && min !== '*') {
-    time = `at :${String(parseInt(min,10)).padStart(2,'0')} every hour`;
-  }
-
-  // Interval patterns
-  if (min.startsWith('*/') || hour.startsWith('*/')) {
-    if (min.startsWith('*/')) {
-      const n = parseInt(min.slice(2), 10);
-      return `Every ${n} min${n > 1 ? 's' : ''}`;
-    }
-    if (hour.startsWith('*/')) {
-      const n = parseInt(hour.slice(2), 10);
-      return `Every ${n} hour${n > 1 ? 's' : ''}`;
-    }
-  }
-
-  // Schedule description
-  let schedule = '';
-  if (dow !== '*' && dow !== '?') {
-    const days = dow.split(',').map(d => {
-      const n = parseInt(d, 10);
-      return isNaN(n) ? d : (dayNames[n] || d);
-    });
-    schedule = days.join(', ');
-  } else if (dom !== '*') {
-    schedule = `day ${dom}`;
-    if (mon !== '*') schedule += ` of ${monNames[parseInt(mon,10)] || mon}`;
-  } else if (mon !== '*') {
-    schedule = monNames[parseInt(mon,10)] || mon;
-  } else {
-    schedule = 'Daily';
-  }
-
-  return time ? `${schedule} at ${time}` : schedule;
+  const parsed = parseJobSchedule(expr);
+  if (!parsed) return 'Custom recurring schedule';
+  const [hour, minute] = parsed.time.split(':').map(Number);
+  const time = `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`;
+  const repeat = parsed.repeat === 'daily' ? 'Every day' : parsed.repeat === 'weekdays' ? 'Weekdays' : parsed.repeat === 'weekly' ? `Every ${WEEKDAY_NAMES[WEEKDAYS.indexOf(parsed.weekday)]}` : `Monthly on day ${parsed.day}`;
+  return `${repeat} at ${time}`;
 }
 
 // ── Battle Map ────────────────────────────────────────────────
@@ -784,94 +937,10 @@ function renderBattleMap() {
   const countEl = document.getElementById('map-party-count');
   if (countEl) countEl.textContent = `Party: ${State.agents.length} agent${State.agents.length !== 1 ? 's' : ''}`;
 
-  // Objectives zone
   const objZone = document.getElementById('map-objectives');
-  const questTilesHtml = State.quests.map(q => {
-    const label = _questAgentLabel(q);
-    const statusClass = q.agent_id ? (q.cron ? 'gold' : 'assigned') : 'open';
-    return `
-      <div class="map-quest-tile ${statusClass}" data-name="${escAttr(q.name)}">
-        <div class="map-quest-icon">⚔</div>
-        <div class="map-quest-body">
-          <div class="map-quest-title">${escHtml(q.title || q.name)}</div>
-          <div class="map-quest-assign">${label ? '◀── ' + escHtml(label) : '(Open)'}</div>
-        </div>
-      </div>`;
-  }).join('');
-
-  const agentOpts = State.agents.map(a =>
-    `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`
-  ).join('');
-
-  // Cron jobs
-  const cronJobs = State.settings?.cron_jobs || [];
-  const cronHtml = cronJobs.length ? cronJobs.map(j => {
-    const statusClass = j.enabled !== false ? 'on' : 'off';
-    const statusLabel = j.enabled !== false ? 'ON' : 'OFF';
-    return `
-      <div class="map-cron-tile">
-        <div class="map-cron-icon">⏰</div>
-        <div class="map-cron-body">
-          <div class="map-cron-name">${escHtml(j.name || j.id)}</div>
-          <div class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))}</div>
-        </div>
-        <span class="map-cron-status ${statusClass}">${statusLabel}</span>
-      </div>`;
-  }).join('') : '';
-
-  // Quests section (always shown)
-  let html = '<div class="map-section-label">Quests</div><div class="map-section-content">';
-  if (State.quests.length > 0) {
-    html += questTilesHtml;
-  } else {
-    html += '<div class="map-empty">No active quests</div>';
-  }
-  html += `<button id="map-quest-add-btn">+ New Quest</button>
-     <div id="map-quest-form">
-       <input id="map-qf-name" type="text" placeholder="Quest name" />
-       <select id="map-qf-agent"><option value="">Any agent</option>${agentOpts}</select>
-       <textarea id="map-qf-content" placeholder="Quest details (optional)"></textarea>
-       <div class="map-quest-form-actions">
-         <button class="btn-ghost" id="map-qf-cancel">Cancel</button>
-         <button class="btn-primary" id="map-qf-save">Create</button>
-       </div>
-     </div></div>`;
-
-  // Cron section
-  if (cronJobs.length > 0) {
-    html += '<div class="map-section-label">Cron</div><div class="map-section-content">' + cronHtml + '</div>';
-  }
-
-  objZone.innerHTML = html;
-
-  objZone.querySelectorAll('.map-quest-tile').forEach(el => {
-    el.addEventListener('click', () => {
-      selectQuest(el.dataset.name);
-      switchPage('quests');
-    });
-  });
-
-  document.getElementById('map-quest-add-btn').addEventListener('click', () => {
-    const form = document.getElementById('map-quest-form');
-    form.classList.add('open');
-    document.getElementById('map-quest-add-btn').style.display = 'none';
-    document.getElementById('map-qf-name').focus();
-  });
-
-  document.getElementById('map-qf-cancel').addEventListener('click', () => {
-    document.getElementById('map-quest-form').classList.remove('open');
-    document.getElementById('map-quest-add-btn').style.display = '';
-  });
-
-  document.getElementById('map-qf-save').addEventListener('click', () => {
-    const name = document.getElementById('map-qf-name').value.trim();
-    if (!name) { document.getElementById('map-qf-name').focus(); return; }
-    const content = document.getElementById('map-qf-content').value;
-    const agent_id = document.getElementById('map-qf-agent').value;
-    send({ type: 'create_quest', name, content, agent_id, cron: '' });
-    document.getElementById('map-quest-form').classList.remove('open');
-    document.getElementById('map-quest-add-btn').style.display = '';
-  });
+  objZone.innerHTML = '<div class="map-section-label">Cron Jobs</div>' + State.jobs.map(j => `<button class="map-cron-tile" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="map-cron-body"><span class="map-cron-name">${escHtml(j.name)}</span><br><span class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))} · ${escHtml(j.timezone)}</span></span><span class="map-cron-status ${j.enabled ? 'on' : 'off'}">${j.running ? 'Running' : j.enabled ? 'On' : 'Paused'}</span></button>`).join('') + (State.jobs.length ? '' : '<div class="map-empty">No scheduled jobs</div>') + '<button id="map-new-job" class="btn-new">+ New Job</button>';
+  objZone.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => { switchPage('jobs'); selectJob(el.dataset.jobId); }));
+  document.getElementById('map-new-job').addEventListener('click', () => { switchPage('jobs'); clearJobEditor(); });
 
   // Party zone
   const partyZone = document.getElementById('map-party');
@@ -894,7 +963,7 @@ function renderBattleMap() {
           <img class="map-agent-img" src="/agent-image?agent_id=${encodeURIComponent(a.id)}" alt="${escAttr(a.name)}" onerror="this.style.opacity='0.15'" />
           <div class="map-agent-body">
             <div class="map-agent-name">${icon} ${escHtml(a.name)}</div>
-            <div class="map-agent-level">Lv.${level}</div>
+            <div class="map-agent-level">${escHtml(roleLabel(a.class_name))} · Lv.${level}</div>
             <div class="map-agent-xp-track"><div class="map-agent-xp-fill" style="width:${pct}%"></div></div>
             <div class="map-agent-connector">${isActive ? '──▶' : ''}</div>
           </div>
@@ -940,7 +1009,7 @@ function switchPage(page) {
   State.page = page;
   if (page === 'map') {
     send({ type: 'get_agents' });
-    send({ type: 'get_quests' });
+    send({ type: 'get_cron_jobs' });
     send({ type: 'get_settings' });
     renderBattleMap();
   }
@@ -948,11 +1017,7 @@ function switchPage(page) {
     renderStatsFromAgents();
     send({ type: 'get_agents' });
   }
-  if (page === 'quests') {
-    send({ type: 'get_quests' });
-    const q = State.quests.find(x => x.name === State.selectedQuestName);
-    renderQuestAgentSelect(q ? (q.agent_id || '') : State.activeAgentId);
-  }
+  if (page === 'jobs') { send({ type: 'get_cron_jobs' }); renderJobAgentSelect(State.jobs.find(j => j.id === State.selectedJobId)?.agent_id || ''); }
   if (page === 'settings') {
     send({ type: 'get_settings' });
     renderSettings();
@@ -983,49 +1048,39 @@ sendBtn.addEventListener('click', doSend);
 
 function doSend() {
   const text = chatInput.value.trim();
-  if (!text || !State.connected || State.streaming) return;
+  if (!text || !State.connected) return;
 
   // Don't append locally — the server echoes it back as a user_message event
   showTyping();
-  send({ type: 'chat', message: text });
+  send({ type: 'chat', message: text, agent_id: State.activeAgentId, request_id: crypto.randomUUID() });
   chatInput.value = '';
   chatInput.style.height = 'auto';
-  sendBtn.disabled = true;
+  sendBtn.disabled = false;
 }
 
-// ── Quest buttons ─────────────────────────────────────────────
-document.getElementById('btn-new-quest').addEventListener('click', () => {
-  State.selectedQuestName = null;
-  document.getElementById('quest-name-input').value = '';
-  document.getElementById('quest-content-input').value = '';
-  const cronInput = document.getElementById('quest-cron-input');
-  if (cronInput) cronInput.value = '';
-  renderQuestAgentSelect(State.activeAgentId);
-  document.getElementById('quest-name-input').focus();
-  renderQuestList();
+// ── Cron job actions ──────────────────────────────────────────
+document.getElementById('btn-new-job').addEventListener('click', clearJobEditor);
+document.getElementById('btn-save-job').addEventListener('click', () => {
+  if (!State.connected) { document.getElementById('job-message').textContent = 'Disconnected. Reconnect before saving.'; return; }
+  const schedule = readJobSchedule();
+  if (!schedule) return;
+  send({ type: 'save_cron', cron_id: State.selectedJobId || '',
+    name: document.getElementById('job-name-input').value,
+    cron_expression: schedule,
+    timezone: document.getElementById('job-timezone-input').value,
+    prompt: document.getElementById('job-prompt-input').value,
+    agent_id: document.getElementById('job-agent-select').value });
 });
-
-document.getElementById('btn-save-quest').addEventListener('click', () => {
-  const name = document.getElementById('quest-name-input').value.trim();
-  const content = document.getElementById('quest-content-input').value;
-  const agentSel = document.getElementById('quest-agent-select');
-  const agent_id = agentSel ? agentSel.value : '';
-  const cronInput = document.getElementById('quest-cron-input');
-  const cron = cronInput ? cronInput.value.trim() : '';
-  if (!name) { document.getElementById('quest-name-input').focus(); return; }
-
-  if (State.selectedQuestName) {
-    send({ type: 'update_quest', name: State.selectedQuestName, content, agent_id, cron });
-  } else {
-    send({ type: 'create_quest', name, content, agent_id, cron });
-    State.selectedQuestName = name.endsWith('.md') ? name : name + '.md';
-  }
-});
+for (const action of ['run', 'toggle', 'delete']) {
+  document.getElementById(`btn-${action}-job`).addEventListener('click', () => {
+    if (action === 'delete' && !confirm('Delete this cron job? A running job will finish.')) return;
+    send({ type: `${action}_cron`, cron_id: State.selectedJobId });
+  });
+}
 
 // ── New Chat button ───────────────────────────────────────────
 document.getElementById('btn-new-chat').addEventListener('click', () => {
   send({ type: 'new_thread' });
-  document.getElementById('messages').innerHTML = '';
 });
 
 // ── Settings buttons ──────────────────────────────────────────
@@ -1041,20 +1096,29 @@ document.getElementById('af-cancel').addEventListener('click', () => {
 document.getElementById('af-save').addEventListener('click', () => {
   const name = document.getElementById('af-name').value.trim();
   if (!name) { document.getElementById('af-name').focus(); return; }
+  const guidance = document.getElementById('af-guidance').value.trim();
+  const routable = document.getElementById('af-routable').checked;
+  const prompt = document.getElementById('af-prompt').value.trim();
+  if (!prompt || (routable && !guidance)) {
+    document.getElementById('af-error').textContent = !prompt ? 'Add a system prompt.' : 'Describe when to call this agent.';
+    return;
+  }
+  if (!State.connected) { document.getElementById('af-error').textContent = 'Reconnect before saving.'; return; }
   const payload = {
     name,
     tools: getSelectedTools(),
     class_name: document.getElementById('af-class').value,
     model: document.getElementById('af-model').value.trim() || null,
-    system_prompt: document.getElementById('af-prompt').value.trim() || null,
+    system_prompt: prompt,
+    when_to_call: guidance, routable,
+    when_not_to_call: document.getElementById('af-exclusions').value.trim(),
+    routing_examples: document.getElementById('af-examples').value.split('\n').map(s => s.trim()).filter(Boolean),
   };
   if (State.editingAgentId) {
     send({ type: 'update_agent', agent_id: State.editingAgentId, ...payload });
   } else {
     send({ type: 'create_agent', ...payload });
   }
-  document.getElementById('agent-form').classList.remove('open');
-  State.editingAgentId = null;
 });
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -1077,3 +1141,16 @@ document.getElementById('chat-portrait-header').addEventListener('click', () => 
 
 // ── Boot ──────────────────────────────────────────────────────
 connect();
+
+function roleLabel(role) {
+  return State.settings?.role_labels?.[role] || ({Router:'Coordinator', Explorer:'Researcher', Keeper:'Workspace knowledge', Builder:'Builder', Planner:'Planning & advising'})[role] || role || 'Custom';
+}
+function applyRolePreset() {
+  const role = document.getElementById('af-class').value;
+  const preset = State.settings?.agent_presets?.[role];
+  if (!preset) return;
+  document.getElementById('af-prompt').value = preset.system_prompt;
+  document.getElementById('af-guidance').value = preset.when_to_call;
+  renderToolPicker(preset.tools);
+}
+document.getElementById('af-class').addEventListener('change', applyRolePreset);

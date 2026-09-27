@@ -13,11 +13,11 @@ def cron_add(
 ) -> str:
     """Schedule a recurring cron job that will run the given prompt on a schedule.
 
-    The cron_expression uses standard 5-field format: minute hour day month weekday.
+    The cron_expression uses 5-field format (numeric weekdays: 0=Monday through 6=Sunday): minute hour day month weekday.
     Examples:
       - "0 9 * * *"    = every day at 9:00 AM
       - "*/30 * * * *"  = every 30 minutes
-      - "0 9 * * 1"    = every Monday at 9:00 AM
+      - "0 9 * * mon"    = every Monday at 9:00 AM
       - "0 0 1 * *"    = first day of every month at midnight
 
     Args:
@@ -25,9 +25,8 @@ def cron_add(
         cron_expression: 5-field cron schedule (minute hour day month weekday).
         prompt: The prompt/instruction to execute when the job fires.
         timezone: IANA timezone name (default: UTC). Examples: America/New_York, Europe/London.
-        agent_id: Optional ID of a custom agent to run this job with. If omitted or
-            not found, the default QuestChain agent is used. Agent IDs can be found via
-            the /agents command.
+        agent_id: Optional agent ID. If omitted, the coordinator is selected.
+            Unknown or archived IDs are rejected. Find active IDs with /agents.
     """
     from questchain.scheduler import get_scheduler
 

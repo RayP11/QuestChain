@@ -4,7 +4,7 @@ from questchain.config import OLLAMA_MODEL, TAVILY_API_KEY, WORKSPACE_DIR, ensur
 from questchain.engine.agent import Agent
 from questchain.engine.model import OllamaModel
 from questchain.engine.tools import make_registry, wrap_lc_tool
-from questchain.engine.builtins import filesystem, shell
+from questchain.engine.builtins import filesystem, shell, planning
 
 # Tools that are NEVER allowed for a given class, regardless of the stored tools field.
 # This prevents small models from hallucinating tool calls that bypass the filter.
@@ -71,11 +71,18 @@ def create_questchain_agent(
     if _want("shell"):
         registry.register(shell.execute._tool_def)
 
+    # Keep legacy explicitly selected planning tools usable without adding them
+    # to new specialists' defaults.
+    for fn in (planning.write_todos, planning.read_todos):
+        if tools_filter is not None and _want(fn._tool_def.name):
+            registry.register(fn._tool_def)
+
     # Custom tools (web, claude_code, speak, cron) — bridged from LangChain
     from questchain.tools import get_custom_tools
     lc_tools = get_custom_tools(TAVILY_API_KEY, on_audio=on_audio, tools_filter=tools_filter)
     for lc_tool in lc_tools:
-        registry.register(wrap_lc_tool(lc_tool))
+        if lc_tool.name not in _hard_blocked:
+            registry.register(wrap_lc_tool(lc_tool))
 
     # Workspace tools — only loaded when explicitly listed in tools_filter
     if tools_filter is not None:
@@ -83,7 +90,7 @@ def create_questchain_agent(
         for tool_def in load_workspace_tools(WORKSPACE_DIR, tools_filter):
             registry.register(tool_def)
 
-    system_prompt = (system_prompt_override or SYSTEM_PROMPT).format(agent_name=agent_name)
+    system_prompt = (system_prompt_override or SYSTEM_PROMPT).replace("{agent_name}", agent_name)
 
     return Agent(
         model=model,
@@ -98,7 +105,7 @@ def create_questchain_agent(
 def make_agent_from_def(agent_def: dict, audio_router=None, *, default_model: str | None = None) -> "Agent":
     """Create a QuestChain agent from an agent definition dict.
 
-    Moved here from cli.py so quest_runner.py and scheduler.py can import it
+    Moved here from cli.py so scheduler.py can import it
     without creating a circular dependency through cli.py.
 
     Per-agent models take precedence over the session's default_model. When

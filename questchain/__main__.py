@@ -5,7 +5,7 @@ import platform
 import subprocess
 import sys
 
-from questchain.config import DEFAULT_QUEST_MINUTES, MODEL_PRESETS, OLLAMA_MODEL
+from questchain.config import MODEL_PRESETS, OLLAMA_MODEL
 
 
 def parse_args():
@@ -39,18 +39,6 @@ def parse_args():
         "--list-models",
         action="store_true",
         help="List available model presets and exit",
-    )
-    parser.add_argument(
-        "--quests",
-        type=int,
-        default=DEFAULT_QUEST_MINUTES,
-        metavar="MINUTES",
-        help=f"Quest runner interval in minutes (default: {DEFAULT_QUEST_MINUTES})",
-    )
-    parser.add_argument(
-        "--no-quests",
-        action="store_true",
-        help="Disable the periodic quest runner",
     )
     parser.add_argument(
         "--web",
@@ -109,15 +97,12 @@ def main():
             print(f"  {name:20s} {preset['description']}{marker}")
         return
 
-    quest_minutes = None if args.no_quests else args.quests
-
     from questchain.cli import main as cli_main
 
     cli_main(
         model_name=args.model,
         thread_id=args.thread,
         use_memory=not args.no_memory,
-        quest_minutes=quest_minutes,
         enable_web=args.web,
         web_host=args.web_host,
         web_port=args.web_port,

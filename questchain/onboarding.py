@@ -35,11 +35,11 @@ QUESTCHAIN_ART = (
 )
 
 TAGLINES = [
-    "What's the quest today?",
+    "What shall we work on today?",
     "Locally powered, globally capable.",
     "All the power of AI, none of the cloud bills.",
     "Your data stays home. Your answers don't.",
-    "Every task is a quest. Let's complete it.",
+    "Ready to help, one task at a time.",
     "No cloud. No rate limits. No nonsense.",
     "Your machine. Your model. Your rules.",
     "One prompt away from getting it done.",
@@ -448,14 +448,12 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     agents_md = MEMORY_DIR / "AGENTS.md"
     about_md = MEMORY_DIR / "ABOUT.md"
     profile_md = MEMORY_DIR / "profile.md"
-    quests_dir = WORKSPACE_DIR / "workspace" / "quests"
     if not agents_md.exists():
         agents_md.write_text("# Agent Notes\n\nUse this file to save learnings across conversations.\n", encoding="utf-8")
     if not about_md.exists():
         about_md.write_text("", encoding="utf-8")
     if not profile_md.exists():
         profile_md.write_text("", encoding="utf-8")
-    quests_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Model selection & pull ────────────────────────────────────────────────
     import ollama as _ollama
@@ -558,7 +556,8 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     agent_name = "QuestChain"
     if name_input:
         from questchain.agents import AgentManager
-        AgentManager().update("default", name=name_input)
+        manager = AgentManager()
+        manager.update(manager.get_active_id(), name=name_input)
         agent_name = name_input
 
     # ── Steps 2-6: Hardcoded questions ───────────────────────────────────────

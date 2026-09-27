@@ -62,16 +62,11 @@ Use `/cron` to see and manage all scheduled jobs.
 
 ---
 
-## Background quests
+## Automated jobs
 
-Drop a task into a file and your agent picks it up automatically — no babysitting required.
+Use the Cron Jobs page or `/cron` to schedule recurring work, choose its agent and timezone, and inspect results. Jobs run while QuestChain is open.
 
-> *Create a file:* `workspace/quests/summarize-inbox.md`
-> *Contents:* "Read all the files in workspace/inbox/ and write a one-paragraph summary of each."
-
-The agent picks it up on the next check (every 60 minutes by default), completes it, and deletes the quest file. Results show up in the terminal and on Telegram if configured.
-
-[→ Learn more about Quests](quest-system.md)
+[→ Learn more about Cron Jobs](cron-jobs.md)
 
 ---
 
