@@ -2,6 +2,7 @@
 
 import argparse
 import platform
+import shutil
 import subprocess
 import sys
 
@@ -67,19 +68,37 @@ def parse_args():
 
 
 def do_update() -> None:
-    """Re-run the appropriate installer to update QuestChain."""
+    """Update the installed tool directly, falling back to the installer without uv."""
+    source = "git+https://github.com/RayP11/QuestChain@master"
     _WIN  = "https://raw.githubusercontent.com/RayP11/QuestChain/master/install.ps1"
     _UNIX = "https://raw.githubusercontent.com/RayP11/QuestChain/master/install.sh"
 
     print("Updating QuestChain...")
 
-    if platform.system() == "Windows":
-        cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-c",
-               f"irm {_WIN} | iex"]
+    uv = shutil.which("uv")
+    if uv:
+        cmd = [uv, "tool", "install", source, "--reinstall"]
+    elif platform.system() == "Windows":
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        cmd = [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-c", f"irm {_WIN} | iex"] if shell else None
     else:
-        cmd = ["bash", "-c", f"curl -fsSL {_UNIX} | bash"]
+        shell = shutil.which("bash")
+        cmd = [shell, "-c", f"curl -fsSL {_UNIX} | bash"] if shell else None
 
-    result = subprocess.run(cmd)
+    try:
+        if cmd is None:
+            raise FileNotFoundError("Neither uv nor a supported installer shell was found on PATH")
+        if platform.system() == "Windows":
+            from questchain.updater import handoff_windows_update
+            handoff_windows_update(cmd)
+            print("QuestChain will exit so the updater can replace its files.", flush=True)
+            sys.exit(0)
+        result = subprocess.run(cmd)
+    except OSError as exc:
+        print(f"Could not start the updater: {exc}", file=sys.stderr)
+        print(f"Run this command in your terminal (install uv first if needed):\n"
+              f"  uv tool install {source} --reinstall", file=sys.stderr)
+        sys.exit(1)
     sys.exit(result.returncode)
 
 

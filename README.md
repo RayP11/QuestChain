@@ -167,6 +167,22 @@ questchain start -t <thread-id>       # Resume a previous conversation
 questchain start --web                # Start with web UI (gateway + CLI)
 ```
 
+### Updating an installed copy
+
+Exit QuestChain with `/exit` or Ctrl+D, then run:
+
+```bash
+questchain --update
+```
+
+If an older version's updater fails to launch, update directly with:
+
+```bash
+uv tool install git+https://github.com/RayP11/QuestChain@master --reinstall
+```
+
+Restart QuestChain after updating. Your settings, agents, and conversation history remain in the data directory.
+
 ### Clone & Run (alternative)
 
 If you want to clone the repo directly, modify the code, or run from source:

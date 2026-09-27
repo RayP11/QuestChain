@@ -6,17 +6,90 @@ from unittest.mock import AsyncMock
 import pytest
 
 
-@pytest.mark.parametrize("system,installer", [("Windows", "install.ps1"), ("Linux", "install.sh")])
-def test_update_uses_existing_master_branch(monkeypatch, system, installer):
+@pytest.mark.parametrize("system,installer,shell", [("Windows", "install.ps1", "powershell"), ("Linux", "install.sh", "bash")])
+def test_update_installer_fallback_uses_existing_master_branch(monkeypatch, system, installer, shell):
+    import shutil
     from questchain import __main__ as entry
+    from questchain import updater
 
     commands = []
     monkeypatch.setattr(entry.platform, "system", lambda: system)
+    monkeypatch.setattr(shutil, "which", lambda name: f"/resolved/{shell}" if name == shell else None)
+    monkeypatch.setattr(updater, "handoff_windows_update", lambda cmd: commands.append(cmd))
     monkeypatch.setattr(entry.subprocess, "run", lambda cmd: commands.append(cmd) or SimpleNamespace(returncode=7))
     with pytest.raises(SystemExit) as result:
         entry.do_update()
-    assert result.value.code == 7
+    assert result.value.code == (0 if system == "Windows" else 7)
     assert f"QuestChain/master/{installer}" in commands[0][-1]
+    assert commands[0][0] == f"/resolved/{shell}"
+
+
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_update_uses_uv_directly_when_available(monkeypatch, returncode):
+    import shutil
+    from questchain import __main__ as entry
+
+    commands = []
+    monkeypatch.setattr(entry.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(shutil, "which", lambda name: "/resolved/uv" if name == "uv" else None)
+    monkeypatch.setattr(entry.subprocess, "run", lambda cmd: commands.append(cmd) or SimpleNamespace(returncode=returncode))
+    with pytest.raises(SystemExit) as result:
+        entry.do_update()
+    assert result.value.code == returncode
+    assert commands == [["/resolved/uv", "tool", "install", "git+https://github.com/RayP11/QuestChain@master", "--reinstall"]]
+
+
+def test_update_launch_denied_reports_recovery_without_traceback(monkeypatch, capsys):
+    import shutil
+    from questchain import __main__ as entry
+    from questchain import updater
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/resolved/uv" if name == "uv" else None)
+
+    def denied(cmd):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(entry.subprocess, "run", denied)
+    monkeypatch.setattr(updater, "handoff_windows_update", denied)
+    with pytest.raises(SystemExit) as result:
+        entry.do_update()
+    assert result.value.code == 1
+    error = capsys.readouterr().err
+    assert "Access is denied" in error
+    assert "uv tool install" in error
+
+
+def test_update_without_uv_or_shell_reports_recovery(monkeypatch, capsys):
+    import shutil
+    from questchain import __main__ as entry
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(entry.subprocess, "run", lambda cmd: pytest.fail("No executable is available"))
+    with pytest.raises(SystemExit) as result:
+        entry.do_update()
+    assert result.value.code == 1
+    assert "uv tool install" in capsys.readouterr().err
+
+
+def test_windows_update_hands_off_to_base_python_before_replacing_tool(monkeypatch):
+    import os
+    import shutil
+    import sys
+    from questchain import __main__ as entry, updater
+
+    commands = []
+    monkeypatch.setattr(entry.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(shutil, "which", lambda name: "/resolved/uv" if name == "uv" else None)
+    monkeypatch.setattr(updater.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False)
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda cmd, **kw: commands.append(cmd))
+    monkeypatch.setattr(entry.subprocess, "run", lambda cmd: pytest.fail("Do not replace the running tool"))
+    with pytest.raises(SystemExit) as result:
+        entry.do_update()
+    assert result.value.code == 0
+    assert commands[0][0] == sys._base_executable
+    assert commands[0][2:4] == [str(os.getpid()), str(os.getppid())]
+    assert commands[0][4] == sys.executable
+    assert commands[0][5:] == ["/resolved/uv", "tool", "install", "git+https://github.com/RayP11/QuestChain@master", "--reinstall"]
 
 
 @pytest.mark.asyncio

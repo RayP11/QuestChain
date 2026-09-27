@@ -93,6 +93,10 @@ def _init_metrics(agent_def: dict, agent) -> MetricsManager:
     return mm
 
 
+class _PromptInterrupted(Exception):
+    """A cancelled input line, safe to propagate across an asyncio task."""
+
+
 async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
     """Render the framed input box and return the user's raw input."""
     width = shutil.get_terminal_size().columns
@@ -103,8 +107,13 @@ async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
     from questchain.gateway.server import install_connection_error_handler
     # prompt_toolkit's dumb-terminal path installs its handler even when the
     # flag is false. Install the narrow disconnect filter after prompt setup.
-    result = await session.prompt_async("❯ ", set_exception_handler=False,
-                                        pre_run=install_connection_error_handler)
+    try:
+        result = await session.prompt_async("❯ ", set_exception_handler=False,
+                                            pre_run=install_connection_error_handler)
+    except KeyboardInterrupt:
+        # asyncio re-raises KeyboardInterrupt out of a child task before its
+        # caller can handle it, cancelling Telegram and other background work.
+        raise _PromptInterrupted from None
     console.print(_SEP * width, style="dim")
     return result
 
@@ -1519,13 +1528,14 @@ async def _repl_loop(
             tg_task = asyncio.create_task(telegram_queue.get()) if telegram_queue else None
             wb_task = asyncio.create_task(web_queue.get()) if web_queue else None
             race = [t for t in [prompt_task, tg_task, wb_task] if t]
-            done, pending = await asyncio.wait(race, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
+            try:
+                done, _ = await asyncio.wait(race, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                # Also drain the input tasks when the REPL itself is cancelled.
+                for task in race:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*race, return_exceptions=True)
 
             if prompt_task in done:
                 try:
@@ -1533,7 +1543,7 @@ async def _repl_loop(
                 except EOFError:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
-                except KeyboardInterrupt:
+                except _PromptInterrupted:
                     console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
                     continue
                 except Exception:
@@ -1592,7 +1602,7 @@ async def _repl_loop(
             except EOFError:
                 console.print("\n[dim]Goodbye![/dim]")
                 break
-            except KeyboardInterrupt:
+            except _PromptInterrupted:
                 console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
                 continue
 
