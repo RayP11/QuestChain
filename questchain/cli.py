@@ -373,7 +373,7 @@ def show_metrics(mm: MetricsManager) -> None:
     console.print(Panel("\n".join(lines), title="[bold]⚙  Agent Stats[/bold]", border_style="cyan"))
 
 
-# Sorted list of (command, description) pairs shown in the autocomplete dropdown.
+# Shared command catalog for autocomplete and /help.
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
@@ -386,7 +386,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/cancel",       "Cancel a queued or running task"),
     ("/history",      "Browse and switch past conversations"),
     ("/level",        "Show agent level and achievements"),
-    ("/model",        "Change the global model for all agents"),
+    ("/model",        "Change the global default model (restart required)"),
     ("/new",          "Start a fresh conversation"),
     ("/onboard",      "Re-run the onboarding conversation"),
     ("/prestige",     "Prestige reset — reach Level 20 to unlock"),
@@ -394,7 +394,7 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/stats",        "Show agent metrics (prompts, tokens, errors)"),
     ("/tavily",       "Set up Tavily web search API key"),
     ("/telegram",     "Set up Telegram bot credentials"),
-    ("/tools",        "List all available agent tools"),
+    ("/tools",        "Show the selected agent's tools and availability"),
 ]
 
 
@@ -488,6 +488,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
 
     if cmd == "/new":
         session_state["thread_id"] = str(uuid.uuid4())
+        session_state.pop("last_run_id", None)
+        session_state.pop("retry_run_id", None)
         console.print(f"[blue]New session started.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
         try:
             from questchain.gateway.server import update_thread_id
@@ -617,30 +619,10 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
     if cmd == "/help":
-        help_text = (
-            "[bold]Commands:[/bold]\n"
-            "  /new                   - Start a new conversation\n"
-            "  /model                 - Change the global model for all agents\n"
-            "  /tools                 - List available tools\n"
-            "  /cron                  - Manage scheduled cron jobs\n"
-            "  /onboard               - Re-run the onboarding flow\n"
-            "  /tavily                - Set up Tavily web search API key\n"
-            "  /claudecode            - Set up Claude Code CLI integration\n"
-            "  /telegram              - Set up Telegram bot credentials\n"
-            "  /speak                 - Set up Kokoro TTS voice output\n"
-            "  /agents                - Manage agents (list, switch, create)\n"
-            "  /level                 - Show agent level and achievements\n"
-            "  /prestige              - Prestige reset (requires Level 20)\n"
-            "  /stats                 - Show agent metrics (prompts, tokens, errors)\n"
-            "  /history               - Browse and switch past conversations\n"
-            "  /legacy [migrate ID]   - List or migrate archived agents\n"
-            "  /runs                  - List this conversation’s runs\n"
-            "  /retry [run ID]        - Explicitly retry a task\n"
-            "  /cancel [run ID]       - Cancel a queued or running task\n"
-            "  /exit                  - Exit QuestChain\n"
-            "  /help                  - Show this help message"
-        )
-        console.print(Panel(help_text, title="Help", border_style="blue"))
+        usage = {"/legacy": "/legacy [migrate ID]", "/retry": "/retry [run ID]", "/cancel": "/cancel [run ID]"}
+        lines = [f"  {usage.get(name, name):<23} - {description}" for name, description in sorted(_SLASH_COMMANDS)]
+        help_text = "Commands:\n" + "\n".join(lines) + "\n\nCtrl+C or Ctrl+D exits QuestChain."
+        console.print(Panel(Text(help_text), title="Help", border_style="blue"))
         return True
 
     return None
@@ -1248,6 +1230,12 @@ async def show_history(session: PromptSession, session_state: dict) -> None:
                     console.print(str(message.get("content", "")), markup=False)
             return
         session_state["thread_id"] = chosen["thread_id"]
+        session_state.pop("last_run_id", None)
+        session_state.pop("retry_run_id", None)
+        if runtime:
+            runs = [run for run in runtime.store.runs("cli-" + chosen["thread_id"]) if not run.get("parent_run_id")]
+            if runs:
+                session_state["last_run_id"] = runs[-1]["id"]
         preview = (chosen["first_message"] or "")[:60]
         console.print(f"[blue]Switched to thread[/blue] [dim]{chosen['thread_id']}[/dim]")
         if preview:

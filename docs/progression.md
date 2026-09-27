@@ -28,7 +28,7 @@ Each one tells a story. A **Bibliophile** has read hundreds of files. A **Globe 
 
 ## Check your agent's stats
 
-Type `/stats` in the chat any time:
+Type `/level` in the terminal or Telegram to see progression. Use `/stats` for prompts, tokens, and errors:
 
 ```
 ┌─ Jarvis (Builder ⚒️) ──────────────────────────────────┐

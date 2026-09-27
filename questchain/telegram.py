@@ -113,23 +113,6 @@ async def _reject(update: Update) -> None:
     await update.message.reply_text("Sorry, this bot is private.")
 
 
-_HELP_TEXT = (
-    "Commands:\n"
-    "/new — Start a fresh conversation\n"
-    "/model — Show current model\n"
-    "/tools — List available tools\n"
-    "/cron — Manage scheduled cron jobs\n"
-    "/onboard — Re-run the onboarding flow\n"
-    "/agents — Manage agents (list, switch, create, edit)\n"
-    "/cancel — Cancel agent creation or the current run\n"
-    "/retry — Retry the last run\n"
-    "/level — Show agent level and achievements\n"
-    "/stats — Show agent metrics (prompts, tokens, errors)\n"
-    "/help — Show this help message\n"
-    "\nSend a voice message to speak to the agent directly."
-)
-
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not _is_owner(update.effective_user.id):
@@ -156,6 +139,7 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return await _reject(update)
 
     new_id = _reset_thread(update.effective_chat.id)
+    context.chat_data.pop("last_run_id", None)
     await update.message.reply_text(f"Conversation reset. New thread: {new_id[:8]}...")
 
 
@@ -164,8 +148,14 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
-    model_name = context.bot_data.get("model_name", OLLAMA_MODEL)
-    await update.message.reply_text(f"Current model: {model_name}")
+    manager = context.bot_data.get("agent_manager")
+    if manager is None:
+        return await update.message.reply_text("Agent manager not available.")
+    definition = manager.get(context.chat_data.get("agent_id", manager.get_active_id())) or manager.get_active()
+    runtime = context.bot_data.get("runtime")
+    default_model = runtime.default_model if runtime else context.bot_data.get("model_name", OLLAMA_MODEL)
+    model_name = definition.get("model") or default_model
+    await update.message.reply_text(f"{definition['name']} · Current model: {model_name}")
 
 
 
@@ -309,7 +299,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /agent command — show agents inline keyboard."""
+    """Handle /agents command — show agents inline keyboard."""
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
 
@@ -379,18 +369,10 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if agent_def is None:
             await query.edit_message_text(f"Agent not found: {agent_id}")
             return
-        agent_holder: dict | None = context.bot_data.get("agent_holder")
-        checkpointer = context.bot_data.get("checkpointer")
-        store = context.bot_data.get("store")
-        audio_router = context.bot_data.get("audio_router")
-        from questchain.cli import _make_agent_from_def
-        try:
-            new_agent = _make_agent_from_def(agent_def, audio_router)
-            context.bot_data["model_name"] = agent_def.get("model") or OLLAMA_MODEL
-            context.chat_data["agent_id"] = agent_id
-            await query.edit_message_text(f"🔗 Switched to '{agent_def['name']}'.")
-        except Exception as e:
-            await query.edit_message_text(f"Failed to switch agent: {e}")
+        # The runtime resolves this definition and its model when work starts.
+        # Selection belongs to this chat, not the shared bot configuration.
+        context.chat_data["agent_id"] = agent_id
+        await query.edit_message_text(f"🔗 Switched to '{agent_def['name']}'.")
 
     elif data == "agent:build":
         context.chat_data["building_agent"] = {"step": "name", "data": {}}
@@ -555,31 +537,158 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     return True
 
 
+def _command_arguments(update) -> str:
+    parts = (update.message.text or "").split(maxsplit=1)
+    return parts[1].strip() if len(parts) == 2 else ""
+
+
+def _chat_runs(runtime, chat_id: int, conversation_id: str | None = None) -> list[dict]:
+    """Saved user requests owned by this Telegram chat, excluding child runs."""
+    return [run for run in runtime.store.runs(conversation_id)
+            if run.get("source") == "telegram" and run.get("destination") == str(chat_id)
+            and run["conversation_id"].startswith("telegram-") and not run.get("parent_run_id")]
+
+
+def _current_run(update, context) -> dict:
+    runtime = context.bot_data.get("runtime")
+    if runtime is None:
+        raise ValueError("The task runtime is not ready yet.")
+    chat_id = update.effective_chat.id
+    conversation = "telegram-" + _get_thread_id(chat_id)
+    run_id = _command_arguments(update)
+    runs = _chat_runs(runtime, chat_id, conversation)
+    if not run_id:
+        if not runs:
+            raise ValueError("No runs in this conversation. Use /runs to list saved work.")
+        return runs[-1]
+    run = next((run for run in runs if run["id"] == run_id), None)
+    if run is None:
+        raise ValueError("Run not found in this conversation. Use /runs to list saved work.")
+    return run
+
+
+async def _reply_chunks(update, text: str) -> None:
+    for chunk in _split_message(text):
+        await update.message.reply_text(chunk)
+
+
+def _page(items: list, arguments: str) -> tuple[list, int, int]:
+    parts = arguments.split()
+    if not parts:
+        number = 1
+    elif len(parts) == 2 and parts[0].lower() == "page" and parts[1].isdigit():
+        number = int(parts[1])
+    else:
+        raise ValueError("Use page followed by a page number, for example: page 2.")
+    total = max(1, (len(items) + 19) // 20)
+    if not 1 <= number <= total:
+        raise ValueError(f"Choose a page from 1 to {total}.")
+    return items[(number - 1) * 20:number * 20], number, total
+
+
+def _run_transcript(run: dict) -> str:
+    author = run.get("result_agent_name") or run["agent_name"]
+    text = f"Run {run['id']} · {run['status']}\nYou: {run['text']}\n\n{author}: {run['result'] or '(No response saved yet)'}"
+    if run.get("error"):
+        text += "\n\nError: " + run["error"]
+    return text
+
+
+async def cmd_runs(update, context):
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+    runtime = context.bot_data.get("runtime")
+    if runtime is None:
+        return await update.message.reply_text("The task runtime is not ready yet.")
+    arguments = _command_arguments(update)
+    try:
+        if arguments and arguments.split()[0].lower() != "page":
+            return await _reply_chunks(update, _run_transcript(_current_run(update, context)))
+        chat_id = update.effective_chat.id
+        runs = _chat_runs(runtime, chat_id, "telegram-" + _get_thread_id(chat_id))
+        rows, number, total = _page(list(reversed(runs)), arguments)
+        lines = [f"Runs · page {number}/{total}"]
+        for run in rows:
+            author = run.get("result_agent_name") or run["agent_name"]
+            preview = " ".join(run["text"].split())[:80]
+            lines.append(f"{run['id']} · {author} · {run['status']}\n{preview}")
+        if not rows:
+            lines.append("No runs in this conversation.")
+        lines.append("Use /runs ID for a saved result, /retry [ID], or /cancel [ID].")
+        if total > 1:
+            lines.append("Use /runs page N for another page.")
+        await _reply_chunks(update, "\n\n".join(lines))
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+
+
+async def cmd_history(update, context):
+    if not _is_owner(update.effective_user.id):
+        return await _reject(update)
+    runtime = context.bot_data.get("runtime")
+    if runtime is None:
+        return await update.message.reply_text("The task runtime is not ready yet.")
+    chat_id = update.effective_chat.id
+    conversations = {}
+    for run in _chat_runs(runtime, chat_id):
+        conversations.setdefault(run["conversation_id"], []).append(run)
+    arguments = _command_arguments(update)
+    try:
+        if arguments and arguments.split()[0].lower() != "page":
+            conversation = "telegram-" + arguments.removeprefix("telegram-")
+            runs = conversations.get(conversation)
+            if not runs:
+                raise ValueError("Conversation not found in this Telegram chat. Use /history to list saved conversations.")
+            thread_id = conversation.removeprefix("telegram-")
+            _thread_ids[chat_id] = thread_id
+            _save_thread_ids()
+            context.chat_data.pop("last_run_id", None)
+            await update.message.reply_text(f"Resumed conversation {thread_id}. Showing the latest 10 requests; use /runs for older results.")
+            for run in runs[-10:]:
+                await _reply_chunks(update, _run_transcript(run))
+            return
+        ordered = sorted(conversations.items(), key=lambda pair: pair[1][-1]["created_at"], reverse=True)
+        rows, number, total = _page(ordered, arguments)
+        current = "telegram-" + _get_thread_id(chat_id)
+        lines = [f"Conversation history · page {number}/{total}"]
+        for conversation, runs in rows:
+            preview = " ".join(runs[0]["text"].split())[:80]
+            marker = " (current)" if conversation == current else ""
+            lines.append(f"{conversation.removeprefix('telegram-')}{marker}\n{runs[-1]['created_at']} · {preview}")
+        if not rows:
+            lines.append("No saved conversations in this Telegram chat.")
+        lines.append("Use /history ID to resume a conversation, or /new to start fresh.")
+        if total > 1:
+            lines.append("Use /history page N for another page.")
+        await _reply_chunks(update, "\n\n".join(lines))
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+
+
 async def cmd_cancel(update, context):
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
-    if context.chat_data.pop("building_agent", None) is not None:
+    if not _command_arguments(update) and context.chat_data.pop("building_agent", None) is not None:
         await update.message.reply_text("Agent creation cancelled.")
         return
-    run_id = context.chat_data.get("last_run_id")
-    runtime = context.bot_data.get("runtime")
-    if runtime and run_id:
-        runtime.cancel(run_id)
+    try:
+        from questchain.runtime import TERMINAL
+        run = _current_run(update, context)
+        if run["status"] in TERMINAL:
+            raise ValueError("This run has already finished. Use /runs to find a queued or running task.")
+        context.bot_data["runtime"].cancel(run["id"])
         await update.message.reply_text("Cancellation requested.")
-    else:
-        await update.message.reply_text("No run to cancel.")
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
 
 
 async def cmd_retry(update, context):
     if not _is_owner(update.effective_user.id):
         return await _reject(update)
-    runtime = context.bot_data.get("runtime")
-    run_id = context.chat_data.get("last_run_id")
-    if not runtime or not run_id:
-        await update.message.reply_text("No previous run to retry.")
-        return
     try:
-        new_id = runtime.retry(run_id, audio_callback=_voice_delivery(update))
+        run = _current_run(update, context)
+        runtime = context.bot_data["runtime"]
+        new_id = runtime.retry(run["id"], audio_callback=_voice_delivery(update))
         context.chat_data["last_run_id"] = new_id
         await _deliver_runtime_result(runtime, new_id, update)
     except ValueError as exc:
@@ -788,6 +897,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _submit_runtime_message(update, context, user_text)
 
 
+# One catalog drives handler registration, /help, and Telegram's command menu.
+_COMMANDS = (
+    ("start", "Introduction and command list", cmd_start),
+    ("new", "Start a fresh conversation", cmd_new),
+    ("model", "Show the selected agent's current model", cmd_model),
+    ("tools", "Show the selected agent's tools", cmd_tools),
+    ("cron", "Manage scheduled cron jobs", cmd_cron),
+    ("onboard", "Re-run the onboarding flow", cmd_onboard),
+    ("agents", "Manage agents: list, switch, create, edit", cmd_agent),
+    ("runs", "List runs; /runs ID shows a result; /runs page N for more", cmd_runs),
+    ("history", "Browse conversations; /history ID resumes; /history page N for more", cmd_history),
+    ("cancel", "Cancel agent creation or a run in this conversation: /cancel [ID]", cmd_cancel),
+    ("retry", "Retry a run in this conversation: /retry [ID]", cmd_retry),
+    ("level", "Show agent level and achievements", cmd_level),
+    ("stats", "Show agent metrics: prompts, tokens, errors", cmd_stats),
+    ("help", "Show all commands", cmd_help),
+)
+_HELP_TEXT = "Commands:\n" + "\n".join(f"/{name} — {description}" for name, description, _ in _COMMANDS)
+_HELP_TEXT += "\n\nSend a voice message to speak to the agent directly."
+
+
 async def run_telegram_alongside_cli(
     agent_holder: dict,
     model_name: str,
@@ -857,18 +987,8 @@ async def run_telegram_alongside_cli(
     set_scheduler(scheduler)
 
     # Register handlers
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("new", cmd_new))
-    app.add_handler(CommandHandler("model", cmd_model))
-    app.add_handler(CommandHandler("tools", cmd_tools))
-    app.add_handler(CommandHandler("cron", cmd_cron))
-    app.add_handler(CommandHandler("onboard", cmd_onboard))
-    app.add_handler(CommandHandler("agents", cmd_agent))
-    app.add_handler(CommandHandler("level", cmd_level))
-    app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CommandHandler("cancel", cmd_cancel))
-    app.add_handler(CommandHandler("retry", cmd_retry))
+    for name, _, handler in _COMMANDS:
+        app.add_handler(CommandHandler(name, handler))
     app.add_handler(CallbackQueryHandler(callback_agent, pattern="^agent:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
@@ -884,19 +1004,7 @@ async def run_telegram_alongside_cli(
     app.add_error_handler(_error_handler)
 
     await app.initialize()
-    await app.bot.set_my_commands([
-        BotCommand("new", "Start a fresh conversation"),
-        BotCommand("model", "Show current model"),
-        BotCommand("tools", "List available tools"),
-        BotCommand("cron", "Manage scheduled cron jobs"),
-        BotCommand("onboard", "Re-run the onboarding flow"),
-        BotCommand("agents", "Manage agents — list, switch, create, edit"),
-        BotCommand("level", "Show agent level and achievements"),
-        BotCommand("stats", "Show agent metrics (prompts, tokens, errors)"),
-        BotCommand("help", "Show all commands"),
-        BotCommand("cancel", "Cancel the current run or agent creation"),
-        BotCommand("retry", "Retry the last run"),
-    ])
+    await app.bot.set_my_commands([BotCommand(name, description) for name, description, _ in _COMMANDS])
     await app.start()
     await app.updater.start_polling()
     await scheduler.start()

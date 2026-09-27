@@ -41,13 +41,24 @@ No extra flags needed — if credentials are saved, the bot starts.
 
 | Command | Description |
 |---|---|
-| `/start` | Begin or resume a conversation |
-| `/new` | Start a fresh conversation thread |
+| `/start` | Show the introduction and command list |
+| `/help` | Show all commands |
+| `/new` | Start a fresh conversation and clear the previous run selection |
+| `/model` | Show the selected agent's current model, including its override |
 | `/cron` | List cron jobs and management commands |
 | `/agents` | Select, create, edit, or explicitly migrate a legacy agent |
-| `/cancel` | Cancel the current run or agent wizard |
-| `/retry` | Retry the last task as a new attempt |
+| `/runs [run ID]` | List this conversation's runs or read one saved result |
+| `/history [conversation ID]` | List this chat's saved conversations or resume one |
+| `/cancel [run ID]` | Cancel a run in this conversation; without an ID, also cancels agent creation |
+| `/retry [run ID]` | Retry the latest run or a specified run in this conversation |
 | `/tools` | Show the selected agent’s configured tools |
+| `/level` | Show agent level and achievements |
+| `/stats` | Show agent metrics: prompts, tokens, errors |
+| `/onboard` | Re-run the onboarding conversation |
+
+Use `/runs page N` or `/history page N` to browse more than 20 entries. `/history ID` reopens a saved conversation and shows its latest 10 requests and answers with the original agent names. `/runs ID` retrieves a full saved result, including any error or partial response.
+
+History is restricted to the current Telegram chat and survives restarting QuestChain. `/new` keeps the old history, but retry and cancellation apply only to the new conversation. Resume an older conversation with `/history ID` before retrying one of its runs.
 
 ---
 
@@ -58,6 +69,6 @@ If Kokoro TTS is configured, QuestChain sends voice messages on Telegram in addi
 ---
 
 !!! note
-    The Telegram bot only accepts messages from your user ID. Anyone else messaging the bot gets no response.
+    The Telegram bot only accepts commands and messages from your configured user ID. Other users receive a private-bot rejection; they cannot read conversations or run tasks.
 
 See [Cron Jobs](cron-jobs.md) for create, edit, pause, resume, run, and delete syntax.

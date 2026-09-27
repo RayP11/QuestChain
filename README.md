@@ -270,17 +270,24 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 |---|---|
 | `/help` | Show all available commands |
 | `/new` | Start a fresh conversation |
-| `/model` | Show current model and list available ones |
-| `/thread` | Show current conversation thread ID |
-| `/tools` | List all available agent tools |
-| `/instructions` | Show the agent's system prompt |
-| `/memory` | Show your saved user profile |
-| `/cron` | List scheduled cron jobs |
+| `/model` | Change the global default model; restart to apply |
+| `/tools` | Show the selected agent's tools and availability |
+| `/cron` | Open the cron menu; `/cron help` shows text commands |
 | `/agents` | Manage agent profiles (list, switch, create, edit) |
-| `/stats` | Show agent level, XP bar, top tools, and achievements |
+| `/runs` | List runs in the current conversation |
+| `/retry [run ID]` | Retry the last run or a specified run in this conversation |
+| `/cancel [run ID]` | Cancel a queued or running task in this conversation |
+| `/history` | Browse and switch past conversations |
+| `/legacy [migrate ID]` | List archived agents or restore one |
+| `/stats` | Show agent metrics: prompts, tokens, errors |
+| `/level` | Show agent level and achievements |
+| `/prestige` | Prestige reset; requires Level 20 |
 | `/onboard` | Re-run the onboarding conversation |
 | `/tavily` | Set up Tavily web search API key |
+| `/claudecode` | Set up Claude Code CLI integration |
 | `/telegram` | Set up Telegram bot credentials |
+| `/speak` | Set up Kokoro TTS voice output |
+| `/exit` | Exit QuestChain |
 | **Ctrl+C** / **Ctrl+D** | Exit QuestChain |
 
 ---
@@ -296,6 +303,26 @@ Run `/telegram` inside QuestChain and it walks you through the setup:
 3. Paste both into the `/telegram` wizard. Credentials are saved automatically.
 
 Restart QuestChain and the bot starts alongside the CLI. Telegram conversations are scoped to the destination chat and do not share the terminal's conversation history.
+
+### Telegram commands
+
+| Command | Description |
+|---|---|
+| `/start`, `/help` | Show the introduction or command list |
+| `/new` | Start a fresh conversation and clear the previous run selection |
+| `/model` | Show the selected agent's current model, including its override |
+| `/tools` | Show the selected agent's tools and availability |
+| `/agents` | List, switch, create, edit, or migrate agents |
+| `/cron` | List cron jobs and show scheduling commands |
+| `/runs [run ID]` | List this conversation's runs, or read one saved result |
+| `/history [conversation ID]` | List this chat's saved conversations, or resume one |
+| `/retry [run ID]` | Retry the latest run or a specified run in this conversation |
+| `/cancel [run ID]` | Cancel a run in this conversation; without an ID, also cancels agent creation |
+| `/level` | Show agent level and achievements |
+| `/stats` | Show agent metrics: prompts, tokens, errors |
+| `/onboard` | Re-run the onboarding conversation |
+
+Use `/runs page N` or `/history page N` to browse more than 20 entries. Resuming a conversation shows its latest 10 saved requests and answers; use `/runs ID` for older results. History stays within the same Telegram chat, even after restarting QuestChain. `/new` preserves old history without carrying its run selection into the new conversation.
 
 ---
 

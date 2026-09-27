@@ -195,7 +195,10 @@ async def test_telegram_registers_cron_without_quest_commands(tmp_path, monkeypa
         assert "cron" in commands
         assert not commands.intersection({"quest", "quests", "tasks"})
         registered = set().union(*(getattr(h, "commands", set()) for h in handlers))
-        assert "cron" in registered
+        assert registered == commands
+        assert {"runs", "history", "cancel", "retry", "model", "new", "cron"} <= registered
+        help_commands = {line.split()[0].removeprefix("/") for line in telegram._HELP_TEXT.splitlines() if line.startswith("/")}
+        assert help_commands == registered
         assert not registered.intersection({"quest", "quests"})
     finally:
         await stop()

@@ -28,7 +28,7 @@ Select a specialist in the chat agent list to speak to it directly, or keep Pers
 
 Perseus receives the six most recent finished turns from the current conversation and can answer questions about that history. Telegram keeps this context within the same chat until you start a new conversation. Other chats and previous scheduled job occurrences are not included automatically.
 
-The web UI restores saved messages after a reload, shows failures and partial responses, and supports cancellation and explicit retry. Terminal `/runs`, `/retry [run ID]`, and `/history` expose saved task records. Telegram supports `/cancel` and `/retry`. Retrying creates a new attempt; stopping a run cannot undo completed tool actions.
+The web UI restores saved messages after a reload, shows failures and partial responses, and supports cancellation and explicit retry. Terminal `/runs`, `/retry [run ID]`, and `/history` expose saved task records. Telegram supports `/runs [run ID]`, `/history [conversation ID]`, `/cancel [run ID]`, and `/retry [run ID]`. Telegram history is limited to the current chat; resume a saved conversation before retrying its runs. `/new` clears the previous run selection without deleting history. Retrying creates a new attempt; stopping a run cannot undo completed tool actions.
 
 Chat messages keep Markdown formatting while responses stream and after a reload: headings, emphasis, lists, links, blockquotes, tables, and code blocks. Raw HTML is displayed as text, and image references appear as links.
 

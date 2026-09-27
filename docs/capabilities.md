@@ -80,12 +80,12 @@ QuestChain can speak its responses aloud using local text-to-speech — no cloud
 
 QuestChain remembers who you are across sessions. Run `/onboard` to teach it your name, what you work on, your preferences, and how you like to communicate. It stores this locally and uses it to personalize every response.
 
-Use `/memory` to see exactly what it knows about you — and update it any time.
+Inspect `profile.md` and `ABOUT.md` in your workspace's `workspace/memory` directory to review the saved profile. Use `/onboard` to update it.
 
 ---
 
 ## Remote access via Telegram
 
-Once set up, you can talk to your agent from your phone, anywhere — even when you're away from your machine. The same agent, same memory, same conversation.
+Once set up, you can talk to your agent from your phone while QuestChain is running on your machine. Agent definitions and saved memory are shared; each Telegram chat has its own conversation history.
 
 [→ Telegram Setup](telegram.md)
