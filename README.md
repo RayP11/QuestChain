@@ -169,7 +169,7 @@ questchain start --web                # Start with web UI (gateway + CLI)
 
 ### Updating an installed copy
 
-Exit QuestChain with `/exit` or Ctrl+D, then run:
+Exit QuestChain with Ctrl+C, Ctrl+D, or `/exit`, then run:
 
 ```bash
 questchain --update
@@ -281,7 +281,7 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 | `/onboard` | Re-run the onboarding conversation |
 | `/tavily` | Set up Tavily web search API key |
 | `/telegram` | Set up Telegram bot credentials |
-| **Ctrl+D** | Exit QuestChain |
+| **Ctrl+C** / **Ctrl+D** | Exit QuestChain |
 
 ---
 

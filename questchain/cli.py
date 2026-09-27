@@ -94,7 +94,7 @@ def _init_metrics(agent_def: dict, agent) -> MetricsManager:
 
 
 class _PromptInterrupted(Exception):
-    """A cancelled input line, safe to propagate across an asyncio task."""
+    """A request to quit, safe to propagate across an asyncio input task."""
 
 
 async def _user_prompt(session: PromptSession, agent_label: str = "") -> str:
@@ -243,7 +243,7 @@ def print_banner(model_name: str):
         meta.append("Claude Code: disabled  ", style="yellow")
         meta.append("/claudecode to set up", style="dim")
     meta.append("\n")
-    meta.append("Type /help for commands, Ctrl+D to exit", style="dim")
+    meta.append("Type /help for commands, Ctrl+C or Ctrl+D to exit", style="dim")
 
     console.print(Panel(Group(Align.center(art), Align.center(_robot_face()), meta), border_style="blue", padding=(1, 2)))
 
@@ -1540,12 +1540,9 @@ async def _repl_loop(
             if prompt_task in done:
                 try:
                     user_input = prompt_task.result()
-                except EOFError:
+                except (EOFError, _PromptInterrupted):
                     console.print("\n[dim]Goodbye![/dim]")
                     break
-                except _PromptInterrupted:
-                    console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
-                    continue
                 except Exception:
                     console.print("\n[dim]Goodbye![/dim]")
                     break
@@ -1599,12 +1596,9 @@ async def _repl_loop(
         else:
             try:
                 user_input = await _user_prompt(session, agent_label=_agent_label)
-            except EOFError:
+            except (EOFError, _PromptInterrupted):
                 console.print("\n[dim]Goodbye![/dim]")
                 break
-            except _PromptInterrupted:
-                console.print("\n[dim]Press Ctrl+D to exit.[/dim]")
-                continue
 
         user_input = user_input.strip()
         if not user_input:
@@ -1696,7 +1690,8 @@ async def _repl_loop(
             if response_future and not response_future.done():
                 response_future.set_result(result["result"] or result["error"])
         except KeyboardInterrupt:
-            console.print("Interrupted.", style="yellow")
+            console.print("\n[dim]Goodbye![/dim]")
+            break
         except Exception as exc:
             console.print(str(exc), style="red", markup=False)
             if response_future and not response_future.done():
@@ -1713,4 +1708,8 @@ def main(
 ):
     """Entry point for the QuestChain CLI."""
     model_name = model_name or OLLAMA_MODEL
-    asyncio.run(repl(model_name, thread_id, use_memory, enable_web, web_host, web_port))
+    try:
+        asyncio.run(repl(model_name, thread_id, use_memory, enable_web, web_host, web_port))
+    except KeyboardInterrupt:
+        # asyncio.run has already unwound the REPL and its cleanup handlers.
+        console.print("\n[dim]Goodbye![/dim]")
