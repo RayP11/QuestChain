@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from questchain.runtime.store import RunStore
-from questchain.runtime.routing import choose_destination
+from questchain.runtime.routing import add_routing_tool
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"completed", "partial", "failed", "cancelled", "interrupted", "waiting_input"})
@@ -35,9 +35,8 @@ class TaskRequest:
 
 class TaskRuntime:
     def __init__(self, manager, *, default_model: str, path: Path | None = None,
-                 agent_factory=None, model_factory=None, busy_lock=None, event_sink=None, default_audio=None):
+                 agent_factory=None, busy_lock=None, event_sink=None, default_audio=None):
         from questchain.config import ensure_data_dir
-        from questchain.engine.model import OllamaModel
         from questchain.gateway.events import get_bus
         self.manager = manager
         self.default_model = default_model
@@ -45,7 +44,6 @@ class TaskRuntime:
         self.agent_factory = agent_factory
         self.default_audio = default_audio
         self._audio_callbacks = {}
-        self.model_factory = model_factory or OllamaModel
         self.lock = busy_lock or asyncio.Lock()
         self.event_sink = event_sink or get_bus().publish_nowait
         self.queue = asyncio.PriorityQueue()
@@ -224,33 +222,24 @@ class TaskRuntime:
         self.store.put(run)
         self._emit(run, "run_status")
         definition = run["definition"]
-        if definition.get("class_name") == "Router":
-            recent = self._recent(run)
-            async with self.lock:
-                decision = await choose_destination(self.model_factory(definition.get("model") or self.default_model),
-                                                    definition, run["text"], self.manager.catalog(), recent)
-            run["reply_to_run_id"] = decision["context_run_id"] or run.get("reply_to_run_id", "")
-            if decision["action"] != "dispatch":
-                run["result"] = decision["message"]
-                self._finish(run, "waiting_input" if decision["action"] == "clarify" else "completed")
-                return
-            destination = self.manager.get(decision["agent_id"])
-            if destination is None or destination["id"] not in {a["id"] for a in self.manager.catalog()}:
-                raise ValueError("Selected specialist is no longer eligible. Retry routing.")
-            child = {**run, "id": uuid.uuid4().hex, "parent_run_id": run["id"],
-                     "agent_id": destination["id"], "agent_name": destination["name"], "definition": destination,
-                     "message_id": uuid.uuid4().hex, "status": "queued", "occurrence_key": None,
-                     "reply_to_run_id": run["reply_to_run_id"]}
-            run["child_run_id"] = child["id"]
-            self.store.put(run)
-            self.store.put(child)
-            self._emit(run, "routed", destination_id=destination["id"], destination_name=destination["name"], child_run_id=child["id"])
-            self._enqueue(child)
-            return
         from questchain.agent import make_agent_from_def
         on_audio = self._audio_callbacks.get(run.get("parent_run_id") or run["id"])
         agent = self.agent_factory(definition) if self.agent_factory else make_agent_from_def(
             definition, audio_router=on_audio, default_model=self.default_model)
+        handoff = {}
+        is_router = definition.get("class_name") == "Router"
+
+        async def route_to_agent(agent_id: str, context: str = "") -> str:
+            if not isinstance(context, str) or len(context) > 8000:
+                raise ValueError("Handoff context must be text of at most 8000 characters.")
+            destination = self.manager.get(agent_id)
+            if destination is None or agent_id not in {a["id"] for a in self.manager.catalog()}:
+                raise ValueError("Selected specialist is no longer eligible. Choose an available agent.")
+            handoff.update(destination=destination, context=context)
+            return f"Handed this request to {destination['name']}. Their answer is delivered directly in this thread."
+
+        if is_router:
+            add_routing_tool(agent, self.manager.catalog(), route_to_agent)
         # Check selected capabilities against the actual runner, before inference.
         selected = definition.get("tools", [])
         if selected != "all" and hasattr(agent, "tools"):
@@ -263,12 +252,16 @@ class TaskRuntime:
 
         async def on_tool(name: str, arguments: dict) -> None:
             current = self.manager.get(run["agent_id"])
-            if current is None or not tool_access_allowed(current, name) or not tool_access_allowed(definition, name):
+            routing = is_router and name == "route_to_agent" and current and current.get("class_name") == "Router"
+            if not routing and (current is None or not tool_access_allowed(current, name) or not tool_access_allowed(definition, name)):
                 raise PermissionError(f"Tool '{name}' is no longer enabled for this agent.")
             called.append(name)
-            self._emit(run, "tool_call", name=name)
+            if not routing:
+                self._emit(run, "tool_call", name=name)
 
         prompt = run["text"]
+        if run.get("handoff_context"):
+            prompt = "Context supplied with this handoff:\n" + run["handoff_context"] + "\n\nUser's current request:\n" + prompt
         reference = run.get("reply_to_run_id")
         prior_turns = []
         seen = {run["id"]}
@@ -290,7 +283,8 @@ class TaskRuntime:
         pending = ""
         try:
             async with self.lock, asyncio.timeout(1800):
-                async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool):
+                async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool,
+                                             initial_messages=self._history(run)):
                     chunks.append(token)
                     pending += token
                     # Bound database writes and event queues, while keeping streaming responsive.
@@ -308,19 +302,49 @@ class TaskRuntime:
             self.store.put(run)
         if pending:
             self._emit(run, "token", content=pending)
+        if handoff:
+            destination = handoff["destination"]
+            # Preserve words streamed before the specialist took over.
+            run["routing_message"] = run["result"]
+            child = {**run, "id": uuid.uuid4().hex, "parent_run_id": run["id"],
+                     "agent_id": destination["id"], "agent_name": destination["name"], "definition": destination,
+                     "message_id": uuid.uuid4().hex, "status": "queued", "occurrence_key": None,
+                     "result": "", "routing_message": "", "handoff_context": handoff["context"]}
+            run["child_run_id"] = child["id"]
+            self.store.put(run)
+            self.store.put(child)
+            self._emit(run, "routed", destination_id=destination["id"], destination_name=destination["name"], child_run_id=child["id"])
+            self._record_metrics(run, agent, called)
+            self._enqueue(child)
+            return
         errors = getattr(agent, "last_tool_errors", 0)
         self._finish(run, "partial" if errors else "completed", error="Some tools failed; review the response." if errors else "")
         self._record_metrics(run, agent, called)
 
-    def _recent(self, run: dict) -> list[dict]:
+    def _history(self, run: dict) -> list[dict]:
+        """Restore pre-engine history using only this agent's own interactions."""
         # Scheduled occurrences share a history view, not implicit model context.
         if run["source"] == "cron":
             return []
-        records = [r for r in self.store.runs(run["conversation_id"]) if r["id"] != run["id"]
-                   and r["status"] in TERMINAL and not r.get("child_run_id")][-6:]
-        return [{"id": r["id"], "agent_id": r["agent_id"], "agent_name": r["agent_name"],
-                 "request": r["text"][-1200:], "status": r["status"], "result": r["result"][-2000:],
-                 "error": r["error"]} for r in records]
+        messages = []
+        for previous in self.store.runs(run["conversation_id"]):
+            if previous["id"] == run["id"]:
+                break
+            if previous["agent_id"] != run["agent_id"] or previous["status"] not in TERMINAL:
+                continue
+            text = previous["text"]
+            if previous.get("handoff_context"):
+                text = "Context supplied with this handoff:\n" + previous["handoff_context"] + "\n\nUser's current request:\n" + text
+            messages.append({"role": "user", "content": text})
+            answer = previous["result"]
+            if previous.get("child_run_id"):
+                child = self.store.get(previous["child_run_id"])
+                answer = previous.get("routing_message", "") + f"\nHanded this request to {child['agent_name']}."
+            if answer:
+                messages.append({"role": "assistant", "content": answer})
+            else:
+                messages.append({"role": "assistant", "content": f"[This turn ended with status {previous['status']} without an answer.]"})
+        return messages
 
     def _record_metrics(self, run: dict, agent, called: list[str]) -> None:
         try:

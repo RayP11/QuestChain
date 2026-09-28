@@ -16,7 +16,7 @@ Names are editable. Stable IDs identify agents and cron assignments. The schedul
 
 Use **Settings → New Agent** in the web UI, `/agents` in the terminal, or `/agents` in Telegram. Each interface supports name, role, local model override, explicit tools, system prompt, when-to-call guidance, routing eligibility, exclusions, and example requests.
 
-The coordinator sees eligible agents' invocation guidance and tool names. It does not receive their system prompts. Changes take effect for new requests without restarting. An empty tool selection grants no tools; “all” is an explicit selection. Required integrations appear as availability issues when not configured.
+The coordinator sees eligible agents' invocation guidance and tool names. It does not receive their system prompts. Changes take effect for new requests without restarting. An empty tool selection grants no workspace tools; “all” is an explicit selection. Coordinators have the built-in `route_to_agent` capability when eligible specialists are available. Required integrations appear as availability issues when not configured.
 
 For example, create Quill with no tools, a prompt to rewrite supplied prose, and guidance such as “Draft or polish messages and release notes from supplied text.” Enable automatic routing to let Perseus choose Quill immediately.
 
@@ -26,7 +26,9 @@ A routed request displays **Perseus → Argus**, followed by Argus's own answer.
 
 Select a specialist in the chat agent list to speak to it directly, or keep Perseus selected for automatic routing. Implicit follow-ups depend on the local model's routing accuracy; if it chooses poorly, select the specialist directly.
 
-Perseus receives the six most recent finished turns from the current conversation and can answer questions about that history. Telegram keeps this context within the same chat until you start a new conversation. Other chats and previous scheduled job occurrences are not included automatically.
+Perseus is a normal conversational agent with a routing tool. He can reply directly or hand the current request to an eligible specialist. The specialist's answer streams under its own name without being rewritten by Perseus.
+
+Each conversation is one visible thread, with saved context per agent. Every agent, including Perseus, sees its own interactions in that thread. A handoff can include relevant earlier constraints; unrelated direct chats with other agents are not shared. Starting a new conversation starts fresh for every agent. Reopening a saved conversation restores each agent's context, including after an app restart. Long histories are summarized to fit the model's context window. Scheduled job occurrences still start with fresh context. The web chat's conversation selector reopens saved web threads; terminal and Telegram use `/history`.
 
 The web UI restores saved messages after a reload, shows failures and partial responses, and supports cancellation and explicit retry. Terminal `/runs`, `/retry [run ID]`, and `/history` expose saved task records. Telegram supports `/runs [run ID]`, `/history [conversation ID]`, `/cancel [run ID]`, and `/retry [run ID]`. Telegram history is limited to the current chat; resume a saved conversation before retrying its runs. `/new` clears the previous run selection without deleting history. Retrying creates a new attempt; stopping a run cannot undo completed tool actions.
 

@@ -2,8 +2,8 @@
 
 The loop:
   1. Load conversation history from JSONL (ContextManager)
-  2. Compact if context is tight
-  3. Add user message
+  2. Save user message
+  3. Compact if context is tight
   4. Stream model response
   5. If tool calls → execute in order → append results → goto 4
   6. If text → yield tokens to caller → done
@@ -64,6 +64,7 @@ class Agent:
         thread_id: str,
         on_tool_call: Callable[[str, dict], Awaitable[None]] | None = None,
         max_iterations: int = _MAX_ITERATIONS,
+        initial_messages: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         """Run the agent loop, yielding response text tokens as they stream.
 
@@ -74,6 +75,7 @@ class Agent:
                           before each tool execution — used by the CLI to display
                           "Using tool: …" indicators.
             max_iterations: Safety cap on tool-call loops.
+            initial_messages: Saved interactions to restore if no engine session exists yet.
         """
         self.last_iterations = 0
         self.last_tool_errors = 0
@@ -84,68 +86,103 @@ class Agent:
             reserve=max(512, self.model.num_ctx // 8),
         )
 
-        if context.needs_compaction():
-            logger.info("Compacting context for thread %s", thread_id)
-            await context.compact(self.model)
+        if not context.messages and initial_messages:
+            context.extend(initial_messages)
 
         context.add({"role": "user", "content": user_input})
+        context.save()
 
-        tool_schemas = self.tools.schemas()
+        text_chunks: list[str] = []
+        pending_calls: list[dict] = []
+        results: list[dict] = []
+        try:
+            if context.needs_compaction():
+                logger.info("Compacting context for thread %s", thread_id)
+                await context.compact(self.model)
 
-        for iteration in range(max_iterations):
-            messages = self._build_messages(context)
+            tool_schemas = self.tools.schemas()
 
-            text_chunks: list[str] = []
-            tool_calls: list[dict] = []
+            for iteration in range(max_iterations):
+                messages = self._build_messages(context)
+                text_chunks = []
+                tool_calls: list[dict] = []
 
-            async for chunk in self.model.chat_stream(messages, tools=tool_schemas):
-                if chunk.text:
-                    text_chunks.append(chunk.text)
-                    yield chunk.text
-                if chunk.done:
-                    tool_calls = chunk.tool_calls
+                async for chunk in self.model.chat_stream(messages, tools=tool_schemas):
+                    if chunk.text:
+                        text_chunks.append(chunk.text)
+                        yield chunk.text
+                    if chunk.done:
+                        tool_calls = chunk.tool_calls
 
-            full_text = "".join(text_chunks)
+                full_text = "".join(text_chunks)
 
-            if tool_calls:
-                # Record assistant message with tool calls
-                context.add({
-                    "role": "assistant",
-                    "content": full_text or "",
-                    "tool_calls": [
-                        {"function": {"name": tc["name"], "arguments": tc["args"]}}
-                        for tc in tool_calls
-                    ],
-                })
+                if tool_calls:
+                    if len(tool_calls) != 1 and any(self.tools.ends_turn(tc["name"]) for tc in tool_calls):
+                        raise ValueError("A handoff must be the only tool call in a turn.")
+                    # Record assistant message with tool calls
+                    context.add({
+                        "role": "assistant",
+                        "content": full_text or "",
+                        "tool_calls": [
+                            {"function": {"name": tc["name"], "arguments": tc["args"]}}
+                            for tc in tool_calls
+                        ],
+                    })
+                    text_chunks = []  # This text is already in the saved interaction.
+                    pending_calls = tool_calls
+                    results = []
 
-                # Validate current permissions immediately before each execution.
-                results = []
-                for tc in tool_calls:
-                    if on_tool_call:
-                        await on_tool_call(tc["name"], tc["args"])
-                    results.extend(await self.tools.execute_parallel([tc]))
-                for r in results:
-                    content = r.get("content", "")
-                    if isinstance(content, str) and content.startswith("Error"):
-                        self.last_tool_errors += 1
-                self.last_iterations = iteration + 1
+                    # Validate current permissions immediately before each execution.
+                    for tc in tool_calls:
+                        if on_tool_call:
+                            await on_tool_call(tc["name"], tc["args"])
+                        results.extend(await self.tools.execute_parallel([tc]))
+                    for r in results:
+                        content = r.get("content", "")
+                        if isinstance(content, str) and content.startswith("Error"):
+                            self.last_tool_errors += 1
+                    self.last_iterations = iteration + 1
+                    context.extend(results)
+                    pending_calls = []
+                    context.save()
+                    if self.tools.ends_turn(tool_calls[0]["name"]) and not any(
+                        r.get("content", "").startswith("Error") for r in results
+                    ):
+                        return
+                    # Loop — let model process the results
+                    continue
+
+                else:
+                    # Final answer
+                    if not full_text.strip():
+                        raise RuntimeError("The model returned an empty response.")
+                    context.add({"role": "assistant", "content": full_text})
+                    text_chunks = []
+                    context.save()
+                    return
+
+            logger.warning(
+                "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
+            )
+            raise IterationLimitError(f"Agent reached its limit of {max_iterations} tool steps.")
+        except (Exception, asyncio.CancelledError):
+            # Keep the request, partial reply, and completed tools on failed turns too.
+            # Pair unfinished calls with an explicit unknown outcome, never a success.
+            if pending_calls:
                 context.extend(results)
+                context.extend([
+                    {"role": "tool", "name": tc["name"],
+                     "content": "Error: Response interrupted before this tool result was recorded. Its outcome is unknown."}
+                    for tc in pending_calls[len(results):]
+                ])
+            context.add({"role": "assistant", "content": (
+                "".join(text_chunks) + "\n[Response interrupted; the previous request is no longer running.]"
+            ).strip()})
+            try:
                 context.save()
-                # Loop — let model process the results
-                continue
-
-            else:
-                # Final answer
-                if not full_text.strip():
-                    raise RuntimeError("The model returned an empty response.")
-                context.add({"role": "assistant", "content": full_text})
-                context.save()
-                return
-
-        logger.warning(
-            "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
-        )
-        raise IterationLimitError(f"Agent reached its limit of {max_iterations} tool steps.")
+            except Exception:
+                logger.exception("Could not save interrupted context for thread %s", thread_id)
+            raise
 
     # ------------------------------------------------------------------
     # Internal

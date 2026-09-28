@@ -6,14 +6,18 @@ import argparse
 import asyncio
 import json
 import statistics
+import tempfile
 import time
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from questchain.agents import PRESET_AGENTS, CLASS_GUIDANCE
+from questchain.engine.agent import Agent
+from questchain.engine import context
 from questchain.engine.model import OllamaModel
-from questchain.runtime.routing import choose_destination
+from questchain.engine.tools import ToolRegistry
+from questchain.runtime.routing import add_routing_tool
 
 
 async def evaluate(model_name, output, cases_path):
@@ -23,29 +27,44 @@ async def evaluate(model_name, output, cases_path):
                 "when_to_call": CLASS_GUIDANCE[a["class_name"]], "when_not_to_call": "",
                 "routing_examples": [], "tools": a["tools"]} for a in PRESET_AGENTS if a["class_name"] != "Router"]
     model = OllamaModel(model_name)
+    model._options["temperature"] = 0
     results = []
-    for i, case in enumerate(cases, 1):
-        recent = []
-        if case.get("previous"):
-            recent = [dict(id="previous-result", agent_id=case["agent_id"], agent_name=case["agent_id"],
-                           request=case["previous"], result=case["result"], status="completed", error="")]
-        started = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="questchain-routing-eval-") as temp:
+        original_data_dir = context.QUESTCHAIN_DATA_DIR
+        context.QUESTCHAIN_DATA_DIR = Path(temp)
         try:
-            decision = await choose_destination(model, router, case["request"], catalog, recent)
-            correct = decision["action"] == case["action"] and decision["agent_id"] == case.get("agent_id", "")
-            if recent:
-                correct = correct and decision["context_run_id"] == "previous-result"
-            entry = dict(case=case, decision=decision, correct=correct, seconds=time.perf_counter() - started)
-        except Exception as exc:
-            entry = dict(case=case, error=str(exc), correct=False, seconds=time.perf_counter() - started)
-        results.append(entry)
-        print(f"{i}/{len(cases)} {case['category']}: {'PASS' if entry['correct'] else 'FAIL'} ({entry['seconds']:.1f}s)", flush=True)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        summary = {category: {"correct": sum(r["correct"] for r in results if r["case"]["category"] == category),
-                              "total": sum(r["case"]["category"] == category for r in results)}
-                   for category in {r["case"]["category"] for r in results}}
-        output.write_text(json.dumps(dict(model=model_name, summary=summary,
-                          median_seconds=statistics.median(r["seconds"] for r in results), results=results), indent=2))
+            for i, case in enumerate(cases, 1):
+                history = []
+                if case.get("previous"):
+                    history = [{"role": "user", "content": case["previous"]},
+                               {"role": "assistant", "content": "Handed this request to " + case["agent_id"] + "."}]
+                decision = dict(action="reply", agent_id="", message="")
+                async def route(agent_id, context=""):
+                    if agent_id not in {a["id"] for a in catalog}:
+                        raise ValueError("Unknown destination")
+                    decision.update(action="dispatch", agent_id=agent_id, context=context)
+                    return "Handed off."
+                agent = Agent(model, ToolRegistry(), router["system_prompt"].replace("{agent_name}", router["name"]))
+                add_routing_tool(agent, catalog, route)
+                started = time.perf_counter()
+                try:
+                    decision["message"] = "".join([token async for token in agent.run(
+                        case["request"], f"evaluation-{i}", initial_messages=history)])
+                    expected = "reply" if case["action"] == "clarify" else case["action"]
+                    correct = decision["action"] == expected and decision["agent_id"] == case.get("agent_id", "")
+                    entry = dict(case=case, decision=decision, correct=correct, seconds=time.perf_counter() - started)
+                except Exception as exc:
+                    entry = dict(case=case, error=str(exc), correct=False, seconds=time.perf_counter() - started)
+                results.append(entry)
+                print(f"{i}/{len(cases)} {case['category']}: {'PASS' if entry['correct'] else 'FAIL'} ({entry['seconds']:.1f}s)", flush=True)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                summary = {category: {"correct": sum(r["correct"] for r in results if r["case"]["category"] == category),
+                                      "total": sum(r["case"]["category"] == category for r in results)}
+                           for category in {r["case"]["category"] for r in results}}
+                output.write_text(json.dumps(dict(model=model_name, summary=summary,
+                                  median_seconds=statistics.median(r["seconds"] for r in results), results=results), indent=2))
+        finally:
+            context.QUESTCHAIN_DATA_DIR = original_data_dir
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import json
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -109,14 +108,6 @@ class OllamaModel:
             raise TimeoutError("The model response timed out after 300 seconds.") from None
         if not completed:
             raise RuntimeError("The model stream ended before completion.")
-
-    async def chat_structured(self, messages: list[dict], schema: dict) -> dict:
-        """One bounded, tool-free routing call with a schema-constrained result."""
-        async with asyncio.timeout(120):
-            result = await self._client.chat(model=self.model_name, messages=messages, stream=False,
-                                             format=schema, think=False,
-                                             options={**self._options, "temperature": 0, "num_predict": 512})
-        return json.loads(result.message.content or "")
 
     async def chat(
         self,

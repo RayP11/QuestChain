@@ -1,6 +1,7 @@
 """Public execution behavior shared by the UI, terminal, Telegram and cron."""
 import asyncio
 import json
+import copy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,27 +9,39 @@ import pytest
 
 from questchain.agents import AgentManager
 from questchain.runtime import TaskRequest, TaskRuntime
+from questchain.engine.agent import Agent
+from questchain.engine.model import Chunk
+from questchain.engine.tools import ToolRegistry
 
 
 @pytest.fixture
 def manager(monkeypatch, tmp_path):
     from questchain import config
+    from questchain.engine import context
     monkeypatch.setattr(config, "QUESTCHAIN_DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(context, "QUESTCHAIN_DATA_DIR", tmp_path / "data")
     result = AgentManager()
     result.seed_preset_agents()
     return result
 
 
 class Model:
-    def __init__(self):
-        self.calls = []
-        self.decision = None
+    num_ctx = 32768
 
-    async def chat_structured(self, messages, schema):
-        request = json.loads(messages[1]["content"])
-        self.calls.append(request)
-        return self.decision or dict(action="dispatch", agent_id=next(
-            a["id"] for a in request["agent_catalog"] if a["name"] == "Quill"), message="", context_run_id="")
+    def __init__(self, manager):
+        self.manager = manager
+        self.calls = []
+        self.text = ""
+        self.destination = ""
+        self.context = ""
+
+    async def chat_stream(self, messages, tools=None):
+        self.calls.append(copy.deepcopy(messages))
+        if self.text:
+            yield Chunk(text=self.text, done=True)
+        else:
+            destination = self.destination or next(a["id"] for a in self.manager.catalog() if a["name"] == "Quill")
+            yield Chunk(done=True, tool_calls=[dict(name="route_to_agent", args=dict(agent_id=destination, context=self.context))])
 
 
 class Runner:
@@ -36,7 +49,7 @@ class Runner:
         self.definition = definition
         self.calls = calls
 
-    async def run(self, prompt, thread_id, on_tool_call):
+    async def run(self, prompt, thread_id, on_tool_call, **kwargs):
         self.calls.append((self.definition["id"], prompt, thread_id))
         yield self.definition["name"] + ": "
         yield "original specialist answer"
@@ -44,11 +57,12 @@ class Runner:
 
 @pytest.fixture
 async def runtime(manager, tmp_path):
-    model = Model()
+    model = Model(manager)
     calls = []
     events = []
     runtime = TaskRuntime(manager, default_model="fake", path=tmp_path / "runs.sqlite3",
-                          model_factory=lambda name: model, agent_factory=lambda d: Runner(d, calls),
+                          agent_factory=lambda d: Agent(model, ToolRegistry(), d["system_prompt"], d["name"])
+                              if d["class_name"] == "Router" else Runner(d, calls),
                           event_sink=events.append)
     runtime.test_model, runtime.test_calls, runtime.test_events = model, calls, events
     yield runtime
@@ -60,31 +74,27 @@ def quill(manager):
                        when_to_call="Draft and revise supplied prose.", routable=True)
 
 
-async def test_telegram_history_reply_ignores_unused_destination(runtime, manager, monkeypatch):
+async def test_telegram_history_is_ordinary_chat_and_scoped_to_the_conversation(runtime, manager, monkeypatch):
     from questchain import telegram
     monkeypatch.setattr(telegram, "_get_thread_id", lambda chat_id: f"history-{chat_id}")
     context = SimpleNamespace(bot_data={"runtime": runtime, "agent_manager": manager}, chat_data={})
     update = SimpleNamespace(effective_chat=SimpleNamespace(id=101, send_action=AsyncMock()),
-                             message=SimpleNamespace(message_id=1, reply_text=AsyncMock()))
-    runtime.test_model.decision = dict(action="reply", agent_id="", message="I'm here.", context_run_id="")
+                             message=SimpleNamespace(message_id=1, reply_chat_action=AsyncMock(), reply_text=AsyncMock()))
+    runtime.test_model.text = "I'm here."
     await telegram._submit_runtime_message(update, context, "Hey you there?")
     first_id = context.chat_data["last_run_id"]
-    keeper = manager.get_by_class_name("Keeper")
-    runtime.test_model.decision = dict(action="reply", agent_id=keeper["id"],
-        message="Yes, I can see the recent messages in this conversation.", context_run_id=first_id)
+    runtime.test_model.text = "Yes, I can see our interactions in this conversation."
     update.message.message_id = 2
     await telegram._submit_runtime_message(update, context, "Do you have a message history?")
     result = runtime.store.get(context.chat_data["last_run_id"])
     assert result["status"] == "completed"
     assert "Perseus · completed" in update.message.reply_text.call_args.args[0]
-    assert runtime.test_model.calls[-1]["recent_runs"][-1]["request"] == "Hey you there?"
-    assert runtime.test_model.calls[-1]["previous_user_message"] == "Hey you there?"
-    assert not runtime.test_calls  # A reply cannot dispatch the accidental specialist ID.
-    runtime.test_model.decision = dict(action="reply", agent_id="", message="I'm here.", context_run_id="")
+    assert [m["content"] for m in runtime.test_model.calls[-1] if m["role"] == "user"] == ["Hey you there?", "Do you have a message history?"]
+    assert not runtime.test_calls
+    runtime.test_model.text = "I'm here."
     update.effective_chat.id = 202
     await telegram._submit_runtime_message(update, context, "Hello")
-    assert runtime.test_model.calls[-1]["recent_runs"] == []
-    assert runtime.test_model.calls[-1]["previous_user_message"] is None
+    assert [m["content"] for m in runtime.test_model.calls[-1] if m["role"] == "user"] == ["Hello"]
 
 
 def test_catalog_and_migration_preserve_identity(manager):
@@ -121,8 +131,7 @@ def test_invalid_definition_does_not_change_saved_agent(manager):
 
 async def test_router_streams_custom_specialist_without_rewriting(runtime, manager):
     custom = quill(manager)
-    runtime.test_model.decision = dict(action="dispatch", agent_id=custom["id"],
-                                       message="A rewritten task that must be ignored", context_run_id="")
+    runtime.test_model.destination = custom["id"]
     run_id = runtime.submit(TaskRequest("Polish these notes", manager.get_active_id(), "web-a", "web"))
     result = await runtime.wait(run_id)
     assert result["status"] == "completed"
@@ -139,7 +148,7 @@ async def test_router_streams_custom_specialist_without_rewriting(runtime, manag
     assert not runtime.snapshot("telegram-other")["runs"]
 
 
-async def test_direct_chat_bypasses_classifier_and_agent_selection_is_captured(runtime, manager):
+async def test_direct_chat_bypasses_router_and_agent_selection_is_captured(runtime, manager):
     custom = quill(manager)
     run_id = runtime.submit(TaskRequest("Hello", custom["id"], "cli-a"))
     manager.set_active(manager.get_by_class_name("Builder")["id"])
@@ -153,14 +162,14 @@ async def test_direct_chat_bypasses_classifier_and_agent_selection_is_captured(r
 
 
 async def test_invalid_routing_and_clarification_do_not_execute(runtime, manager):
-    runtime.test_model.decision = dict(action="dispatch", agent_id="invented", message="", context_run_id="")
+    runtime.test_model.destination = "invented"
     result = await runtime.wait(runtime.submit(TaskRequest("Something", manager.get_active_id(), "web-a")))
     assert result["status"] == "failed"
-    assert len(runtime.test_model.calls) == 2
+    assert len(runtime.test_model.calls) == 30  # Normal agent tool loop is bounded.
     assert not runtime.test_calls
-    runtime.test_model.decision = dict(action="clarify", agent_id="", message="Which project?", context_run_id="")
+    runtime.test_model.text = "Which project?"
     result = await runtime.wait(runtime.submit(TaskRequest("Something", manager.get_active_id(), "web-a")))
-    assert result["status"] == "waiting_input"
+    assert result["status"] == "completed"  # Clarifications are ordinary replies.
     assert result["result"] == "Which project?"
 
 
@@ -189,11 +198,13 @@ async def test_followup_context_is_scoped_and_model_context_is_per_agent(runtime
 
 async def test_clarification_handoff_preserves_original_request(runtime, manager):
     custom = quill(manager)
-    runtime.test_model.decision = dict(action="clarify", agent_id="", message="Which language?", context_run_id="")
+    runtime.test_model.text = "Which language?"
     first = await runtime.wait(runtime.submit(TaskRequest("Write a CSV parser", manager.get_active_id(), "web-a")))
-    runtime.test_model.decision = dict(action="clarify", agent_id="", message="Which delimiter?", context_run_id=first["id"])
+    runtime.test_model.text = "Which delimiter?"
     second = await runtime.wait(runtime.submit(TaskRequest("Python", manager.get_active_id(), "web-a")))
-    runtime.test_model.decision = dict(action="dispatch", agent_id=custom["id"], message="", context_run_id=second["id"])
+    runtime.test_model.text = ""
+    runtime.test_model.destination = custom["id"]
+    runtime.test_model.context = "Write a CSV parser. Which language? Python. Which delimiter?"
     result = await runtime.wait(runtime.submit(TaskRequest("Semicolon", manager.get_active_id(), "web-a")))
     assert result["status"] == "completed"
     prompt = runtime.test_calls[0][1]
@@ -204,7 +215,7 @@ async def test_clarification_handoff_preserves_original_request(runtime, manager
 async def test_cancel_and_explicit_retry(runtime, manager):
     entered = asyncio.Event()
     class SlowRunner:
-        async def run(self, prompt, thread_id, on_tool_call):
+        async def run(self, prompt, thread_id, on_tool_call, **kwargs):
             yield "partial response " * 10
             entered.set()
             await asyncio.Event().wait()
@@ -245,7 +256,7 @@ async def test_routed_cron_occurrences_start_with_fresh_context(runtime, manager
             occurrence_key=f"summary:{occurrence}")))
         assert result["status"] == "completed"
     assert len(runtime.test_model.calls) == 2
-    assert all(call["recent_runs"] == [] for call in runtime.test_model.calls)
+    assert all(len([m for m in call if m["role"] == "user"]) == 1 for call in runtime.test_model.calls)
     assert [call[1] for call in runtime.test_calls] == ["Draft today's summary"] * 2
     assert runtime.test_calls[0][2] != runtime.test_calls[1][2]
 
@@ -276,7 +287,7 @@ async def test_telegram_wizard_and_chat_use_custom_agent(runtime, manager, monke
     monkeypatch.setattr(telegram, "_thread_ids", {})
     reply = AsyncMock()
     update = SimpleNamespace(effective_user=SimpleNamespace(id=42), effective_chat=SimpleNamespace(id=42, send_action=AsyncMock()),
-                             message=SimpleNamespace(text="", message_id=1, reply_text=reply))
+                             message=SimpleNamespace(text="", message_id=1, reply_chat_action=AsyncMock(), reply_text=reply))
     context = SimpleNamespace(bot_data={"runtime": runtime, "agent_manager": manager},
                               chat_data={"building_agent": {"step": "name", "data": {}}})
     for answer in ["Quill", "-", "-", "none", "Write clear prose.", "Draft prose from supplied notes.", "yes", "Do not browse.", "Polish this note", "yes"]:

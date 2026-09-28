@@ -94,6 +94,7 @@ function handleEvent(msg) {
   }
   switch (msg.type) {
     case 'conversation': onConversation(msg); break;
+    case 'conversations': renderConversations(msg.conversations); break;
     case 'run_status': onRunStatus(msg); break;
     case 'routed': onRouted(msg); break;
     case 'agent_selected':
@@ -192,6 +193,7 @@ function onDone(msg) {
   onRunStatus(msg);
   send({ type: 'get_stats', agent_id: msg.agent_id });
   send({ type: 'get_agents' });
+  send({type: 'get_conversations'});
   pushBattleLog(msg.agent_id, msg.status === 'completed' ? 'Completed response' : msg.status);
   scrollToBottom();
 }
@@ -239,6 +241,7 @@ function renderRunStatus() {
 
 function onRouted(msg) {
   onRunStatus(msg);
+  State.messageEls.get(msg.message_id)?.querySelector('.msg-bubble')?.classList.remove('stream-cursor');
   if (State.routeEls.has(msg.run_id)) return;
   const el = document.createElement('div');
   el.className = 'routing-note';
@@ -259,6 +262,10 @@ function onConversation(msg) {
     const event = {...run, run_id: run.id, content: run.result};
     if (!run.parent_run_id) onUserMessage({...event, message_id: run.user_message_id, content: run.text});
     if (run.child_run_id) {
+      if (run.routing_message) {
+        const wrap = messageFor(event);
+        ChatMarkdown.set(wrap.querySelector('.msg-bubble'), run.routing_message);
+      }
       const child = msg.runs.find(r => r.id === run.child_run_id);
       if (child) onRouted({...event, destination_name: child.agent_name});
     } else if (run.result || FINISHED.has(run.status)) {
@@ -278,6 +285,20 @@ function onConversation(msg) {
     onRunStatus(event);
   }
   renderChatAgentList(); updateChatHeader(); renderRunStatus();
+  send({type: 'get_conversations'});
+}
+
+function renderConversations(conversations) {
+  const select = document.getElementById('chat-history');
+  select.replaceChildren();
+  if (!conversations.some(c => c.id === State.conversationId)) {
+    select.add(new Option('New conversation', State.conversationId));
+  }
+  for (const conversation of conversations) {
+    const date = new Date(conversation.updated_at).toLocaleDateString();
+    select.add(new Option(`${date} · ${conversation.preview}`, conversation.id));
+  }
+  select.value = State.conversationId;
 }
 
 function onAgents(msg) {
@@ -1081,6 +1102,10 @@ for (const action of ['run', 'toggle', 'delete']) {
 // ── New Chat button ───────────────────────────────────────────
 document.getElementById('btn-new-chat').addEventListener('click', () => {
   send({ type: 'new_thread' });
+});
+document.getElementById('chat-history').addEventListener('focus', () => send({type: 'get_conversations'}));
+document.getElementById('chat-history').addEventListener('change', event => {
+  send({type: 'load_conversation', conversation_id: event.target.value});
 });
 
 // ── Settings buttons ──────────────────────────────────────────

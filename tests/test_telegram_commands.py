@@ -22,7 +22,7 @@ async def chat(monkeypatch, tmp_path):
     writer = manager.add("Writer", None, "Write clearly.", [], when_to_call="Draft text.")
 
     class Runner:
-        async def run(self, prompt, thread_id, on_tool_call):
+        async def run(self, prompt, thread_id, on_tool_call, **kwargs):
             yield "Saved specialist answer"
 
     runtime = TaskRuntime(manager, default_model="runtime-model", path=tmp_path / "runs.sqlite3",
@@ -31,7 +31,7 @@ async def chat(monkeypatch, tmp_path):
                               chat_data={"agent_id": writer["id"]})
     update = SimpleNamespace(effective_user=SimpleNamespace(id=42),
                              effective_chat=SimpleNamespace(id=101, send_action=AsyncMock()),
-                             message=SimpleNamespace(text="", reply_text=AsyncMock()))
+                             message=SimpleNamespace(text="", reply_chat_action=AsyncMock(), reply_text=AsyncMock()))
 
     async def submit(text="Original request", *, chat_id=101, thread_id=None, source="telegram"):
         thread_id = thread_id or telegram._get_thread_id(chat_id)
@@ -57,6 +57,20 @@ async def test_model_follows_live_agent_override_and_runtime_default(chat):
     assert "writer-model" in await chat.command("model")
     chat.manager.update(chat.writer["id"], model=None)
     assert "runtime-model" in await chat.command("model")
+
+
+async def test_router_tools_are_described_in_both_interfaces(chat, monkeypatch):
+    import io
+    from rich.console import Console
+    from questchain import cli
+    router = chat.manager.get_by_class_name("Router")
+    chat.context.chat_data["agent_id"] = router["id"]
+    assert "route_to_agent" in await chat.command("tools")
+    chat.manager.set_active(router["id"])
+    output = io.StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=output))
+    cli.handle_command("/tools", {"agent_manager": chat.manager})
+    assert "route_to_agent" in output.getvalue()
 
 
 async def test_new_clears_old_run_and_retry_cannot_cross_conversations(chat):

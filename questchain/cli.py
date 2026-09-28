@@ -534,6 +534,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.agents import tool_issues
         tools = definition.get("tools", [])
         selected = "all available" if tools == "all" else ", ".join(tools) or "none"
+        if definition.get("class_name") == "Router":
+            selected = "route_to_agent (hand requests to an eligible specialist)"
         text = f"{definition['name']} · selected tools: {selected}"
         issues = tool_issues(definition)
         if issues:

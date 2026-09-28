@@ -6,6 +6,7 @@ import logging
 import os
 import tempfile
 import uuid
+from contextlib import asynccontextmanager, suppress
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
@@ -171,6 +172,8 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     definition = manager.get(context.chat_data.get("agent_id", manager.get_active_id())) or manager.get_active()
     tools = definition.get("tools", [])
     selected = "all available" if tools == "all" else ", ".join(tools) or "none"
+    if definition.get("class_name") == "Router":
+        selected = "route_to_agent (hand requests to an eligible specialist)"
     text = f"{definition['name']} · selected tools: {selected}"
     issues = tool_issues(definition)
     if issues:
@@ -696,10 +699,9 @@ async def cmd_retry(update, context):
 
 
 async def _deliver_runtime_result(runtime, run_id, update):
-    stop_typing = asyncio.Event()
-    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
     try:
-        result = await runtime.wait(run_id)
+        async with _typing(update.message):
+            result = await runtime.wait(run_id)
         author = result.get("result_agent_name", result["agent_name"])
         text = f"{author} · {result['status']}\n\n{result['result']}"
         if result["error"]:
@@ -713,9 +715,6 @@ async def _deliver_runtime_result(runtime, run_id, update):
     except Exception as exc:
         runtime.mark_delivered(run_id, str(exc))
         logger.warning("Telegram result delivery failed: %s", exc)
-    finally:
-        stop_typing.set()
-        await typing_task
 
 
 def _voice_delivery(update):
@@ -746,35 +745,47 @@ async def _submit_runtime_message(update, context, text):
     await _deliver_runtime_result(runtime, run_id, update)
 
 
-async def _keep_typing(chat, stop: asyncio.Event) -> None:
-    """Send typing indicators to *chat* until *stop* is set."""
-    while not stop.is_set():
+_TYPING_INTERVAL = 3.0
+_TYPING_TIMEOUT = 1.5
+
+
+@asynccontextmanager
+async def _typing(message):
+    """Start before work, refresh within Telegram's five-second TTL, stop on exit."""
+    async def send():
         try:
-            await chat.send_action(ChatAction.TYPING)
-        except Exception:
-            pass
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=4.0)
-        except asyncio.TimeoutError:
-            pass
+            async with asyncio.timeout(_TYPING_TIMEOUT):
+                await message.reply_chat_action(ChatAction.TYPING)
+        except Exception as exc:
+            # Exception URLs can include the bot token; record the type only.
+            logger.warning("Telegram typing indicator failed (%s)", type(exc).__name__)
+
+    async def refresh():
+        while True:
+            await asyncio.sleep(_TYPING_INTERVAL)
+            await send()
+
+    await send()
+    task = asyncio.create_task(refresh())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 async def _run_agent_collect(agent, user_text: str, config: dict, update: Update) -> str:
     """Run the agent, collect full response, and send it to the user."""
-    stop_typing = asyncio.Event()
-    typing_task = asyncio.create_task(_keep_typing(update.effective_chat, stop_typing))
-
     try:
         full_response = ""
         thread_id = config.get("configurable", {}).get("thread_id", "telegram")
-        async for token in agent.run(user_text, thread_id=thread_id):
-            full_response += token
+        async with _typing(update.message):
+            async for token in agent.run(user_text, thread_id=thread_id):
+                full_response += token
     except Exception:
         logger.exception("Agent error")
         full_response = "Sorry, an internal error occurred."
-    finally:
-        stop_typing.set()
-        await typing_task
 
     if not full_response.strip():
         full_response = "(No response generated)"
@@ -809,17 +820,15 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if voice is None:
         return
 
-    await update.effective_chat.send_action(ChatAction.TYPING)
-
-    tg_file = await context.bot.get_file(voice.file_id)
-
     suffix = ".ogg" if update.message.voice else ".mp3"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        await tg_file.download_to_drive(tmp_path)
-        text = await asyncio.to_thread(transcribe, tmp_path)
+        async with _typing(update.message):
+            tg_file = await context.bot.get_file(voice.file_id)
+            await tg_file.download_to_drive(tmp_path)
+            text = await asyncio.to_thread(transcribe, tmp_path)
     finally:
         try:
             os.unlink(tmp_path)
@@ -873,7 +882,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     agent_name="QuestChain")
         thread_id = "onboarding-" + str(chat_id)
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
-        await update.effective_chat.send_action(ChatAction.TYPING)
 
         if not context.chat_data.get("onboarding_intro_sent", False):
             context.chat_data["onboarding_intro_sent"] = True

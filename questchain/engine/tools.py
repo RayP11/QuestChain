@@ -15,6 +15,7 @@ class ToolDef:
     description: str
     fn: Callable
     schema: dict  # Ollama-compatible JSON schema
+    ends_turn: bool = False
 
 
 class ToolRegistry:
@@ -60,6 +61,10 @@ class ToolRegistry:
                 "content": content,
             })
         return messages
+
+    def ends_turn(self, name: str) -> bool:
+        definition = self._tools.get(name)
+        return bool(definition and definition.ends_turn)
 
     def __len__(self) -> int:
         return len(self._tools)

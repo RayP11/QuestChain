@@ -352,7 +352,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             await _send_cron_history(ws)
         return
 
-    if _runtime and t in {"chat", "switch_agent", "new_thread", "get_conversation", "cancel_run", "retry_run"}:
+    if _runtime and t in {"chat", "switch_agent", "new_thread", "get_conversation", "get_conversations", "load_conversation", "cancel_run", "retry_run"}:
         from questchain.runtime import TaskRequest
         state = _clients.setdefault(id(ws), {"conversation_id": "web-" + uuid.uuid4().hex,
                                               "agent_id": _agent_manager.get_active_id()})
@@ -374,6 +374,24 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                 state["conversation_id"] = "web-" + uuid.uuid4().hex
                 await _send_conversation(ws)
             elif t == "get_conversation":
+                await _send_conversation(ws)
+            elif t == "get_conversations":
+                conversations = {}
+                for run in _runtime.store.runs():
+                    if run["source"] != "web" or run.get("parent_run_id"):
+                        continue
+                    entry = conversations.setdefault(run["conversation_id"], {
+                        "id": run["conversation_id"], "preview": run["text"][:80]})
+                    entry["updated_at"] = run["created_at"]
+                await ws.send_json({"type": "conversations", "conversations": sorted(
+                    conversations.values(), key=lambda c: c["updated_at"], reverse=True)})
+            elif t == "load_conversation":
+                conversation = msg.get("conversation_id", "")
+                if not isinstance(conversation, str) or not re.fullmatch(r"web-[a-zA-Z0-9-]{1,100}", conversation):
+                    raise ValueError("Invalid web conversation.")
+                if not any(r["source"] == "web" for r in _runtime.store.runs(conversation)):
+                    raise ValueError("Conversation not found.")
+                state["conversation_id"] = conversation
                 await _send_conversation(ws)
             else:
                 run_id = msg.get("run_id", "")

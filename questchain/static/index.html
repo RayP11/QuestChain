@@ -91,15 +91,17 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 #chat-header {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: var(--surface);
   flex-shrink: 0;
 }
 #chat-agent-name { font-weight: 600; color: var(--text); }
 #chat-agent-level { font-size: 11px; color: var(--accent); padding: 2px 8px; background: var(--accent-dim); border-radius: 20px; }
-#chat-model { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+#chat-model { font-size: 11px; color: var(--text-dim); font-family: var(--mono); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #btn-new-chat { margin-left: auto; display: flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: var(--radius); border: 1px solid var(--border2); background: transparent; color: var(--text-dim); font-size: 11px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
 #btn-new-chat:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+#chat-history { margin-left: auto; flex: 1 1 120px; min-width: 0; max-width: 240px; padding: 5px 8px; background: var(--surface2); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius); font: inherit; font-size: 11px; }
+#chat-history + #btn-new-chat { margin-left: 0; }
 
 #messages {
   flex: 1;
@@ -937,6 +939,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <span id="chat-agent-name">QuestChain</span>
           <span id="chat-agent-level">Lv. 1</span>
           <span id="chat-model"></span>
+          <select id="chat-history" aria-label="Conversation history"><option>New conversation</option></select>
           <button id="btn-new-chat" title="New conversation">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             New Chat

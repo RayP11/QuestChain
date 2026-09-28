@@ -98,6 +98,8 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 
 Chat with **Perseus** to route work to **Argus** (research), **Athena** (workspace knowledge), **Talos** (building), or **Zeus** (planning and advice). Each specialist streams its own response under its own name. Direct chat is always available.
 
+Perseus uses the same chat engine as every other agent: he can answer you directly or hand your request to a specialist. A conversation is one shared thread in the interface, with separate saved context for each agent. Agents see their own interactions, including work routed to them, rather than every other agent's chats. Starting a new thread starts fresh for all agents; reopening one restores their saved context. Long histories are summarized to fit the local model's context window. Use the web chat's conversation selector, terminal `/history`, or Telegram `/history` to resume a thread.
+
 Create additional agents in the web UI, terminal, or Telegram with a name, tools, system prompt, and guidance describing when the coordinator should call them. Legacy agents are archived under `~/.questchain/legacy` and can be migrated explicitly through any interface. [Agent guide](docs/agent-classes.md).
 
 ## Cron Jobs
