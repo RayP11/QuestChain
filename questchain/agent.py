@@ -63,7 +63,7 @@ def create_questchain_agent(
             return False
         return tools_filter is None or name in tools_filter
 
-    for fn in (filesystem.read_file, filesystem.write_file, filesystem.edit_file,
+    for fn in (filesystem.read_file, filesystem.write_file, filesystem.edit_file, filesystem.delete_file,
                filesystem.ls, filesystem.glob, filesystem.grep):
         if _want(fn._tool_def.name):
             registry.register(fn._tool_def)
@@ -97,8 +97,9 @@ def create_questchain_agent(
             "When asked to save notes or organize knowledge, use write_file to create files and edit_file to revise them; "
             "do not just describe the edits. Read an existing file before changing it and preserve unrelated content. "
             "Use virtual paths such as /workspace/knowledge/notes.md. "
-            "Carry out requested routine file creation and edits; ask before destructive deletion or replacement. "
-            "Afterward, verify the saved content with read_file and report the paths changed. "
+            "Carry out requested routine file creation and edits. Use delete_file for a specific file the user asks to delete; "
+            "that explicit request counts as confirmation. Confirm exact paths before an ambiguous cleanup or destructive replacement. "
+            "After creation or editing, verify saved content with read_file; after deletion, verify absence with ls. Report the paths changed. "
             "If a required tool is disabled, explain that limitation rather than claiming a file was changed."
         )
 

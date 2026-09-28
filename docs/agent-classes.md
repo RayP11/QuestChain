@@ -6,7 +6,7 @@ QuestChain uses a coordinator and focused specialists. Select Perseus for automa
 | --- | --- | --- |
 | Perseus | Coordinator | Choose a specialist, clarify requests, communicate status |
 | Argus | Researcher | Research external information and cite sources |
-| Athena | Workspace knowledge | Find, create, edit, summarize, and organize workspace files and notes |
+| Athena | Workspace knowledge | Find, create, edit, delete, summarize, and organize workspace files and notes |
 | Talos | Builder | Inspect code, implement changes, and test them |
 | Zeus | Planning & advising | Plan projects, compare options, and advise on priorities |
 
@@ -32,7 +32,9 @@ Each conversation is one visible thread, with saved context per agent. Perseus s
 
 Starting a new conversation starts fresh for every agent. Reopening a saved conversation restores each agent's context, including after an app restart. Every agent checks its estimated context budget before each model call, including during tool loops, and summarizes older messages while preserving recent messages and tool-call/result pairs. The summary is saved for the next turn or restart. This uses an approximate token budget; very large individual messages or tool results can still exceed the window. Scheduled job occurrences still start with fresh context. The web chat's conversation selector reopens saved web threads; terminal and Telegram use `/history`.
 
-Athena can create knowledge files with `write_file` and make focused changes with `edit_file`. Her instructions call for reading existing files first, preserving unrelated content, verifying saved changes, and reporting the affected paths. File tools use workspace-relative virtual paths such as `/workspace/knowledge/notes.md`; shell access is not required. Disabling a file tool in Settings still revokes that capability.
+Athena has built-in `write_file`, `edit_file`, and `delete_file` tools by default. Her instructions call for reading before edits, preserving unrelated content, verifying results, and reporting affected paths. A specific request to delete a named file authorizes that deletion; ambiguous cleanup requests require clarification of the paths. Deletion rejects directories, symbolic links, and paths outside the workspace. File tools use virtual paths such as `/workspace/knowledge/notes.md`; shell access is not required. Disabling a file tool in Settings still revokes that capability.
+
+Upgrading adds deletion once to existing, untouched Keeper presets. Customized definitions and explicitly migrated legacy agents retain their selected permissions. New Keepers include deletion in the default tool selection across the web UI, terminal, and Telegram. A workspace tool with the same name cannot replace the built-in implementation.
 
 The web UI restores saved messages after a reload, shows failures and partial responses, and supports cancellation and explicit retry. Terminal `/runs`, `/retry [run ID]`, and `/history` expose saved task records. Telegram supports `/runs [run ID]`, `/history [conversation ID]`, `/cancel [run ID]`, and `/retry [run ID]`. Telegram history is limited to the current chat; resume a saved conversation before retrying its runs. `/new` clears the previous run selection without deleting history. Retrying creates a new attempt; stopping a run cannot undo completed tool actions.
 

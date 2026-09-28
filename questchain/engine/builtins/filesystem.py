@@ -1,4 +1,4 @@
-"""Built-in filesystem tools: read, write, edit, ls, glob, grep."""
+"""Built-in filesystem tools: read, write, edit, delete, ls, glob, grep."""
 
 from __future__ import annotations
 
@@ -82,6 +82,31 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
         return f"Edited {path}"
     except Exception as e:
         return f"Error editing {path}: {e}"
+
+
+@tool
+def delete_file(path: str) -> str:
+    """Delete one explicitly requested file inside the workspace; never directories.
+
+    Call only when the user requests this specific deletion or confirms its path.
+
+    Args:
+        path: Exact virtual file path, e.g. /workspace/knowledge/obsolete.md
+    """
+    try:
+        candidate = _ROOT / path.lstrip("/")
+        # Do not delete a symlink's target instead of the named entry.
+        if candidate.is_symlink():
+            return "Error: symbolic links cannot be deleted with this tool."
+        target = _resolve(path)
+        if target.is_dir():
+            return "Error: directories cannot be deleted with this tool. Choose an individual file."
+        if not target.is_file():
+            return f"Error: file not found: {path}"
+        target.unlink()
+        return f"Deleted file: /{target.relative_to(_ROOT).as_posix()}"
+    except OSError as exc:
+        return f"Error: could not delete file ({type(exc).__name__})."
 
 
 @tool

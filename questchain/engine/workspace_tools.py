@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Built-in tool names that workspace tools must not shadow.
 RESERVED_NAMES: frozenset[str] = frozenset({
-    "read_file", "write_file", "edit_file", "ls", "glob", "grep",
+    "read_file", "write_file", "edit_file", "delete_file", "ls", "glob", "grep",
     "shell", "web_search", "web_browse", "claude_code", "speak", "cron",
 })
 
@@ -47,6 +47,8 @@ def get_tool_entries(workspace_dir: Path) -> list[tuple[str, str]]:
                 )
                 if is_tool:
                     name = node.name
+                    if name in RESERVED_NAMES:
+                        continue
                     raw_doc = ast.get_docstring(node) or ""
                     desc = raw_doc.split("\n")[0] or f"Workspace tool: {name}"
                     entries.append((name, desc))
@@ -60,6 +62,9 @@ def load_workspace_tools(workspace_dir: Path, tools_filter: list[str]) -> list[T
     Errors per-file are caught and logged — a broken file never crashes the agent.
     Only called when an agent has an explicit tools list (never for tools_filter=None).
     """
+    selected = set(tools_filter) - RESERVED_NAMES
+    if not selected:
+        return []
     d = _tools_dir(workspace_dir)
     if not d.exists():
         return []
@@ -89,6 +94,6 @@ def load_workspace_tools(workspace_dir: Path, tools_filter: list[str]) -> list[T
                     path.name, td.name,
                 )
                 continue
-            if td.name in tools_filter:
+            if td.name in selected:
                 loaded.append(td)
     return loaded

@@ -38,7 +38,7 @@ _FILE_TOOLS = ["read_file", "write_file", "edit_file", "ls", "glob", "grep"]
 CLASS_TOOL_PRESETS: dict[str, list[str] | None] = {
     "Router":    [],
     "Custom":    None,
-    "Keeper":    [*_FILE_TOOLS],
+    "Keeper":    [*_FILE_TOOLS, "delete_file"],
     "Explorer":  ["web_search", "web_browse"],
     "Builder":   [*_FILE_TOOLS, "shell"],
     "Planner":   [*_FILE_TOOLS],
@@ -67,7 +67,7 @@ KEEPER_SYSTEM_PROMPT = """\
 You are {agent_name}, a knowledge and file management specialist running locally via Ollama.
 
 ## Rules
-- Read files carefully before modifying; confirm before any destructive changes.
+- Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.
 - Organize information clearly using structured files and directories.
 - Keep a concise plan for complex multi-step tasks.
 - Never hallucinate file contents or paths — verify with tools.
@@ -128,7 +128,7 @@ Answer greetings and status questions briefly. Delegate substantive work to an e
 CLASS_GUIDANCE = {
     "Router": "Route requests to specialists, clarify destinations, and report task progress or results.",
     "Explorer": "Research external or current information, compare sources, verify facts, and cite findings.",
-    "Keeper": "Find, summarize, create, edit, and organize workspace files, notes, and project knowledge.",
+    "Keeper": "Find, summarize, create, edit, delete, and organize workspace files, notes, and project knowledge.",
     "Builder": "Inspect code, implement software changes, create tools, diagnose bugs, and run tests.",
     "Planner": "Plan complex goals, compare approaches, advise on priorities, and assess tradeoffs.",
     "Scheduler": "Create, edit, pause, or inspect recurring cron jobs and their schedules.",
@@ -145,7 +145,7 @@ PRESET_AGENTS = [
         "name": "Athena",
         "model": None,
         "system_prompt": KEEPER_SYSTEM_PROMPT,
-        "tools": [*_FILE_TOOLS],
+        "tools": [*_FILE_TOOLS, "delete_file"],
         "class_name": "Keeper",
     },
     {
@@ -181,6 +181,7 @@ SELECTABLE_TOOLS = [
     ("read_file",   "Read a file"),
     ("write_file",  "Write a file"),
     ("edit_file",   "Edit a file"),
+    ("delete_file", "Delete an individual workspace file"),
     ("ls",          "List directory contents"),
     ("glob",        "Find files by pattern"),
     ("grep",        "Search file contents"),
@@ -446,6 +447,7 @@ class AgentManager:
 
     def seed_preset_agents(self) -> None:
         """Bootstrap the new roster once, independently of the legacy archive."""
+        self._upgrade_keeper_defaults()
         marker = get_agents_path().with_name("agents_bootstrap_v3")
         if marker.exists():
             return
@@ -456,6 +458,28 @@ class AgentManager:
         if self._fresh or not get_active_agent_path().exists() or not self.get(get_active_agent_path().read_text().strip()):
             self.set_active(self.get_active_id())
         marker.write_text("3", encoding="utf-8")
+
+    def _upgrade_keeper_defaults(self) -> None:
+        """Upgrade untouched Keeper presets once; preserve edited permissions."""
+        marker = get_agents_path().with_name("agents_keeper_defaults_v1")
+        if marker.exists():
+            return
+        old_prompt = KEEPER_SYSTEM_PROMPT.replace(
+            "Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.",
+            "Read files carefully before modifying; confirm before any destructive changes.",
+        ).strip()
+        changed = False
+        for agent in self._agents:
+            if (agent.get("class_name") == "Keeper" and agent.get("revision", 1) == 1
+                    and not agent.get("migrated_at") and agent.get("tools") == _FILE_TOOLS
+                    and (agent.get("system_prompt") or "").strip() == old_prompt):
+                agent["tools"] = [*_FILE_TOOLS, "delete_file"]
+                agent["system_prompt"] = KEEPER_SYSTEM_PROMPT.strip()
+                agent["revision"] = 2
+                changed = True
+        if changed:
+            self._save()
+        marker.write_text("1", encoding="utf-8")
 
     def set_active(self, agent_id: str) -> None:
         """Persist the active agent ID to disk."""
