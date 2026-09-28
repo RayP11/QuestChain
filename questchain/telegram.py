@@ -746,28 +746,47 @@ async def _submit_runtime_message(update, context, text):
 
 
 _TYPING_INTERVAL = 3.0
-_TYPING_TIMEOUT = 1.5
+_TYPING_TIMEOUT = 10.0
+_TYPING_BACKOFF_MAX = 30.0
 
 
 @asynccontextmanager
 async def _typing(message):
-    """Start before work, refresh within Telegram's five-second TTL, stop on exit."""
+    """Start typing alongside work; slow requests must never hold up a reply."""
+    started = asyncio.Event()
+    failures = 0
+
     async def send():
+        nonlocal failures
         try:
             async with asyncio.timeout(_TYPING_TIMEOUT):
                 await message.reply_chat_action(ChatAction.TYPING)
         except Exception as exc:
-            # Exception URLs can include the bot token; record the type only.
-            logger.warning("Telegram typing indicator failed (%s)", type(exc).__name__)
+            failures += 1
+            if failures == 1:
+                # Exception URLs can include the bot token; record the type only.
+                logger.warning("Telegram typing indicator unavailable (%s); retrying in background while replies continue",
+                               type(exc).__name__)
+        else:
+            if failures:
+                logger.info("Telegram typing indicator recovered after %d failed attempt(s)", failures)
+            failures = 0
 
     async def refresh():
+        started.set()
         while True:
-            await asyncio.sleep(_TYPING_INTERVAL)
+            attempt_started = asyncio.get_running_loop().time()
             await send()
+            if failures:
+                delay = min(_TYPING_BACKOFF_MAX, _TYPING_INTERVAL * 2 ** min(failures - 1, 10))
+            else:
+                # Count request time toward the refresh interval to avoid TTL gaps.
+                delay = max(0, _TYPING_INTERVAL - (asyncio.get_running_loop().time() - attempt_started))
+            await asyncio.sleep(delay)
 
-    await send()
     task = asyncio.create_task(refresh())
     try:
+        await started.wait()  # Dispatch the first attempt without waiting for its network round trip.
         yield
     finally:
         task.cancel()
