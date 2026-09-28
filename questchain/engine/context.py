@@ -45,6 +45,7 @@ class ContextManager:
         self.max_tokens = max_tokens
         self.reserve = reserve
         self._messages: list[dict] = []
+        self._shared_run_ids: set[str] = set()
         self._load()
 
     # ------------------------------------------------------------------
@@ -60,6 +61,14 @@ class ContextManager:
 
     def extend(self, messages: list[dict]) -> None:
         self._messages.extend(messages)
+
+    def import_shared_history(self, interactions: list[dict]) -> None:
+        """Append other agents' attributed records once, even after compaction."""
+        for interaction in interactions:
+            run_id = interaction["run_id"]
+            if run_id not in self._shared_run_ids:
+                self.add({"role": "assistant", "content": interaction["content"]})
+                self._shared_run_ids.add(run_id)
 
     # ------------------------------------------------------------------
     # Token budget
@@ -82,13 +91,19 @@ class ContextManager:
     async def compact(self, model) -> None:
         """Summarise old turns to free context space.
 
-        Keeps the most recent 6 messages intact; summarises everything before.
+        Keeps at least the most recent 6 messages and complete tool batches intact.
         """
         if len(self._messages) <= _COMPACT_KEEP_RECENT:
             return
 
-        old = self._messages[:-_COMPACT_KEEP_RECENT]
-        recent = self._messages[-_COMPACT_KEEP_RECENT:]
+        cut = len(self._messages) - _COMPACT_KEEP_RECENT
+        # Keep a tool-call message together with all of its results.
+        while cut > 0 and self._messages[cut].get("role") == "tool":
+            cut -= 1
+        if cut == 0:
+            return
+        old = self._messages[:cut]
+        recent = self._messages[cut:]
 
         text = "\n\n".join(
             f"{m['role'].upper()}: {str(m.get('content', ''))[:_COMPACT_CONTENT_LIMIT]}"
@@ -97,6 +112,8 @@ class ContextManager:
 
         logger.info("Compacting %d old messages for thread %s", len(old), self.thread_id)
         summary = await model.summarize(text)
+        if not summary.strip():
+            raise RuntimeError("The model returned an empty history summary; original context was kept.")
 
         self._messages = [
             {
@@ -115,9 +132,13 @@ class ContextManager:
 
     def save(self) -> None:
         path = _sessions_dir() / f"{self.thread_id}.jsonl"
-        with path.open("w", encoding="utf-8") as f:
+        temp = path.with_suffix(".tmp")
+        with temp.open("w", encoding="utf-8") as f:
+            if self._shared_run_ids:
+                f.write(json.dumps({"_context_metadata": {"shared_run_ids": sorted(self._shared_run_ids)}}) + "\n")
             for msg in self._messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        temp.replace(path)
 
     def _load(self) -> None:
         path = _sessions_dir() / f"{self.thread_id}.jsonl"
@@ -128,9 +149,13 @@ class ContextManager:
                 self._messages = [
                     json.loads(line) for line in f if line.strip()
                 ]
+            if self._messages and "_context_metadata" in self._messages[0]:
+                metadata = self._messages.pop(0)["_context_metadata"]
+                self._shared_run_ids = set(metadata.get("shared_run_ids", []))
         except Exception as e:
             logger.warning("Failed to load context for %s: %s", self.thread_id, e)
             self._messages = []
+            self._shared_run_ids = set()
 
     # ------------------------------------------------------------------
     # Static helpers

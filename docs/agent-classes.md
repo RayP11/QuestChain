@@ -6,7 +6,7 @@ QuestChain uses a coordinator and focused specialists. Select Perseus for automa
 | --- | --- | --- |
 | Perseus | Coordinator | Choose a specialist, clarify requests, communicate status |
 | Argus | Researcher | Research external information and cite sources |
-| Athena | Workspace knowledge | Find, summarize, and organize workspace files and notes |
+| Athena | Workspace knowledge | Find, create, edit, summarize, and organize workspace files and notes |
 | Talos | Builder | Inspect code, implement changes, and test them |
 | Zeus | Planning & advising | Plan projects, compare options, and advise on priorities |
 
@@ -28,7 +28,11 @@ Select a specialist in the chat agent list to speak to it directly, or keep Pers
 
 Perseus is a normal conversational agent with a routing tool. He can reply directly or hand the current request to an eligible specialist. The specialist's answer streams under its own name without being rewritten by Perseus.
 
-Each conversation is one visible thread, with saved context per agent. Every agent, including Perseus, sees its own interactions in that thread. A handoff can include relevant earlier constraints; unrelated direct chats with other agents are not shared. Starting a new conversation starts fresh for every agent. Reopening a saved conversation restores each agent's context, including after an app restart. Long histories are summarized to fit the model's context window. Scheduled job occurrences still start with fresh context. The web chat's conversation selector reopens saved web threads; terminal and Telegram use `/history`.
+Each conversation is one visible thread, with saved context per agent. Perseus sees his own interactions plus attributed records of other agents' requests, replies, and run outcomes in that thread, including direct chats and routed work. Other threads are excluded. Specialists see only their own interactions and relevant context supplied with a handoff. The coordinator's imported records are saved once and remain accounted for after summarization, so reopening a thread does not duplicate them.
+
+Starting a new conversation starts fresh for every agent. Reopening a saved conversation restores each agent's context, including after an app restart. Every agent checks its estimated context budget before each model call, including during tool loops, and summarizes older messages while preserving recent messages and tool-call/result pairs. The summary is saved for the next turn or restart. This uses an approximate token budget; very large individual messages or tool results can still exceed the window. Scheduled job occurrences still start with fresh context. The web chat's conversation selector reopens saved web threads; terminal and Telegram use `/history`.
+
+Athena can create knowledge files with `write_file` and make focused changes with `edit_file`. Her instructions call for reading existing files first, preserving unrelated content, verifying saved changes, and reporting the affected paths. File tools use workspace-relative virtual paths such as `/workspace/knowledge/notes.md`; shell access is not required. Disabling a file tool in Settings still revokes that capability.
 
 The web UI restores saved messages after a reload, shows failures and partial responses, and supports cancellation and explicit retry. Terminal `/runs`, `/retry [run ID]`, and `/history` expose saved task records. Telegram supports `/runs [run ID]`, `/history [conversation ID]`, `/cancel [run ID]`, and `/retry [run ID]`. Telegram history is limited to the current chat; resume a saved conversation before retrying its runs. `/new` clears the previous run selection without deleting history. Retrying creates a new attempt; stopping a run cannot undo completed tool actions.
 

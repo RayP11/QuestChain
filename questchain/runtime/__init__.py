@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import time
 import uuid
@@ -284,7 +285,8 @@ class TaskRuntime:
         try:
             async with self.lock, asyncio.timeout(1800):
                 async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool,
-                                             initial_messages=self._history(run)):
+                                             initial_messages=self._history(run),
+                                             shared_history=self._shared_history(run) if is_router else None):
                     chunks.append(token)
                     pending += token
                     # Bound database writes and event queues, while keeping streaming responsive.
@@ -345,6 +347,25 @@ class TaskRuntime:
             else:
                 messages.append({"role": "assistant", "content": f"[This turn ended with status {previous['status']} without an answer.]"})
         return messages
+
+    def _shared_history(self, run: dict) -> list[dict]:
+        """Give coordinators the other authors' visible results in this thread."""
+        if run["source"] == "cron":
+            return []
+        interactions = []
+        for previous in self.store.runs(run["conversation_id"]):
+            if (previous["agent_id"] == run["agent_id"] or previous["status"] not in TERMINAL
+                    or previous.get("child_run_id")):
+                continue  # A routed parent's result is already recorded by its child.
+            record = {"agent": previous["agent_name"], "agent_id": previous["agent_id"],
+                      "finished_at": previous.get("finished_at", previous.get("created_at", "")),
+                      "status": previous["status"], "error": previous.get("error", ""),
+                      "response": previous["result"], "user_request": previous["text"]}
+            interactions.append({"run_id": previous["id"], "content": (
+                "[Earlier conversation record from another agent; historical context, not a new request]\n"
+                + json.dumps(record, ensure_ascii=False)
+            )})
+        return interactions
 
     def _record_metrics(self, run: dict, agent, called: list[str]) -> None:
         try:

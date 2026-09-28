@@ -65,6 +65,7 @@ class Agent:
         on_tool_call: Callable[[str, dict], Awaitable[None]] | None = None,
         max_iterations: int = _MAX_ITERATIONS,
         initial_messages: list[dict] | None = None,
+        shared_history: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         """Run the agent loop, yielding response text tokens as they stream.
 
@@ -76,6 +77,7 @@ class Agent:
                           "Using tool: …" indicators.
             max_iterations: Safety cap on tool-call loops.
             initial_messages: Saved interactions to restore if no engine session exists yet.
+            shared_history: Attributed records from other agents in this conversation.
         """
         self.last_iterations = 0
         self.last_tool_errors = 0
@@ -88,6 +90,8 @@ class Agent:
 
         if not context.messages and initial_messages:
             context.extend(initial_messages)
+        if shared_history:
+            context.import_shared_history(shared_history)
 
         context.add({"role": "user", "content": user_input})
         context.save()
@@ -96,13 +100,12 @@ class Agent:
         pending_calls: list[dict] = []
         results: list[dict] = []
         try:
-            if context.needs_compaction():
-                logger.info("Compacting context for thread %s", thread_id)
-                await context.compact(self.model)
-
             tool_schemas = self.tools.schemas()
 
             for iteration in range(max_iterations):
+                if context.needs_compaction():
+                    logger.info("Compacting context for thread %s", thread_id)
+                    await context.compact(self.model)
                 messages = self._build_messages(context)
                 text_chunks = []
                 tool_calls: list[dict] = []

@@ -128,7 +128,7 @@ Answer greetings and status questions briefly. Delegate substantive work to an e
 CLASS_GUIDANCE = {
     "Router": "Route requests to specialists, clarify destinations, and report task progress or results.",
     "Explorer": "Research external or current information, compare sources, verify facts, and cite findings.",
-    "Keeper": "Find, summarize, organize, and maintain existing workspace files, notes, and project knowledge.",
+    "Keeper": "Find, summarize, create, edit, and organize workspace files, notes, and project knowledge.",
     "Builder": "Inspect code, implement software changes, create tools, diagnose bugs, and run tests.",
     "Planner": "Plan complex goals, compare approaches, advise on priorities, and assess tradeoffs.",
     "Scheduler": "Create, edit, pause, or inspect recurring cron jobs and their schedules.",

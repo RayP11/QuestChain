@@ -91,6 +91,16 @@ def create_questchain_agent(
             registry.register(tool_def)
 
     system_prompt = (system_prompt_override or SYSTEM_PROMPT).replace("{agent_name}", agent_name)
+    if class_name == "Keeper":
+        system_prompt += (
+            "\n\nManage workspace knowledge using your enabled file tools. "
+            "When asked to save notes or organize knowledge, use write_file to create files and edit_file to revise them; "
+            "do not just describe the edits. Read an existing file before changing it and preserve unrelated content. "
+            "Use virtual paths such as /workspace/knowledge/notes.md. "
+            "Carry out requested routine file creation and edits; ask before destructive deletion or replacement. "
+            "Afterward, verify the saved content with read_file and report the paths changed. "
+            "If a required tool is disabled, explain that limitation rather than claiming a file was changed."
+        )
 
     return Agent(
         model=model,
