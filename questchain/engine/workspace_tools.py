@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Built-in tool names that workspace tools must not shadow.
 RESERVED_NAMES: frozenset[str] = frozenset({
     "read_file", "write_file", "edit_file", "delete_file", "ls", "glob", "grep",
+    "delegate_to_agent", "route_to_agent",
     "shell", "web_search", "web_browse", "claude_code", "speak", "cron",
 })
 

@@ -5,6 +5,7 @@ import json
 import secrets
 import shutil
 import sqlite3
+import stat
 from pathlib import Path
 
 VERSION = 4
@@ -19,29 +20,43 @@ def atomic_json(path: Path, value) -> None:
 
 def _backup(root: Path) -> None:
     """Keep all prior archives and state; SQLite backup includes committed WAL pages."""
+    if (root / 'legacy').is_symlink():
+        raise ValueError('Migration archive directory must not be a symbolic link.')
     destination = root / 'legacy' / 'before-single-assistant-v4'
+    if destination.is_symlink():
+        raise ValueError('Migration backup directory must not be a symbolic link.')
     if (destination / 'complete').exists():
         return
-    destination.mkdir(parents=True, exist_ok=True)
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    destination.chmod(0o700)
     for source in root.iterdir():
         if source.name == 'legacy':
             for item in source.iterdir():
                 if item != destination:
                     target = destination / 'legacy' / item.name
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    if item.is_dir():
-                        shutil.copytree(item, target, dirs_exist_ok=True)
+                    if item.is_symlink():
+                        if target.is_symlink():
+                            target.unlink()
+                        shutil.copy2(item, target, follow_symlinks=False)
+                    elif item.is_dir():
+                        shutil.copytree(item, target, dirs_exist_ok=True, symlinks=True)
                     else:
                         shutil.copy2(item, target)
             continue
         if source.name.endswith(('-wal', '-shm', '.lock')):
             continue
         target = destination / source.name
-        if source.is_dir():
-            shutil.copytree(source, target, dirs_exist_ok=True)
+        if target.is_symlink():
+            target.unlink()
+        if source.is_symlink():
+            shutil.copy2(source, target, follow_symlinks=False)
+        elif source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True, symlinks=True)
         elif source.suffix in {'.sqlite3', '.sqlite', '.db'}:
             with sqlite3.connect(source) as src, sqlite3.connect(target) as dst:
                 src.backup(dst)
+            target.chmod(stat.S_IMODE(source.stat().st_mode))
         else:
             shutil.copy2(source, target)
     (destination / 'complete').write_text('4', encoding='utf-8')
