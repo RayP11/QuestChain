@@ -119,9 +119,66 @@ async def test_invalid_or_oversized_responses_close_stream(mock_client, body, he
     assert stream.closed
 
 
-async def test_empty_results_are_success(mock_client):
-    mock_client(lambda r: response(b'{"results":[]}'))
-    assert (await invoke())["results"] == []
+@pytest.mark.parametrize("metadata", [{}, {"unresponsive_engines": []}])
+async def test_empty_results_are_success(mock_client, metadata):
+    payload = {"results": [], **metadata}
+    mock_client(lambda r: response(json.dumps(payload).encode()))
+    result = await invoke()
+    assert result["results"] == []
+    assert result["status"] == "ok"
+    assert "error" not in result and "warning" not in result
+
+
+@pytest.mark.parametrize("results", [
+    [], [{"url": "http://127.0.0.1/private", "title": "Filtered result"}],
+    [{"url": "https://example.com/", "title": "Usable result"}],
+], ids=["empty", "filtered", "usable"])
+@pytest.mark.parametrize("failures", [
+    [["google", "timeout"]],
+    [["google", "timeout"], ["bing", "HTTP 429"]],
+], ids=["one-upstream-failure", "multiple-upstream-failures"])
+async def test_upstream_failures_are_degraded(mock_client, results, failures):
+    payload = {"results": results, "unresponsive_engines": failures}
+    resp = response(json.dumps(payload).encode())
+    stream = resp.stream
+    requests, _ = mock_client(lambda r: resp)
+    result = await invoke()
+    assert result["status"] == "degraded"
+    assert result["warning"] == "SearXNG reported upstream engine failures; results may be incomplete."
+    assert "Untrusted" in result["notice"]
+    if results and results[0]["title"] == "Usable result":
+        assert result["results"][0]["title"] == "Usable result"
+        assert "error" not in result
+    else:
+        assert result["results"] == []
+        assert "does not establish that no matching pages exist" in result["error"]
+    assert len(requests) == 1  # No retry, alternate instance, or provider fallback.
+    assert stream.closed
+
+
+async def test_degradation_metadata_is_bounded_and_redacted(mock_client, caplog):
+    secret = "private query & format=html https://private.example/secret "
+    payload = {"results": [], "unresponsive_engines": [[secret, secret * 1000]] * 10}
+    requests, _ = mock_client(lambda r: response(json.dumps(payload).encode()))
+    with caplog.at_level("DEBUG"):
+        result = await invoke()
+    assert result["status"] == "degraded" and "error" in result
+    assert len(json.dumps(result)) < 1000
+    for private in ("private query", "private.example", "secret"):
+        assert private not in json.dumps(result) and private not in caplog.text
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("failures", [None, {}, "private query secret", 0, False])
+async def test_malformed_upstream_status_fails_safely(mock_client, failures):
+    payload = {"results": [], "unresponsive_engines": failures}
+    resp = response(json.dumps(payload).encode())
+    stream = resp.stream
+    requests, _ = mock_client(lambda r: resp)
+    result = await invoke()
+    assert "error" in result and "results" not in result
+    assert "private" not in str(result) and "secret" not in str(result)
+    assert len(requests) == 1 and stream.closed
 
 
 async def test_timeout_and_cancellation_close_stream(mock_client, monkeypatch):

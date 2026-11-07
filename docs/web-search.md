@@ -63,6 +63,15 @@ cookies or consult environment proxies or netrc credentials. Consequently, this
 backend needs direct access to its configured service; proxy-only networks are not
 supported. HTTPX was already a transitive dependency and is now declared directly.
 
+Responses with reported upstream engine failures have `status: degraded` and a
+fixed warning. Usable partial results are retained; if none remain, the tool also
+returns an error rather than treating the response as evidence of no matches.
+The response does not establish whether all engines failed. Engine names and
+failure details are not exposed, and degradation never triggers retries or a
+fallback provider. An empty result list without reported failures is still a
+successful response (`status: ok`). Non-list upstream-status metadata fails with
+a sanitized error; entries within a nonempty list are treated as opaque failures.
+
 The endpoint is **trusted operator configuration**, not an arbitrary-URL tool.
 HTTPS endpoints may intentionally reach private services; DNS is not pinned and
 private HTTPS destinations are not blocked. Restrict configuration access and use

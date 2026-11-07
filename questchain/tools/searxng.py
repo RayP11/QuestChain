@@ -75,6 +75,9 @@ def _text(value: object, limit: int) -> str:
 def _normalize(payload: object, max_results: int) -> dict:
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         raise TypeError("Invalid response")
+    failures = payload.get("unresponsive_engines", [])
+    if not isinstance(failures, list):
+        raise TypeError("Invalid upstream status")
     results = []
     for item in payload["results"]:
         if not isinstance(item, dict) or not (url := _result_url(item.get("url"))):
@@ -83,7 +86,18 @@ def _normalize(payload: object, max_results: int) -> dict:
                         "content": _text(item.get("content"), 2000)})
         if len(results) >= max_results:
             break
-    return {"source": "searxng", "notice": UNTRUSTED_NOTICE, "results": results}
+    output = {"source": "searxng", "notice": UNTRUSTED_NOTICE, "results": results,
+              "status": "degraded" if failures else "ok"}
+    if failures:
+        # Engine names/reasons are untrusted and may contain query or endpoint data.
+        # SearXNG does not report a total engine count, so do not claim all failed.
+        output["warning"] = "SearXNG reported upstream engine failures; results may be incomplete."
+        if not results:
+            output["error"] = (
+                "SearXNG returned no usable results after upstream engine failures. "
+                "This does not establish that no matching pages exist."
+            )
+    return output
 
 
 def create_searxng_tool(endpoint: str, max_results: int = 5) -> StructuredTool:
