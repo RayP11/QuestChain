@@ -16,7 +16,7 @@ Once running, open **[http://127.0.0.1:8765](http://127.0.0.1:8765)** in your br
 
 ## In-app commands
 
-Type these in the terminal. Use the web Cron Jobs page for browser automation management.
+Type these in the terminal. Use the web Quests page for browser automation management.
 
 | Command | What it does |
 |---|---|
@@ -33,7 +33,7 @@ Type these in the terminal. Use the web Cron Jobs page for browser automation ma
 | `/runs` | List this conversation’s saved runs |
 | `/retry [run ID]` | Retry the last run or a specified run in this conversation |
 | `/cancel [run ID]` | Cancel queued or running work in this conversation |
-| `/cron` | Open the cron manager — create, edit, run, pause, resume, or delete jobs |
+| `/quests` | Open the Quests manager — create, edit, run, pause, resume, or delete jobs |
 | `/tavily` | Set up web search (free Tavily API key) |
 | `/claudecode` | Set up Claude Code CLI integration |
 | `/telegram` | Set up Telegram remote access |

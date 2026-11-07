@@ -130,7 +130,7 @@ function handleEvent(msg) {
     case 'cron_history': renderCronHistory(msg); break;
     case 'cron_error': document.getElementById('job-message').textContent = msg.message; break;
     case 'cron_saved':
-      document.getElementById('job-message').textContent = msg.action === 'run_cron' ? 'Job queued.' : 'Changes saved.';
+      document.getElementById('job-message').textContent = msg.action === 'run_cron' ? 'Quest queued.' : 'Changes saved.';
       if (msg.action === 'save_cron') { State.pendingJobId = msg.cron_id; send({ type: 'get_cron_jobs' }); }
       if (msg.action === 'delete_cron') clearJobEditor();
       break;
@@ -436,7 +436,7 @@ function renderSettings() {
     });
   }
 
-  // Cron jobs
+  // Quests
   const cronBody = document.getElementById('settings-cron-body');
   if (s.cron_jobs && s.cron_jobs.length) {
     cronBody.innerHTML = s.cron_jobs.map(j => `
@@ -451,7 +451,7 @@ function renderSettings() {
       btn.addEventListener('click', () => deleteCronJob(btn.dataset.cronId));
     });
   } else {
-    cronBody.innerHTML = '<span class="cron-empty">No cron jobs configured.</span>';
+    cronBody.innerHTML = '<span class="cron-empty">No quests configured.</span>';
   }
 
   // Integrations
@@ -544,7 +544,7 @@ function deleteAgent(id) {
 }
 
 function deleteCronJob(id) {
-  if (!confirm('Remove this cron job?')) return;
+  if (!confirm('Remove this quest?')) return;
   send({ type: 'delete_cron', cron_id: id });
 }
 
@@ -815,7 +815,7 @@ function renderRoster() {
   });
 }
 
-// ── Cron job editor ───────────────────────────────────────────
+// ── Quest editor ───────────────────────────────────────────
 function renderJobAgentSelect(id = '') {
   const sel = document.getElementById('job-agent-select');
   sel.innerHTML = '<option value="">Main assistant</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
@@ -828,7 +828,7 @@ function renderJobAgentSelect(id = '') {
 }
 function renderJobList() {
   const list = document.getElementById('job-list');
-  list.innerHTML = State.jobs.length ? State.jobs.map(j => `<button class="job-item ${j.id === State.selectedJobId ? 'active' : ''}" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="job-item-title">${escHtml(j.name)}<br><small>${escHtml(cronToHuman(j.cron_expression))} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'}</small></span></button>`).join('') : '<div class="job-empty">No cron jobs yet. Create one to automate a task.</div>';
+  list.innerHTML = State.jobs.length ? State.jobs.map(j => `<button class="job-item ${j.id === State.selectedJobId ? 'active' : ''}" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="job-item-title">${escHtml(j.name)}<br><small>${escHtml(cronToHuman(j.cron_expression))} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'}</small></span></button>`).join('') : '<div class="job-empty">No quests yet. Create one to automate a task.</div>';
   list.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => selectJob(el.dataset.jobId)));
 }
 function selectJob(id) {
@@ -898,7 +898,7 @@ function updateJobScheduleFields() {
   document.getElementById('job-monthday-wrap').hidden = repeat !== 'monthly';
   document.getElementById('job-time-input').disabled = repeat === 'existing';
   document.getElementById('job-schedule-hint').textContent = repeat === 'existing'
-    ? 'This job uses a custom recurring schedule. It will stay unchanged unless you choose a new repeat option.'
+    ? 'This quest uses a custom recurring schedule. It will stay unchanged unless you choose a new repeat option.'
     : repeat === 'monthly' ? 'Choose or type a time in the timezone above. Months without the selected day are skipped.'
     : 'Choose or type a time in the timezone above.';
 }
@@ -957,7 +957,7 @@ function renderBattleMap() {
   if (countEl) countEl.textContent = `Party: ${State.agents.length} agent${State.agents.length !== 1 ? 's' : ''}`;
 
   const objZone = document.getElementById('map-objectives');
-  objZone.innerHTML = '<div class="map-section-label">Cron Jobs</div>' + State.jobs.map(j => `<button class="map-cron-tile" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="map-cron-body"><span class="map-cron-name">${escHtml(j.name)}</span><br><span class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))} · ${escHtml(j.timezone)}</span></span><span class="map-cron-status ${j.enabled ? 'on' : 'off'}">${j.running ? 'Running' : j.enabled ? 'On' : 'Paused'}</span></button>`).join('') + (State.jobs.length ? '' : '<div class="map-empty">No scheduled jobs</div>') + '<button id="map-new-job" class="btn-new">+ New Job</button>';
+  objZone.innerHTML = '<div class="map-section-label">Quests</div>' + State.jobs.map(j => `<button class="map-cron-tile" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="map-cron-body"><span class="map-cron-name">${escHtml(j.name)}</span><br><span class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))} · ${escHtml(j.timezone)}</span></span><span class="map-cron-status ${j.enabled ? 'on' : 'off'}">${j.running ? 'Running' : j.enabled ? 'On' : 'Paused'}</span></button>`).join('') + (State.jobs.length ? '' : '<div class="map-empty">No scheduled quests</div>') + '<button id="map-new-job" class="btn-new">+ New Quest</button>';
   objZone.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => { switchPage('jobs'); selectJob(el.dataset.jobId); }));
   document.getElementById('map-new-job').addEventListener('click', () => { switchPage('jobs'); clearJobEditor(); });
 
@@ -1076,7 +1076,7 @@ function doSend() {
   sendBtn.disabled = false;
 }
 
-// ── Cron job actions ──────────────────────────────────────────
+// ── Quest actions ──────────────────────────────────────────
 document.getElementById('btn-new-job').addEventListener('click', clearJobEditor);
 document.getElementById('btn-save-job').addEventListener('click', () => {
   if (!State.connected) { document.getElementById('job-message').textContent = 'Disconnected. Reconnect before saving.'; return; }
@@ -1091,7 +1091,7 @@ document.getElementById('btn-save-job').addEventListener('click', () => {
 });
 for (const action of ['run', 'toggle', 'delete']) {
   document.getElementById(`btn-${action}-job`).addEventListener('click', () => {
-    if (action === 'delete' && !confirm('Delete this cron job? A running job will finish.')) return;
+    if (action === 'delete' && !confirm('Delete this quest? A running quest will finish.')) return;
     send({ type: `${action}_cron`, cron_id: State.selectedJobId });
   });
 }

@@ -34,7 +34,7 @@ Build your party. Level them up. Put them to work.
 
 **It never phones home.** No telemetry. No analytics. No accounts. Optional API keys stay in a local file and go nowhere.
 
-**It works while you sleep.** Schedule a cron job and your agent runs it automatically while QuestChain is open.
+**It works while you sleep.** Schedule a quest and your agent runs it automatically while QuestChain is open.
 
 **It grows with you.** Every agent has a name, a class, a level, and a history. The more it works, the more capable it becomes. It's not a tool you reset — it's a companion you build.
 

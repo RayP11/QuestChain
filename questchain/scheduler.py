@@ -1,4 +1,4 @@
-"""QuestChain cron job scheduler."""
+"""QuestChain quest scheduler."""
 
 import asyncio
 import json
@@ -29,7 +29,7 @@ def get_scheduler() -> "CronScheduler":
     if _scheduler_instance is None:
         raise RuntimeError(
             "CronScheduler not initialized. "
-            "Start QuestChain to manage cron jobs."
+            "Start QuestChain to manage quests."
         )
     return _scheduler_instance
 
@@ -41,7 +41,7 @@ def set_scheduler(scheduler: "CronScheduler | None") -> None:
 
 
 class CronScheduler:
-    """Manages persistent cron jobs for the QuestChain agent."""
+    """Manages persistent quests for the QuestChain agent."""
 
     def __init__(
         self,
@@ -93,7 +93,7 @@ class CronScheduler:
         timezone_str: str = "UTC",
         agent_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new cron job, persist it, register with APScheduler.
+        """Create a new quest, persist it, register with APScheduler.
 
         Raises ValueError if cron_expression is invalid.
         """
@@ -140,7 +140,7 @@ class CronScheduler:
         for job in self._jobs:
             if job["id"] == job_id:
                 return dict(job)
-        raise ValueError("Cron job not found.")
+        raise ValueError("Quest not found.")
 
     def update_job(self, job_id: str, *, name: str, cron_expression: str,
                    prompt: str, timezone_str: str = "UTC", agent_id: str | None = None) -> dict:
@@ -201,7 +201,7 @@ class CronScheduler:
                     self._scheduler.remove_job(f"manual:{job_id}")
                 self._publish()
                 return removed
-        raise KeyError(f"No cron job with ID '{job_id}'")
+        raise KeyError(f"No quest with ID '{job_id}'")
 
     def list_jobs(self) -> list[dict[str, Any]]:
         """Return all jobs."""
@@ -233,13 +233,13 @@ class CronScheduler:
         )
 
     def seed_builtin_jobs(self) -> None:
-        """Insert builtin cron jobs if they are not already present (by id)."""
+        """Insert builtin quests if they are not already present (by id)."""
         existing_ids = {j["id"] for j in self._jobs}
         added = [j for j in BUILTIN_CRON_JOBS if j["id"] not in existing_ids]
         if added:
             self._jobs.extend(added)
             self._save_jobs()
-            logger.info("Seeded %d builtin cron job(s)", len(added))
+            logger.info("Seeded %d builtin quest(s)", len(added))
 
     def _get_agent_for_job(self, job: dict):
         """Return the agent to use for a job, falling back to the default."""
@@ -254,7 +254,7 @@ class CronScheduler:
                     return make_agent_from_def(agent_def, self._audio_router, default_model=self._agent.model.model_name)
                 except Exception as e:
                     logger.warning(
-                        "Could not build %s agent for cron job '%s': %s — using default",
+                        "Could not build %s agent for quest '%s': %s — using default",
                         agent_class, job["name"], e,
                     )
 
@@ -267,7 +267,7 @@ class CronScheduler:
                     return make_agent_from_def(agent_def, self._audio_router, default_model=self._agent.model.model_name)
                 except Exception as e:
                     logger.warning(
-                        "Could not build agent '%s' for cron job '%s': %s — using default",
+                        "Could not build agent '%s' for quest '%s': %s — using default",
                         agent_id, job["name"], e,
                     )
         return self._agent
@@ -320,7 +320,7 @@ class CronScheduler:
                 text += ("\n\n" if text else "") + result["error"]
             self._record_result(job["id"], status, text)
             author = result.get("result_agent_name", result["agent_name"])
-            notification = f"Cron: {job['name']} · {author} · {status}\n\n{text}"
+            notification = f"Quest: {job['name']} · {author} · {status}\n\n{text}"
             fingerprint = hashlib.sha256((signature + text).encode()).hexdigest() if status != "success" else ""
             if fingerprint and fingerprint == job.get("last_blocker"):
                 return
@@ -342,18 +342,18 @@ class CronScheduler:
             self._record_result(job["id"], "error", str(exc))
             if str(exc) != job.get("last_result"):
                 try:
-                    await self._send_callback(f"Cron: {job['name']} · error\n\n{exc}")
+                    await self._send_callback(f"Quest: {job['name']} · error\n\n{exc}")
                 except Exception:
                     logger.exception("Could not deliver cron error")
 
     async def _run_job(self, job: dict) -> None:
-        """Fire when a cron job triggers. Invoke agent, send response."""
+        """Fire when a quest triggers. Invoke agent, send response."""
         job_id = job["id"]
         job_name = job["name"]
         prompt = job["prompt"]
         thread_id = f"cron:{job_id}"
 
-        logger.info("Executing cron job '%s' (id=%s)", job_name, job_id)
+        logger.info("Executing quest '%s' (id=%s)", job_name, job_id)
 
         chunks: list[str] = []
 
@@ -366,17 +366,17 @@ class CronScheduler:
             await asyncio.wait_for(_stream(), timeout=1800)  # 30 min — local models can be slow
         except asyncio.TimeoutError:
             self._record_result(job_id, "timeout", "Job timed out after 30 minutes.")
-            logger.warning("Cron job '%s' timed out", job_name)
+            logger.warning("Quest '%s' timed out", job_name)
             try:
-                await self._send_callback(f"Cron job '{job_name}' timed out.")
+                await self._send_callback(f"Quest '{job_name}' timed out.")
             except Exception:
                 logger.exception("Failed to send cron timeout message")
             return
         except Exception as e:
             self._record_result(job_id, "error", str(e))
-            logger.exception("Cron job '%s' failed", job_name)
+            logger.exception("Quest '%s' failed", job_name)
             try:
-                await self._send_callback(f"Cron job '{job_name}' error: {e}")
+                await self._send_callback(f"Quest '{job_name}' error: {e}")
             except Exception:
                 logger.exception("Failed to send cron error message")
             return
@@ -393,7 +393,7 @@ class CronScheduler:
                 progression.award_xp([], is_job=True)
                 if server._progression and server._progression.get_record().agent_id == definition["id"]:
                     server._progression.load()
-        await self._send_callback(f"Cron: {job_name}\n\n{full_response}")
+        await self._send_callback(f"Quest: {job_name}\n\n{full_response}")
 
     def _load_jobs(self) -> None:
         """Load jobs from JSON file."""
@@ -402,7 +402,7 @@ class CronScheduler:
                 data = json.loads(self._jobs_path.read_text(encoding="utf-8"))
                 self._jobs = data if isinstance(data, list) else []
             except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load cron jobs: %s", e)
+                logger.warning("Failed to load quests: %s", e)
                 self._jobs = []
         else:
             self._jobs = []

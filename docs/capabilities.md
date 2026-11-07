@@ -58,15 +58,15 @@ Your Scheduler agent can set up recurring tasks that run automatically and repor
 
 > *"Every Monday, search for the top AI news from the past week and save it to my notes."*
 
-Use `/cron` to see and manage all scheduled jobs.
+Use `/quests` to see and manage all scheduled jobs.
 
 ---
 
 ## Automated jobs
 
-Use the Cron Jobs page or `/cron` to schedule recurring work, choose its agent and timezone, and inspect results. Jobs run while QuestChain is open.
+Use the Quests page or `/quests` to schedule recurring work, choose its agent and timezone, and inspect results. Quests run while QuestChain is open.
 
-[→ Learn more about Cron Jobs](cron-jobs.md)
+[→ Learn more about Quests](cron-jobs.md)
 
 ---
 

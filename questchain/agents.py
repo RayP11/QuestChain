@@ -113,8 +113,8 @@ You are {agent_name}, a scheduling and automation specialist running locally via
 
 ## Rules
 - Use the cron tool to schedule recurring tasks and reminders.
-- Check existing cron jobs before adding new ones to avoid duplicates.
-- Confirm schedules with the user before creating or modifying cron jobs.
+- Check existing quests before adding new ones to avoid duplicates.
+- Confirm schedules with the user before creating or modifying quests.
 - Be precise with timing; state cron expressions clearly.
 """
 
@@ -131,7 +131,7 @@ CLASS_GUIDANCE = {
     "Keeper": "Find, summarize, create, edit, delete, and organize workspace files, notes, and project knowledge.",
     "Builder": "Inspect code, implement software changes, create tools, diagnose bugs, and run tests.",
     "Planner": "Plan complex goals, compare approaches, advise on priorities, and assess tradeoffs.",
-    "Scheduler": "Create, edit, pause, or inspect recurring cron jobs and their schedules.",
+    "Scheduler": "Create, edit, pause, or inspect recurring quests and their schedules.",
 }
 
 ROLE_LABELS = {"Router": "Coordinator", "Explorer": "Researcher", "Keeper": "Workspace knowledge",
@@ -184,7 +184,7 @@ SELECTABLE_TOOLS = [
     ("web_browse",  "Full page content via Tavily"),
     ("claude_code", "Delegate coding to Claude Code"),
     ("speak",       "Text-to-speech voice output"),
-    ("cron",        "Schedule recurring cron jobs"),
+    ("cron",        "Schedule recurring quests"),
 ]
 
 def get_dynamic_selectable_tools() -> list[tuple[str, str]]:

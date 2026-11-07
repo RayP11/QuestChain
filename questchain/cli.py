@@ -377,7 +377,8 @@ def show_metrics(mm: MetricsManager) -> None:
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
-    ("/cron",         "Manage scheduled cron jobs"),
+    ("/quests",       "Manage scheduled quests"),
+    ("/cron",         "Alias for /quests"),
     ("/exit",         "Exit QuestChain"),
     ("/help",         "Show all available commands"),
     ("/legacy",       "List archived agents; /legacy migrate ID restores one"),
@@ -572,13 +573,13 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
 
-    if cmd == "/cron":
+    if cmd in {"/quests", "/cron"}:
         session_state["run_cron_menu"] = True
         return True
-    if cmd.startswith("/cron "):
+    if cmd.startswith(("/quests ", "/cron ")):
         from questchain.cron_commands import execute
         try:
-            console.print(execute(command.strip()[6:]), markup=False)
+            console.print(execute(command.strip().split(maxsplit=1)[1]), markup=False)
         except (ValueError, KeyError, RuntimeError) as exc:
             console.print(str(exc), style="red", markup=False)
         return True
@@ -671,7 +672,7 @@ async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
     from questchain.scheduler import get_scheduler
     while True:
         console.print(execute("list"), markup=False)
-        action = (await _prompt_line(session, "Cron action [add/edit/show/pause/resume/run/delete, Enter=close]: ")).strip()
+        action = (await _prompt_line(session, "Quest action [add/edit/show/pause/resume/run/delete, Enter=close]: ")).strip()
         if not action:
             return
         try:
@@ -691,7 +692,7 @@ async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
                 agent_id = await field("Agent ID (default agent if blank)", "agent_id")
                 values = dict(name=name, cron_expression=schedule, timezone_str=tz, prompt=prompt, agent_id=agent_id or None)
                 job = scheduler.update_job(job_id, **values) if job_id else scheduler.add_job(**values)
-                console.print(f"Saved cron job [{job['id']}] {job['name']}", markup=False)
+                console.print(f"Saved quest [{job['id']}] {job['name']}", markup=False)
             else:
                 job_id = await _prompt_line(session, "Job ID: ")
                 console.print(execute(f"{action} {job_id}"), markup=False)
