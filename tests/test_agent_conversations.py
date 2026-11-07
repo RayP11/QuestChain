@@ -211,7 +211,8 @@ async def test_interrupted_tool_batch_preserves_completed_results_and_valid_hist
     assert [m["role"] for m in saved] == ["user", "assistant", "tool", "tool", "assistant"]
     assert saved[2]["content"] == "First step completed."
     assert saved[3]["name"] == "second"
-    assert "unknown" in saved[3]["content"]
+    assert "not started" in saved[3]["content"]
+    assert "unknown" not in saved[3]["content"]
     assert "interrupted" in saved[4]["content"]
 
     model.tool_calls = []

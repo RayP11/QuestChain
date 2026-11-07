@@ -29,6 +29,49 @@ New Chat starts fresh; reopening history restores that interface's conversation.
 
 One root execution owns the run slot; its children execute inline without queueing behind their waiting parent or reacquiring that slot. Cancel stops the root and its active child. Failures return to the parent for review. Retry is explicit and cannot undo or safely repeat already completed external effects. Restart marks unfinished runs interrupted and does not replay actions.
 
+### Aggregate tool-call budget
+
+Each root run has a shared budget of **128 tool-call attempts** by default. The
+main assistant and every private worker use the same counter. A delegation costs
+one attempt in addition to the worker's tools; the initial dispatch of an
+explicitly assigned scheduled worker also costs one. Every call in a model batch
+counts individually. Unknown tools, invalid arguments, permission denials, tool
+errors and cancellation do not refund an admitted attempt.
+
+Set `QUESTCHAIN_MAX_TOOL_CALLS=512` in your environment or `.env` and restart for
+larger trusted workloads. Values must be integers from **1 to 10000**; invalid
+values fail startup, and there is no unlimited setting. This setting does not
+raise the separate 30-iteration-per-agent or 30-minute runtime deadline. Break
+longer work into explicitly reviewed runs when those limits apply.
+
+When the next attempt would exceed the limit, no tool or delegation starts for
+that attempt. Exhaustion propagates out of workers and fails the root run; it is
+not fed back as a recoverable tool error for the model to retry. Completed results
+are retained, and undispatched calls are recorded as **not started**, not as
+unknown side effects. Using exactly the allowance still permits a final text
+answer, subject to the existing iteration/deadline limits. There is no automatic
+retry or rollback. Review existing effects before `/retry`, which creates a new
+run with a fresh budget. Each future scheduled occurrence also gets a new budget.
+
+Run records save `tool_call_limit` and aggregate `tool_calls_used` at execution
+exit, including failure and cancellation. A child's count is a snapshot of the
+shared total at its exit, not that child's own usage. These are diagnostic
+snapshots, not a crash-durable per-call ledger; restart still interrupts unfinished
+work without replay. Standalone engine `Agent.run` calls (including the legacy
+Telegram/scheduler paths) get a fresh default budget; runtime delegation passes
+the existing object explicitly. Concurrent engine calls sharing that object
+cannot overdraw it. Workers remain prohibited from recursively delegating.
+
+The budget bounds engine dispatch attempts, not model tokens, response size,
+database retention, wall time inside a tool, or the actions a tool performs
+internally (including external coding agents). It does not cancel already
+admitted concurrent work or roll back effects. Enabled shell/custom Python still
+has the application's OS privileges: custom code can call functions directly or
+start its own engine without sharing the budget. This is not a sandbox against
+untrusted Python. Cancelling a synchronous Python tool's waiting task does not
+stop its thread or undo its side effects; interrupted in-flight calls retain an
+unknown-outcome warning.
+
 ## Archive-and-import upgrade
 
 Migration is versioned and restart-safe. Before replacing the old roster, QuestChain saves the data directory under `~/.questchain/legacy/before-single-assistant-v4/`, including previous archives, definitions, selection, progression, history, and a consistent SQLite backup containing committed WAL data. Existing backups are preserved.

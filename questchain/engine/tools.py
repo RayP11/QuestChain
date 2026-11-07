@@ -8,6 +8,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, get_type_hints
 
+from questchain.engine.budget import ToolBudgetExceeded
+
 
 @dataclass
 class ToolDef:
@@ -45,6 +47,9 @@ class ToolRegistry:
             else:
                 result = await asyncio.to_thread(tool.fn, **args)
             return str(result) if result is not None else ""
+        except ToolBudgetExceeded:
+            # A delegated worker hitting the shared cap must stop its root too.
+            raise
         except Exception as e:
             return f"Error running {name}: {e}"
 

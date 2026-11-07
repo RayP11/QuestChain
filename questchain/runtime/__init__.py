@@ -7,13 +7,14 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from questchain.runtime.store import RunStore
+from questchain.engine.budget import ToolBudgetExceeded, ToolCallBudget, new_tool_budget
 from questchain.runtime.routing import add_routing_tool
+from questchain.runtime.store import RunStore
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"completed", "partial", "failed", "cancelled", "interrupted", "waiting_input"})
@@ -208,11 +209,13 @@ class TaskRuntime:
                 self._active_run = None
                 self.queue.task_done()
 
-    async def _execute(self, run: dict) -> None:
+    async def _execute(self, run: dict, tool_budget: ToolCallBudget | None = None) -> None:
+        budget = tool_budget if tool_budget is not None else new_tool_budget()
         from questchain.agents import tool_access_allowed
         if self.manager.get(run["agent_id"]) is None:
             raise ValueError("Assigned agent was deleted. Choose an owner and retry.")
-        run.update(status="running", started_at=now())
+        run.update(status="running", started_at=now(),
+                   tool_calls_used=budget.used, tool_call_limit=budget.limit)
         self.store.put(run)
         self._emit(run, "run_status")
         definition = run["definition"]
@@ -249,7 +252,11 @@ class TaskRuntime:
             try:
                 # The root owns the execution slot. Inline children reuse it; they never
                 # queue behind the parent or acquire the same lock a second time.
-                await self._execute(child)
+                await self._execute(child, budget)
+            except ToolBudgetExceeded as exc:
+                self._finish(child, "failed", error=str(exc))
+                self._emit(run, "delegation_progress", worker_name=destination["name"], worker_status="failed")
+                raise
             except asyncio.CancelledError:
                 self._finish(child, "cancelled", error="Parent execution stopped; review effects before retrying.")
                 raise
@@ -309,10 +316,14 @@ class TaskRuntime:
         try:
             async with (nullcontext() if run.get("private") else self.lock), asyncio.timeout(1800):
                 if run.get("scheduled_worker_id"):
+                    # This operator-selected dispatch precedes Agent.run, so reserve
+                    # its delegation attempt here (model delegation reserves there).
+                    budget.reserve()
                     outcome = await delegate_to_agent(run["scheduled_worker_id"], run["text"])
                     prompt += "\n\nThe explicitly assigned scheduled worker has already executed. Review this outcome and provide the final response; do not repeat its actions:\n" + outcome
                 async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool,
                                              initial_messages=self._history(run),
+                                             tool_budget=budget,
                                              shared_history=self._shared_history(run) if is_main else None):
                     chunks.append(token)
                     pending += token
@@ -324,6 +335,7 @@ class TaskRuntime:
                         pending = ""
                         last_checkpoint = time.monotonic()
         finally:
+            run.update(tool_calls_used=budget.used, tool_call_limit=budget.limit)
             run["result"] = "".join(chunks)
             current = self.store.get(run["id"])
             if current["status"] in TERMINAL:
