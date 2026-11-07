@@ -176,7 +176,7 @@ questchain start --web                # Start with web UI (gateway + CLI)
 The web control plane binds only to loopback (`127.0.0.1`, `localhost`, or `::1`).
 Direct LAN/wildcard binding is rejected. For remote use, keep it on loopback and
 connect through an authenticated SSH tunnel, for example
-`ssh -N -L 8765:127.0.0.1:8765 your-host`, then open `http://localhost:8765`.
+`ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 your-host`, then open `http://localhost:8765`.
 Do not publish the tunnel port or put the gateway behind a public forwarding proxy.
 
 Set `QUESTCHAIN_WS_TOKEN` to a strong private password to require authentication
