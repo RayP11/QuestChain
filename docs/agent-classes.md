@@ -50,3 +50,20 @@ Jobs retain their IDs and occurrence records. Migration pauses legacy or missing
 Jobs assigned to the main assistant may delegate normally. An explicitly assigned worker executes privately, then the main assistant reviews its outcome and produces the final response. Scheduled occurrences use fresh context. Delivery failures and duplicate occurrence callbacks do not rerun work.
 
 Run records live in `tasks.sqlite3`; definitions and schedules remain JSON. Only one running process may own the data directory. `/runs`, `/history`, `/cancel`, and `/retry` expose saved work in terminal and Telegram; the web UI provides history and run controls.
+
+## Busy runtime and admission
+
+The shared runtime accepts at most 32 unfinished root requests across terminal,
+web, Telegram, and Quests, including the executing request. Private inline
+subagents reuse their parent's slot. When capacity is reached, new requests are
+rejected with a visible error before a run, event, future, or audio callback is
+created. Wait for work to finish or cancel queued work, then retry explicitly.
+Rejected requests are not silently queued for replay. Scheduled occurrences report
+an error; their normal future schedule is unchanged.
+
+Interactive work keeps priority over scheduled work after admission. A full queue
+does not evict existing requests to accept a new one. Existing occurrence keys
+still return their accepted run, including completed/cancelled runs, even when the
+runtime is full. Cancelling queued work reclaims its slot and queue entry
+immediately. These are in-memory admission bounds, not limits on retained history,
+model output, tool side effects, or a command's OS resources.

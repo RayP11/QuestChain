@@ -1593,9 +1593,12 @@ async def _repl_loop(
 
                 if retry_id := session_state.pop("retry_run_id", None):
                     from questchain.runtime.terminal import run_terminal_task
-                    retry_id = agent_holder["runtime"].retry(retry_id)
-                    await run_terminal_task(agent_holder["runtime"], None, console, run_id=retry_id)
-                    session_state["last_run_id"] = retry_id
+                    try:
+                        retry_id = agent_holder["runtime"].retry(retry_id)
+                        await run_terminal_task(agent_holder["runtime"], None, console, run_id=retry_id)
+                        session_state["last_run_id"] = retry_id
+                    except ValueError as exc:
+                        console.print(str(exc), style="yellow", markup=False)
 
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)
