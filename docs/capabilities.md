@@ -16,9 +16,11 @@ Your Explorer agent can search the web and read full pages — not just headline
 
 > *"Search for tutorials on FastAPI WebSocket authentication and pull out the key steps."*
 
-Uses [Tavily](https://tavily.com) by default — set up with `/tavily`.
-For search without a Tavily key, explicitly configure your own
-[SearXNG service](web-search.md). Web search still sends queries over the network.
+Fresh installs use experimental DDGS / DuckDuckGo search without setup. Existing
+saved Tavily keys retain Tavily. Optional SearXNG and Tavily are documented in
+[web search configuration](web-search.md), including privacy, unresolved provider
+terms, and failure limits. Search sends queries over the network. Page extraction
+is available only with Tavily.
 
 ---
 

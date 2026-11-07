@@ -21,7 +21,7 @@
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
+QuestChain runs its AI models on your machine through Ollama. It reads files, runs shell commands, searches the web, schedules jobs, and works through your task list. Web search and other network tools send data to external services; the default experimental search is not offline.
 
 ---
 
@@ -160,7 +160,7 @@ questchain start
 
 On first run, QuestChain walks you through a short onboarding conversation and optionally sets up Telegram. After that, it remembers who you are.
 
-> **Web search (optional):** Run `/tavily` inside QuestChain to set up your free [Tavily API key](https://tavily.com) and enable web search and browsing.
+> **Web search:** Fresh installs use experimental DDGS / DuckDuckGo search without setup. Queries leave your machine. Existing Tavily-key installations keep Tavily; SearXNG and Tavily remain configurable. See [privacy, limitations, and unresolved provider terms](docs/web-search.md) before production use.
 
 ### Startup Cheat Sheet
 
@@ -226,7 +226,7 @@ python -m questchain
 
 ## What It Can Do
 
-- 🔍 **Web Search & Browse:** Find current information and extract full page content via Tavily *(optional)*
+- 🔍 **Web Search:** Experimental DuckDuckGo search without setup; optional SearXNG or Tavily. Full-page extraction requires Tavily.
 - 📁 **File Operations:** Read, write, edit, list, search files on your real filesystem
 - 💻 **Shell Commands:** Run terminal commands and scripts directly
 - 🖥️ **Self-Coding:** Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
@@ -251,7 +251,7 @@ Most AI tools assume cloud infrastructure and always-online connections. QuestCh
 **Private by design:**
 - **Nothing reachable from outside:** runs only on your computer, never exposed to the internet.
 - **No store, no strangers' code:** no online marketplace, no telemetry, nothing phoning home.
-- **No accounts, nothing to steal:** optional API keys stay in a local file and go nowhere else.
+- **Provider choice:** DDGS search needs no account. Optional API keys are stored locally and sent to their configured services; search queries also leave the machine.
 - **Works with no internet at all:** disconnect your machine and QuestChain keeps working.
 
 Want to go further? Two optional integrations are a single command away: [Tavily](https://tavily.com) for live web search, and [Claude Code](https://claude.ai/code) for delegating coding tasks. Both are opt-in and only activate when you call them.
@@ -384,7 +384,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 ---
 
 <div align="center">
-<sub>No cloud. No cost. No compromise. Small but mighty. Send your hardware on a quest.</sub>
+<sub>Local models. Configurable tools. Send your hardware on a quest.</sub>
 <br><br>
 
 ### 💬 [Join the QuestChain Discord](https://discord.gg/C8Rc3u7KKx)
@@ -396,6 +396,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 
 ### Self-hosted web search
 
-Tavily remains the default. To use an explicitly configured SearXNG instance
-without a Tavily key, see [web search configuration](docs/web-search.md).
+Fresh installs use experimental DDGS / DuckDuckGo without setup. Existing saved
+Tavily keys preserve Tavily as the implicit provider. To use your own SearXNG
+instance, select Tavily, or disable search, see [web search configuration](docs/web-search.md).
 Self-hosted search still contacts upstream Internet search engines; it is not offline.
