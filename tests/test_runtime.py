@@ -343,15 +343,16 @@ async def test_cron_history_is_explicitly_subscribed(runtime, manager, monkeypat
 async def test_shell_cancellation_stops_owned_process(monkeypatch):
     from questchain.engine.builtins import shell
     started = asyncio.Event()
-    async def communicate():
+    async def read(_size):
         started.set()
         await asyncio.Event().wait()
-    proc = SimpleNamespace(communicate=communicate, returncode=None)
+    proc = SimpleNamespace(stdout=SimpleNamespace(read=read), stderr=SimpleNamespace(read=read),
+                           wait=AsyncMock(return_value=0), returncode=None)
     monkeypatch.setattr(shell.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
     cleanup = AsyncMock()
     monkeypatch.setattr(shell, "_stop_process_tree", cleanup)
     task = asyncio.create_task(shell.execute("test-command"))
-    await started.wait()
+    await asyncio.wait_for(started.wait(), 2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task

@@ -21,6 +21,16 @@ Enable automatic routing after providing when-to-call guidance. The main assista
 
 Workspace has `read_file`, `write_file`, `edit_file`, `delete_file`, `ls`, `glob`, and `grep`. It verifies changes and preserves unrelated content. File paths remain inside the existing approved workspace boundary. Deletion rejects directories and symbolic links. Tool selection is not an operating-system sandbox.
 
+Shell commands accept an integer timeout of 1–1800 seconds (60 by default).
+Combined stdout and stderr may contain at most 256 KiB. Exceeding that budget
+stops the command and its owned process group, and returns an error instead of
+persisting oversized output. Narrow verbose commands before retrying; termination
+does not undo their side effects. These limits protect output buffering, not the
+command's own memory, disk, network, or OS permissions. Enabled shell and custom
+Python tools still run with the application's OS privileges; detached processes
+can escape process-group cleanup, and cancelling a custom Python thread does not
+stop its side effects.
+
 ## Conversation and execution
 
 New Chat starts fresh; reopening history restores that interface's conversation. Terminal, web, and Telegram histories remain separate. Shared profile answers in `ABOUT.md` reach the main assistant in all interfaces. Old transcripts retain their historical authors, and new replies go to the main assistant.
