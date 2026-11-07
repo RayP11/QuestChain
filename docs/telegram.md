@@ -2,7 +2,7 @@
 
 # Telegram Setup
 
-QuestChain runs alongside the CLI as a Telegram bot, giving you remote access from your phone. Agent definitions and cron jobs are shared across interfaces. Each Telegram chat has its own conversation with the main assistant. Subagents work privately; historical results retain their original authors.
+QuestChain runs alongside the CLI as a Telegram bot, giving you remote access from your phone. Agent definitions and quests are shared across interfaces. Each Telegram chat has its own conversation with the main assistant. Subagents work privately; historical results retain their original authors.
 
 ---
 
@@ -45,7 +45,7 @@ No extra flags needed — if credentials are saved, the bot starts.
 | `/help` | Show all commands |
 | `/new` | Start a fresh conversation and clear the previous run selection |
 | `/model` | Show the selected agent's current model, including its override |
-| `/cron` | List cron jobs and management commands |
+| `/quests` | List quests and management commands |
 | `/agents` | Select, create, edit, or explicitly migrate a legacy agent |
 | `/runs [run ID]` | List this conversation's runs or read one saved result |
 | `/history [conversation ID]` | List this chat's saved conversations or resume one |
@@ -71,4 +71,4 @@ If Kokoro TTS is configured, QuestChain sends voice messages on Telegram in addi
 !!! note
     The Telegram bot only accepts commands and messages from your configured user ID. Other users receive a private-bot rejection; they cannot read conversations or run tasks.
 
-See [Cron Jobs](cron-jobs.md) for create, edit, pause, resume, run, and delete syntax.
+See [Quests](cron-jobs.md) for create, edit, pause, resume, run, and delete syntax.

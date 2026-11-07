@@ -347,7 +347,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         if state:
             cron_id = msg.get("cron_id", "")
             if cron_id and cron_id not in {job["id"] for job in _list_cron_jobs()}:
-                raise ValueError("Cron job not found.")
+                raise ValueError("Quest not found.")
             state["cron_id"] = cron_id
             await _send_cron_history(ws)
         return
@@ -779,7 +779,7 @@ def _settings_payload() -> dict:
     }
 
 
-# ── Cron job helpers ──────────────────────────────────────────────────────────
+# ── Quest helpers ──────────────────────────────────────────────────────────
 
 def _list_cron_jobs() -> list[dict]:
     from questchain.scheduler import get_scheduler

@@ -1,12 +1,12 @@
 """Shared terminal and Telegram commands for the live cron scheduler."""
 
 HELP = (
-    "Cron jobs run while QuestChain is open. Schedules use the chosen timezone.\n"
+    "Quests run while QuestChain is open. Schedules use the chosen timezone.\n"
     "Use weekday names (mon-sun); numeric weekdays are 0=Monday to 6=Sunday.\n"
-    "/cron — list jobs\n"
-    "/cron add Name | 0 9 * * mon | UTC | Instructions | optional-agent-id\n"
-    "/cron edit ID | Name | Schedule | Timezone | Instructions | optional-agent-id\n"
-    "/cron show ID\n/cron pause ID\n/cron resume ID\n/cron run ID\n/cron delete ID"
+    "/quests — list quests (/cron remains an alias)\n"
+    "/quests add Name | 0 9 * * mon | UTC | Instructions | optional-agent-id\n"
+    "/quests edit ID | Name | Schedule | Timezone | Instructions | optional-agent-id\n"
+    "/quests show ID\n/quests pause ID\n/quests resume ID\n/quests run ID\n/quests delete ID"
 )
 
 
@@ -17,11 +17,11 @@ def execute(command: str) -> str:
     action, _, args = command.strip().partition(" ")
     if action in ("", "list"):
         jobs = scheduler.list_jobs()
-        lines = ["Cron Jobs"]
+        lines = ["Quests"]
         for job in jobs:
             status = "running" if job["running"] else "enabled" if job["enabled"] else "paused"
             lines.append(f"[{job['id']}] {job['name']} — {job['cron_expression']} ({job['timezone']}) · {status}")
-        return "\n".join(lines + ([] if jobs else ["No cron jobs configured."]) + ["", HELP])
+        return "\n".join(lines + ([] if jobs else ["No quests configured."]) + ["", HELP])
     if action == "help":
         return HELP
     if action in ("add", "edit"):
@@ -33,17 +33,17 @@ def execute(command: str) -> str:
         values = dict(name=name, cron_expression=schedule, timezone_str=tz,
                       prompt=prompt, agent_id=fields[4] if len(fields) == 5 else None)
         job = scheduler.update_job(job_id, **values) if job_id else scheduler.add_job(**values)
-        return f"Saved cron job [{job['id']}] {job['name']}"
+        return f"Saved quest [{job['id']}] {job['name']}"
     if action == "show":
         job = scheduler.get_job(args.strip())
         return "\n".join(f"{key}: {value}" for key, value in job.items())
     if action in ("pause", "resume"):
         scheduler.set_enabled(args.strip(), action == "resume")
-        return "Cron job paused." if action == "pause" else "Cron job resumed."
+        return "Quest paused." if action == "pause" else "Quest resumed."
     if action == "run":
         scheduler.run_now(args.strip())
-        return "Cron job queued. Results will appear when it finishes."
+        return "Quest queued. Results will appear when it finishes."
     if action == "delete":
         scheduler.remove_job(args.strip())
-        return "Cron job deleted. A run already in progress will finish."
+        return "Quest deleted. A run already in progress will finish."
     raise ValueError(HELP)

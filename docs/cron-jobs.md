@@ -1,6 +1,6 @@
-# Cron Jobs
+# Quests
 
-Use the **Cron Jobs** page to automate recurring work. Enter a name and instructions, type or pick a time, choose a daily, weekday, weekly, or monthly repeat, and select a timezone and optional agent. Then choose **Save Job**. Select a saved job to edit, pause/resume, run now, or delete it. The page shows the next run and the last result or error.
+Use the **Quests** page to automate recurring work. Enter a name and instructions, type or pick a time, choose a daily, weekday, weekly, or monthly repeat, and select a timezone and optional agent. Then choose **Save Quest**. Select a saved job to edit, pause/resume, run now, or delete it. The page shows the next run and the last result or error.
 
 Jobs run only while QuestChain is open. They persist across restarts. Pausing or deleting a job stops future runs; an already running job finishes. Missed runs are not replayed after restarting.
 
@@ -18,21 +18,23 @@ Five fields: `minute hour day month weekday`. Use IANA timezones, such as `Ameri
 
 ## Terminal and Telegram
 
-In the terminal, `/cron` opens an interactive manager. Telegram `/cron` lists jobs and command help. Both also accept these commands (replace `ID` with the displayed job ID):
+In the terminal, `/quests` opens an interactive manager. Telegram `/quests` lists jobs and command help. Both also accept these commands (replace `ID` with the displayed job ID):
 
 ```text
-/cron add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
-/cron edit ID | New name | 0 10 * * * | UTC | Updated instructions
-/cron list
-/cron show ID
-/cron pause ID
-/cron resume ID
-/cron run ID
-/cron delete ID
+/quests add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
+/quests edit ID | New name | 0 10 * * * | UTC | Updated instructions
+/quests list
+/quests show ID
+/quests pause ID
+/quests resume ID
+/quests run ID
+/quests delete ID
 ```
 
 An optional final `| agent-id` assigns a specific agent. The web editor supports multiline instructions, including literal pipe characters. Results appear in the web job details and in the terminal, or on Telegram when connected. Telegram commands remain restricted to the configured owner.
 
-## Replacing quests
+## Compatibility and the retired quest-file runner
 
-The quest runner, quest menu, and `/quest` commands have been removed. Existing quest files are preserved but ignored. Recreate tasks you want automated as cron jobs. Existing cron jobs continue to load normally; historical quest progression counts are retained as completed jobs.
+The quest runner, quest menu, and `/quest` commands have been removed. Existing quest files are preserved but ignored. Recreate tasks you want automated as scheduled Quests. Existing cron schedules continue to load normally; historical quest progression counts are retained as completed jobs.
+
+Quests is the new name for the persistent scheduler. `/quests` is the preferred command; `/cron` remains a compatible alias. Existing schedules, IDs, paused state, results, and history are unchanged. Technical cron expressions, `cron_*` tool names and WebSocket messages, and the `cron_jobs.json` storage file retain their names. The `cron-jobs` skill and documentation URL remain stable. This rebrand does not restore the retired quest-file runner, `/quest` commands, or `--quests` / `--no-quests` startup flags.

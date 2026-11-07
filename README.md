@@ -29,7 +29,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 - [Why QuestChain?](#why-questchain)
 - [RPG Progression](#rpg-progression)
-- [Cron Jobs](#cron-jobs)
+- [Quests](#quests)
 - [Install](#install)
 - [What It Can Do](#what-it-can-do)
 - [Built for the Edge](#built-for-the-edge)
@@ -90,7 +90,7 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 | Explorer | 🔭 | Research & discovery | Web search + browse |
 | Builder | ⚒️ | Code & systems | Files and shell; optional Claude Code |
 | Planner | 🔮 | Planning & strategy | File tools |
-| Scheduler | ⏱️ | Automation | Cron only |
+| Scheduler | ⏱️ | Automation | Quests only |
 
 ---
 
@@ -104,25 +104,27 @@ New Chat and saved history remain separate per interface. Shared profile answers
 
 Upgrading backs up existing state and archives the latest legacy definitions, then seeds the new roster. Import old definitions explicitly as subagents with routing disabled for review. Legacy schedules stay paused until explicitly resumed, even after importing their owner. [Assistant and migration guide](docs/agent-classes.md).
 
-## Cron Jobs
+## Quests
 
-Automate recurring work from the **Cron Jobs** page, the terminal `/cron` menu, or Telegram `/cron` commands. Jobs share one persistent scheduler and run while QuestChain is open.
+Quests is the new name for the persistent scheduler. `/quests` is the preferred command; `/cron` remains a compatible alias. Existing schedules, IDs, paused state, results, and history are unchanged. Technical cron expressions, `cron_*` tool names and WebSocket messages, and the `cron_jobs.json` storage file retain their names. The `cron-jobs` skill and documentation URL remain stable. This rebrand does not restore the retired quest-file runner, `/quest` commands, or `--quests` / `--no-quests` startup flags.
+
+Automate recurring work from the **Quests** page, the terminal `/quests` menu, or Telegram `/quests` commands. Jobs share one persistent scheduler and run while QuestChain is open.
 
 Each job has a name, instructions, a schedule, timezone, and assigned agent. The web UI uses a standard time selector; terminal and Telegram commands accept cron expressions. Create, edit, pause, resume, run now, or delete a job. The web UI shows its next run, last status, and result. Results also appear in the terminal, or on Telegram when connected.
 
 ```text
-/cron add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
-/cron list
-/cron show JOB_ID
-/cron pause JOB_ID
-/cron resume JOB_ID
-/cron run JOB_ID
-/cron delete JOB_ID
+/quests add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
+/quests list
+/quests show JOB_ID
+/quests pause JOB_ID
+/quests resume JOB_ID
+/quests run JOB_ID
+/quests delete JOB_ID
 ```
 
 Use weekday names (`mon`–`sun`); numeric weekdays follow APScheduler: Monday=0, Sunday=6. Pausing or deleting a job prevents future runs; a run already underway finishes.
 
-The old quest folder and periodic quest runner have been retired. Existing quest files remain on disk and are no longer executed. Recreate desired recurring tasks as cron jobs. The `--quests` and `--no-quests` startup flags have been removed.
+The old quest folder and periodic quest runner have been retired. Existing quest files remain on disk and are no longer executed. Recreate desired recurring tasks as quests. The `--quests` and `--no-quests` startup flags have been removed.
 
 ---
 
@@ -230,7 +232,7 @@ python -m questchain
 - 📁 **File Operations:** Read, write, edit, list, search files on your real filesystem
 - 💻 **Shell Commands:** Run terminal commands and scripts directly
 - 🖥️ **Self-Coding:** Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
-- ⏰ **Cron Jobs:** Schedule recurring tasks that run automatically and report back
+- ⏰ **Quests:** Schedule recurring tasks that run automatically and report back
 - 📱 **Telegram Bot:** Access QuestChain remotely from your phone
 - 💾 **Persistent Memory:** Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output:** Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
@@ -276,7 +278,7 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 | `/new` | Start a fresh conversation |
 | `/model` | Change the global default model; restart to apply |
 | `/tools` | Show the selected agent's tools and availability |
-| `/cron` | Open the cron menu; `/cron help` shows text commands |
+| `/quests` | Open the Quests menu; `/quests help` shows text commands |
 | `/agents` | Configure the main assistant and subagents |
 | `/runs` | List runs in the current conversation |
 | `/retry [run ID]` | Retry the last run or a specified run in this conversation |
@@ -317,7 +319,7 @@ Restart QuestChain and the bot starts alongside the CLI. Telegram conversations 
 | `/model` | Show the selected agent's current model, including its override |
 | `/tools` | Show the selected agent's tools and availability |
 | `/agents` | Configure assistant; create, edit, or import subagents |
-| `/cron` | List cron jobs and show scheduling commands |
+| `/quests` | List quests and show scheduling commands |
 | `/runs [run ID]` | List this conversation's runs, or read one saved result |
 | `/history [conversation ID]` | List this chat's saved conversations, or resume one |
 | `/retry [run ID]` | Retry the latest run or a specified run in this conversation |
@@ -376,7 +378,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 - **[Claude Code](https://claude.ai/code):** Anthropic's coding agent; QuestChain delegates programming tasks to it
 - **[Tavily](https://tavily.com):** web search and full-page extraction API
 - **[python-telegram-bot](https://python-telegram-bot.org):** Telegram bot SDK
-- **[APScheduler](https://apscheduler.readthedocs.io):** async cron job scheduling
+- **[APScheduler](https://apscheduler.readthedocs.io):** async cron scheduling
 - **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx):** fast local text-to-speech
 - **[Rich](https://github.com/Textualize/rich):** beautiful terminal output
 - **[prompt-toolkit](https://python-prompt-toolkit.readthedocs.io):** interactive terminal input with history
