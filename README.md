@@ -94,15 +94,15 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 
 ---
 
-## Coordinator and specialists
+## One assistant and configurable subagents
 
-Chat with **Perseus** to route work to **Argus** (research), **Athena** (workspace knowledge), **Talos** (building), or **Zeus** (planning and advice). Each specialist streams its own response under its own name. Direct chat is always available.
+Chat with **QuestChain**, or give your main assistant a custom name. Every text or voice request in terminal, web, and Telegram goes to that assistant. It owns planning, handles simple work directly, and delegates bounded tasks to **Researcher**, **Workspace**, **Builder**, and **Scheduler** when useful. Workers return private outcomes; the main assistant gives the final answer.
 
-Perseus uses the same chat engine as every other agent: he can answer you directly or hand your request to a specialist. A conversation is one shared thread in the interface, with separate saved context for each agent. Perseus also receives attributed records of the other agents' requests, replies, and outcomes in that thread, so he can route follow-ups and remember completed work. Specialists see their own interactions, including work routed to them and any context supplied with a handoff. Starting a new thread starts fresh for all agents; reopening one restores their saved context. Every agent summarizes older history as the estimated context budget fills, including during tool-call loops. Use the web chat's conversation selector, terminal `/history`, or Telegram `/history` to resume a thread.
+Create and configure custom subagents in any interface. Viewing a worker does not switch chat to it. Model overrides remain optional, and each worker retains its explicit tool permissions. Workspace can read, write, edit, delete, and organize files inside the existing workspace boundary. Planner remains available as an optional custom/legacy role.
 
-Athena's workspace knowledge role includes creating, editing, and deleting files with the built-in `write_file`, `edit_file`, and `delete_file` tools. These tools are enabled by default for the Keeper role and remain configurable per agent. Deletion accepts individual workspace files, rejects directories and symbolic links, and stays inside the workspace. Existing untouched Keeper presets gain deletion once when upgrading; customized permissions are preserved.
+New Chat and saved history remain separate per interface. Shared profile answers reach the main assistant everywhere. Legacy history preserves its original authorship.
 
-Create additional agents in the web UI, terminal, or Telegram with a name, tools, system prompt, and guidance describing when the coordinator should call them. Legacy agents are archived under `~/.questchain/legacy` and can be migrated explicitly through any interface. [Agent guide](docs/agent-classes.md).
+Upgrading backs up existing state and archives the latest legacy definitions, then seeds the new roster. Import old definitions explicitly as subagents with routing disabled for review. Legacy schedules stay paused until explicitly resumed, even after importing their owner. [Assistant and migration guide](docs/agent-classes.md).
 
 ## Cron Jobs
 
@@ -277,7 +277,7 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 | `/model` | Change the global default model; restart to apply |
 | `/tools` | Show the selected agent's tools and availability |
 | `/cron` | Open the cron menu; `/cron help` shows text commands |
-| `/agents` | Manage agent profiles (list, switch, create, edit) |
+| `/agents` | Configure the main assistant and subagents |
 | `/runs` | List runs in the current conversation |
 | `/retry [run ID]` | Retry the last run or a specified run in this conversation |
 | `/cancel [run ID]` | Cancel a queued or running task in this conversation |
@@ -316,7 +316,7 @@ Restart QuestChain and the bot starts alongside the CLI. Telegram conversations 
 | `/new` | Start a fresh conversation and clear the previous run selection |
 | `/model` | Show the selected agent's current model, including its override |
 | `/tools` | Show the selected agent's tools and availability |
-| `/agents` | List, switch, create, edit, or migrate agents |
+| `/agents` | Configure assistant; create, edit, or import subagents |
 | `/cron` | List cron jobs and show scheduling commands |
 | `/runs [run ID]` | List this conversation's runs, or read one saved result |
 | `/history [conversation ID]` | List this chat's saved conversations, or resume one |

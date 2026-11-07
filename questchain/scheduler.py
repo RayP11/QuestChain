@@ -103,8 +103,7 @@ class CronScheduler:
         if len(name) > 120 or len(prompt) > 16000:
             raise ValueError("Use at most 120 characters for the name and 16000 for instructions.")
         if not agent_id and self._agent_manager:
-            coordinator = self._agent_manager.get_by_class_name("Router")
-            agent_id = coordinator["id"] if coordinator else self._agent_manager.get_active_id()
+            agent_id = self._agent_manager.get_active_id()
         if agent_id and (not self._agent_manager or not self._agent_manager.get(agent_id)):
             raise ValueError("Choose an existing agent.")
         self._trigger(cron_expression, timezone_str)
@@ -151,8 +150,7 @@ class CronScheduler:
         if len(name) > 120 or len(prompt) > 16000:
             raise ValueError("Name or instructions are too long.")
         if not agent_id and self._agent_manager:
-            coordinator = self._agent_manager.get_by_class_name("Router")
-            agent_id = coordinator["id"] if coordinator else self._agent_manager.get_active_id()
+            agent_id = self._agent_manager.get_active_id()
         if agent_id and (not self._agent_manager or not self._agent_manager.get(agent_id)):
             raise ValueError("Choose an existing agent.")
         self._trigger(cron_expression, timezone_str)
@@ -169,6 +167,9 @@ class CronScheduler:
         job = self.get_job(job_id)
         job["enabled"] = enabled
         if enabled:
+            if self._agent_manager and not self._agent_manager.get(job.get("agent_id") or "default"):
+                raise ValueError("Import the assigned subagent or choose an existing owner before resuming.")
+            job.pop("migration_pause", None)
             self._register_job(job)
         elif self._scheduler.get_job(f"cron:{job_id}"):
             self._scheduler.remove_job(f"cron:{job_id}")
@@ -218,6 +219,10 @@ class CronScheduler:
 
     def _register_job(self, job: dict) -> None:
         """Register a single job with APScheduler."""
+        if self._agent_manager and not self._agent_manager.get(job.get("agent_id") or "default"):
+            job.update(enabled=False, migration_pause="Assigned agent is missing; choose an owner and explicitly resume.")
+            self._save_jobs()
+            return
         trigger = self._trigger(job["cron_expression"], job.get("timezone", "UTC"))
         self._scheduler.add_job(
             self._execute_job,

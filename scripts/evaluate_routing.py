@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from questchain.agents import PRESET_AGENTS, CLASS_GUIDANCE
+from questchain.agents import PRESET_AGENTS, CLASS_GUIDANCE, MAIN_SYSTEM_PROMPT
 from questchain.engine.agent import Agent
 from questchain.engine import context
 from questchain.engine.model import OllamaModel
@@ -22,7 +22,7 @@ from questchain.runtime.routing import add_routing_tool
 
 async def evaluate(model_name, output, cases_path):
     cases = json.loads(cases_path.read_text())
-    router = next(a for a in PRESET_AGENTS if a["class_name"] == "Router")
+    router = {"name": "QuestChain", "system_prompt": MAIN_SYSTEM_PROMPT}
     catalog = [{"id": a["class_name"], "name": a["name"], "class_name": a["class_name"],
                 "when_to_call": CLASS_GUIDANCE[a["class_name"]], "when_not_to_call": "",
                 "routing_examples": [], "tools": a["tools"]} for a in PRESET_AGENTS if a["class_name"] != "Router"]
@@ -37,13 +37,13 @@ async def evaluate(model_name, output, cases_path):
                 history = []
                 if case.get("previous"):
                     history = [{"role": "user", "content": case["previous"]},
-                               {"role": "assistant", "content": "Handed this request to " + case["agent_id"] + "."}]
+                               {"role": "assistant", "content": case.get("result", "Prior task completed.")}]
                 decision = dict(action="reply", agent_id="", message="")
-                async def route(agent_id, context=""):
+                async def route(agent_id, task, context=""):
                     if agent_id not in {a["id"] for a in catalog}:
                         raise ValueError("Unknown destination")
                     decision.update(action="dispatch", agent_id=agent_id, context=context)
-                    return "Handed off."
+                    return json.dumps({"status": "completed", "result": "Evaluation stub: no external actions executed."})
                 agent = Agent(model, ToolRegistry(), router["system_prompt"].replace("{agent_name}", router["name"]))
                 add_routing_tool(agent, catalog, route)
                 started = time.perf_counter()

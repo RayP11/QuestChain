@@ -90,7 +90,7 @@ def create_questchain_agent(
         for tool_def in load_workspace_tools(WORKSPACE_DIR, tools_filter):
             registry.register(tool_def)
 
-    system_prompt = (system_prompt_override or SYSTEM_PROMPT).replace("{agent_name}", agent_name)
+    system_prompt = (SYSTEM_PROMPT if system_prompt_override is None else system_prompt_override).replace("{agent_name}", agent_name)
     if class_name == "Keeper":
         system_prompt += (
             "\n\nManage workspace knowledge using your enabled file tools. "
@@ -128,7 +128,7 @@ def make_agent_from_def(agent_def: dict, audio_router=None, *, default_model: st
     # profile.md is injected into every agent; ABOUT.md only for the default agent.
     memory_dir = WORKSPACE_DIR / "workspace" / "memory"
     injected_files = [memory_dir / "profile.md"]
-    if agent_def.get("id") == "default":
+    if agent_def.get("kind") == "main" or agent_def.get("id") == "default":
         injected_files.append(memory_dir / "ABOUT.md")
 
     pm = ProgressionManager(

@@ -303,9 +303,9 @@ function renderConversations(conversations) {
 
 function onAgents(msg) {
   State.agents = msg.agents || [];
-  if (!State.agents.some(a => a.id === State.activeAgentId)) State.activeAgentId = msg.active_id || '';
-  // Always update viewing to match active when agents list refreshes
-  State.viewingAgentId = State.activeAgentId;
+  State.activeAgentId = msg.active_id || '';
+  // Inspecting a worker never changes the chat target or resets on refresh.
+  if (!State.agents.some(a => a.id === State.viewingAgentId)) State.viewingAgentId = State.activeAgentId;
   renderRoster();
   renderChatAgentList();
   updateChatHeader();
@@ -398,11 +398,11 @@ function renderSettings() {
   tbody.innerHTML = (s.agents || []).map(a => `
     <tr>
       <td class="agent-tbl-name">${escHtml(a.name)}${a.availability_issues?.length ? `<small class="form-error">${escHtml(a.availability_issues.join("; "))}</small>` : ""}</td>
-      <td class="agent-tbl-class">${escHtml(roleLabel(a.class_name))}</td>
-      <td class="agent-tbl-model">${escHtml(a.model || '—')}</td>
+      <td class="agent-tbl-class">${escHtml(a.kind === 'main' ? 'Main assistant' : roleLabel(a.class_name))}</td>
+      <td class="agent-tbl-model">${escHtml(a.model ? a.model + ' (override)' : 'Inherited default')}</td>
       <td><div class="agent-tbl-actions">
         <button class="btn-icon" data-edit-id="${escAttr(a.id)}">Edit</button>
-        <button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>
+        ${a.kind === 'main' ? '' : `<button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>`}
       </div></td>
     </tr>
   `).join('');
@@ -659,13 +659,12 @@ function renderChatAgentList() {
   list.querySelectorAll('.chat-agent-item').forEach(el => {
     el.addEventListener('click', () => {
       const id = el.dataset.id;
-      if (id === State.activeAgentId) return;
-      State.activeAgentId = id;
       State.viewingAgentId = id;
-      send({ type: 'switch_agent', agent_id: id });
+
       renderChatAgentList();
       renderRoster();
-      updateChatHeader();
+      switchPage('agent');
+      renderStatsFromAgents();
     });
   });
 }
@@ -766,7 +765,7 @@ function renderRoster() {
     const isViewing = a.id === State.viewingAgentId;
     const isActive = a.id === State.activeAgentId;
     const icon = CLASS_ICONS[a.class_name] || '🌀';
-    const delBtn = a.id !== 'default'
+    const delBtn = a.kind !== 'main'
       ? `<button class="roster-item-action danger" data-action="delete" data-id="${escAttr(a.id)}" title="Delete agent">✕</button>`
       : '';
     return `
@@ -789,8 +788,7 @@ function renderRoster() {
       if (e.target.closest('[data-action]')) return;
       const id = el.dataset.id;
       State.viewingAgentId = id;
-      State.activeAgentId = id;
-      send({ type: 'switch_agent', agent_id: id });
+
       renderRoster();
       renderStatsFromAgents();
       updateChatHeader();
@@ -820,7 +818,7 @@ function renderRoster() {
 // ── Cron job editor ───────────────────────────────────────────
 function renderJobAgentSelect(id = '') {
   const sel = document.getElementById('job-agent-select');
-  sel.innerHTML = '<option value="">Coordinator (Perseus)</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
+  sel.innerHTML = '<option value="">Main assistant</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
   if (id && !State.agents.some(a => a.id === id)) {
     const missing = document.createElement('option');
     missing.value = id; missing.textContent = `Archived or missing agent (${id}) — migrate or reassign`;
@@ -994,15 +992,14 @@ function renderBattleMap() {
     partyZone.querySelectorAll('.map-agent-tile').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.id;
-        if (id !== State.activeAgentId) {
-          State.activeAgentId = id;
+        {
           State.viewingAgentId = id;
-          send({ type: 'switch_agent', agent_id: id });
+
           renderChatAgentList();
           renderRoster();
           updateChatHeader();
         }
-        switchPage('chat');
+        switchPage('agent');
       });
     });
   }

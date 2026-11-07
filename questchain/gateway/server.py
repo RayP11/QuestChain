@@ -358,18 +358,14 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                                               "agent_id": _agent_manager.get_active_id()})
         try:
             if t == "chat":
-                agent_id = msg.get("agent_id") or state["agent_id"]
+                agent_id = _agent_manager.get_active_id()
                 run_id = _runtime.submit(TaskRequest(
                     text=msg.get("message", ""), agent_id=agent_id, conversation_id=state["conversation_id"],
                     source="web", reply_to_run_id=msg.get("reply_to_run_id", ""), destination=state["conversation_id"],
                     occurrence_key=(f"web:{state['conversation_id']}:{msg['request_id']}" if msg.get("request_id") else None)))
                 await ws.send_json({"type": "run_accepted", "run_id": run_id, "conversation_id": state["conversation_id"]})
             elif t == "switch_agent":
-                agent_id = msg.get("agent_id", "")
-                if not _agent_manager.get(agent_id):
-                    raise ValueError("Agent not found.")
-                state["agent_id"] = agent_id
-                await ws.send_json({"type": "agent_selected", "agent_id": agent_id})
+                raise ValueError("Subagents cannot be direct chat destinations. Use agent settings to configure them.")
             elif t == "new_thread":
                 state["conversation_id"] = "web-" + uuid.uuid4().hex
                 await _send_conversation(ws)
@@ -415,13 +411,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         await ws.send_json({"type": "agents", **_agents_payload()})
 
     elif t == "switch_agent":
-        if _agent_manager:
-            agent_id = msg.get("agent_id", "")
-            _agent_manager.set_active(agent_id)
-            get_bus().publish_nowait({"type": "agents", **_agents_payload()})
-            if _web_queue is not None:
-                fut: asyncio.Future = asyncio.get_event_loop().create_future()
-                await _web_queue.put((f"__switch_agent__:{agent_id}", fut))
+        await ws.send_json({"type": "error", "action": t, "error": "Subagents cannot be direct chat destinations."})
 
     elif t == "get_stats":
         await ws.send_json({"type": "stats", **_stats_payload(msg.get("agent_id"))})
@@ -577,7 +567,7 @@ def _agents_payload() -> dict:
     from questchain.agents import ROLE_LABELS, tool_issues
     for agent in agents:
         a = dict(agent)
-        a["role_label"] = ROLE_LABELS.get(a.get("class_name"), "Custom")
+        a["role_label"] = "Main assistant" if a.get("kind") == "main" else ROLE_LABELS.get(a.get("class_name"), "Custom")
         a["availability_issues"] = tool_issues(a)
         agent_id = agent["id"]
         class_name = agent.get("class_name", "Custom")
@@ -746,6 +736,7 @@ def _settings_payload() -> dict:
             agents.append({
                 "id": a["id"],
                 "name": a.get("name", ""),
+                "kind": a.get("kind", "subagent"),
                 "class_name": a.get("class_name", "Custom"),
                 "model": a.get("model") or "",
                 "system_prompt": a.get("system_prompt") or "",

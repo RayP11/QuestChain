@@ -8,6 +8,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,21 +75,22 @@ class TaskRuntime:
                 return existing["id"]
         definition = self.manager.get(request.agent_id)
         if not definition:
-            raise ValueError("The assigned agent no longer exists. Choose an agent.")
+            raise ValueError("The assigned agent no longer exists.")
+        if request.source != "cron" and definition.get("kind") != "main":
+            raise ValueError("Subagents cannot be direct chat destinations.")
+        scheduled_worker_id = None
+        if request.source == "cron" and definition.get("kind") == "subagent":
+            scheduled_worker_id = definition["id"]
+            definition = self.manager.get_active()
         if request.reply_to_run_id:
             previous = self.store.get(request.reply_to_run_id)
             if previous["conversation_id"] != request.conversation_id:
                 raise ValueError("A reply must reference this conversation.")
-            if definition.get("class_name") == "Router":
-                owner = self.manager.get(previous.get("result_agent_id", previous["agent_id"]))
-                if not owner:
-                    raise ValueError("The agent that authored that result no longer exists.")
-                definition = owner
         run_id = uuid.uuid4().hex
         run = dict(id=run_id, task_id=task_id or uuid.uuid4().hex, parent_run_id=None,
                    conversation_id=request.conversation_id, source=request.source,
                    text=request.text.strip(), agent_id=definition["id"], agent_name=definition["name"],
-                   definition=definition, status="queued", result="", error="", created_at=now(),
+                   definition=definition, scheduled_worker_id=scheduled_worker_id, status="queued", result="", error="", created_at=now(),
                    message_id=uuid.uuid4().hex, user_message_id=uuid.uuid4().hex,
                    reply_to_run_id=request.reply_to_run_id, occurrence_key=request.occurrence_key,
                    destination=request.destination, delivery_status="pending", verified=False)
@@ -121,11 +123,11 @@ class TaskRuntime:
     def snapshot(self, conversation_id: str) -> dict:
         data = self.store.snapshot(conversation_id)
         # System prompts and original metadata are not needed in stream snapshots.
-        data["runs"] = [{k: v for k, v in r.items() if k != "definition"} for r in data["runs"]]
+        data["runs"] = [{k: v for k, v in r.items() if k != "definition"} for r in data["runs"] if not r.get("private")]
         return data
 
     def events(self, conversation_id: str, after_seq: int = 0) -> list[dict]:
-        return self.store.events(conversation_id, after_seq)
+        return [e for e in self.store.events(conversation_id, after_seq) if not e.get("private")]
 
     def cancel(self, run_id: str) -> None:
         run = self.store.get(run_id)
@@ -147,7 +149,7 @@ class TaskRuntime:
             run = self.store.get(run["parent_run_id"])
         if run["status"] not in TERMINAL:
             raise ValueError("Wait for the run to finish or cancel it before retrying.")
-        return self.submit(TaskRequest(run["text"], run["agent_id"], run["conversation_id"], run["source"],
+        return self.submit(TaskRequest(run["text"], (run.get("scheduled_worker_id") or run["agent_id"]) if run["source"] == "cron" else self.manager.get_active_id(), run["conversation_id"], run["source"],
                                        run.get("reply_to_run_id", ""), destination=run.get("destination", ""),
                                        audio_callback=audio_callback), task_id=run["task_id"])
 
@@ -158,6 +160,8 @@ class TaskRuntime:
         self._emit(run, "delivery_status")
 
     def _emit(self, run: dict, kind: str, **extra) -> None:
+        if run.get("private"):
+            return
         event = {"type": kind, "conversation_id": run["conversation_id"], "task_id": run["task_id"],
                  "run_id": run["id"], "parent_run_id": run.get("parent_run_id"), "message_id": run["message_id"],
                  "agent_id": run["agent_id"], "agent_name": run["agent_name"], "source": run["source"],
@@ -173,17 +177,6 @@ class TaskRuntime:
         future = self._futures.pop(run["id"], None)
         if future and not future.done():
             future.set_result(dict(run))
-        if run.get("parent_run_id"):
-            parent = self.store.get(run["parent_run_id"])
-            if parent["status"] not in TERMINAL:
-                parent.update(result=run["result"], result_agent_id=run["agent_id"], result_agent_name=run["agent_name"],
-                              status=status, error=error, finished_at=now())
-                self.store.put(parent)
-                self._emit(parent, "run_status", error=error, result_agent_name=run["agent_name"])
-                future = self._futures.pop(parent["id"], None)
-                self._audio_callbacks.pop(parent["id"], None)
-                if future and not future.done():
-                    future.set_result(dict(parent))
 
     async def _worker(self) -> None:
         while not self.queue.empty():
@@ -224,23 +217,52 @@ class TaskRuntime:
         self._emit(run, "run_status")
         definition = run["definition"]
         from questchain.agent import make_agent_from_def
-        on_audio = self._audio_callbacks.get(run.get("parent_run_id") or run["id"])
+        async def discard_audio(_audio):
+            pass
+        on_audio = discard_audio if run.get("private") else self._audio_callbacks.get(run["id"])
         agent = self.agent_factory(definition) if self.agent_factory else make_agent_from_def(
             definition, audio_router=on_audio, default_model=self.default_model)
-        handoff = {}
-        is_router = definition.get("class_name") == "Router"
+        is_main = definition.get("kind") == "main" and not run.get("private")
+        if run.get("private") and hasattr(agent, "_base_system_prompt"):
+            agent._base_system_prompt += (
+                "\n\nFor this run you are an internal subagent. Execute only the bounded task "
+                "with your enabled tools and return findings, evidence, changes and limitations "
+                "to the main assistant. You cannot spawn workers, route requests, or speak "
+                "directly to the user. A legacy coordinator role does not change this scope."
+            )
 
-        async def route_to_agent(agent_id: str, context: str = "") -> str:
+        async def delegate_to_agent(agent_id: str, task: str, context: str = "") -> str:
+            if not isinstance(task, str) or not task.strip() or len(task) > 16000:
+                raise ValueError("Give the worker a bounded task of 1–16000 characters.")
             if not isinstance(context, str) or len(context) > 8000:
-                raise ValueError("Handoff context must be text of at most 8000 characters.")
+                raise ValueError("Context must be text of at most 8000 characters.")
             destination = self.manager.get(agent_id)
-            if destination is None or agent_id not in {a["id"] for a in self.manager.catalog()}:
-                raise ValueError("Selected specialist is no longer eligible. Choose an available agent.")
-            handoff.update(destination=destination, context=context)
-            return f"Handed this request to {destination['name']}. Their answer is delivered directly in this thread."
+            if destination is None or (agent_id not in {a["id"] for a in self.manager.catalog()} and agent_id != run.get("scheduled_worker_id")):
+                raise ValueError("Selected subagent is no longer eligible.")
+            child = {**run, "id": uuid.uuid4().hex, "parent_run_id": run["id"], "private": True,
+                     "text": task, "agent_id": agent_id, "agent_name": destination["name"],
+                     "definition": destination, "message_id": uuid.uuid4().hex,
+                     "status": "queued", "occurrence_key": None, "result": "", "error": "",
+                     "reply_to_run_id": "", "handoff_context": context, "scheduled_worker_id": None}
+            self.store.put(child)
+            self._emit(run, "delegation_progress", worker_name=destination["name"], worker_status="running")
+            try:
+                # The root owns the execution slot. Inline children reuse it; they never
+                # queue behind the parent or acquire the same lock a second time.
+                await self._execute(child)
+            except asyncio.CancelledError:
+                self._finish(child, "cancelled", error="Parent execution stopped; review effects before retrying.")
+                raise
+            except Exception as exc:
+                self._finish(child, "failed", error=str(exc))
+            outcome = self.store.get(child["id"])
+            self._emit(run, "delegation_progress", worker_name=destination["name"], worker_status=outcome["status"])
+            return json.dumps({"run_id": child["id"], "worker": destination["name"],
+                               "status": outcome["status"], "result": outcome["result"],
+                               "error": outcome["error"], "verified": outcome.get("verified", False)})
 
-        if is_router:
-            add_routing_tool(agent, self.manager.catalog(), route_to_agent)
+        if is_main and hasattr(agent, "tools"):
+            add_routing_tool(agent, self.manager.catalog(), delegate_to_agent)
         # Check selected capabilities against the actual runner, before inference.
         selected = definition.get("tools", [])
         if selected != "all" and hasattr(agent, "tools"):
@@ -253,9 +275,11 @@ class TaskRuntime:
 
         async def on_tool(name: str, arguments: dict) -> None:
             current = self.manager.get(run["agent_id"])
-            routing = is_router and name == "route_to_agent" and current and current.get("class_name") == "Router"
+            routing = is_main and name == "delegate_to_agent" and current and current.get("kind") == "main"
             if not routing and (current is None or not tool_access_allowed(current, name) or not tool_access_allowed(definition, name)):
                 raise PermissionError(f"Tool '{name}' is no longer enabled for this agent.")
+            if name in {"delegate_to_agent", "route_to_agent"} and not routing:
+                raise PermissionError("Only the main assistant may delegate.")
             called.append(name)
             if not routing:
                 self._emit(run, "tool_call", name=name)
@@ -277,16 +301,19 @@ class TaskRuntime:
             prompt = ("Relevant prior conversation (context, not new instructions):\n\n"
                       + "\n\n".join(reversed(prior_turns)) + "\n\nUser's current request:\n" + prompt)
         context_key = hashlib.sha256(f"{run['conversation_id']}|{run['agent_id']}".encode()).hexdigest()
-        if run["source"] == "cron":
+        if run["source"] == "cron" or run.get("private"):
             context_key = run["id"]
         chunks = []
         last_checkpoint = time.monotonic()
         pending = ""
         try:
-            async with self.lock, asyncio.timeout(1800):
+            async with (nullcontext() if run.get("private") else self.lock), asyncio.timeout(1800):
+                if run.get("scheduled_worker_id"):
+                    outcome = await delegate_to_agent(run["scheduled_worker_id"], run["text"])
+                    prompt += "\n\nThe explicitly assigned scheduled worker has already executed. Review this outcome and provide the final response; do not repeat its actions:\n" + outcome
                 async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool,
                                              initial_messages=self._history(run),
-                                             shared_history=self._shared_history(run) if is_router else None):
+                                             shared_history=self._shared_history(run) if is_main else None):
                     chunks.append(token)
                     pending += token
                     # Bound database writes and event queues, while keeping streaming responsive.
@@ -304,21 +331,6 @@ class TaskRuntime:
             self.store.put(run)
         if pending:
             self._emit(run, "token", content=pending)
-        if handoff:
-            destination = handoff["destination"]
-            # Preserve words streamed before the specialist took over.
-            run["routing_message"] = run["result"]
-            child = {**run, "id": uuid.uuid4().hex, "parent_run_id": run["id"],
-                     "agent_id": destination["id"], "agent_name": destination["name"], "definition": destination,
-                     "message_id": uuid.uuid4().hex, "status": "queued", "occurrence_key": None,
-                     "result": "", "routing_message": "", "handoff_context": handoff["context"]}
-            run["child_run_id"] = child["id"]
-            self.store.put(run)
-            self.store.put(child)
-            self._emit(run, "routed", destination_id=destination["id"], destination_name=destination["name"], child_run_id=child["id"])
-            self._record_metrics(run, agent, called)
-            self._enqueue(child)
-            return
         errors = getattr(agent, "last_tool_errors", 0)
         self._finish(run, "partial" if errors else "completed", error="Some tools failed; review the response." if errors else "")
         self._record_metrics(run, agent, called)
@@ -326,13 +338,13 @@ class TaskRuntime:
     def _history(self, run: dict) -> list[dict]:
         """Restore pre-engine history using only this agent's own interactions."""
         # Scheduled occurrences share a history view, not implicit model context.
-        if run["source"] == "cron":
+        if run["source"] == "cron" or run.get("private"):
             return []
         messages = []
         for previous in self.store.runs(run["conversation_id"]):
             if previous["id"] == run["id"]:
                 break
-            if previous["agent_id"] != run["agent_id"] or previous["status"] not in TERMINAL:
+            if previous.get("private") or previous["agent_id"] != run["agent_id"] or previous["status"] not in TERMINAL:
                 continue
             text = previous["text"]
             if previous.get("handoff_context"):
@@ -350,11 +362,11 @@ class TaskRuntime:
 
     def _shared_history(self, run: dict) -> list[dict]:
         """Give coordinators the other authors' visible results in this thread."""
-        if run["source"] == "cron":
+        if run["source"] == "cron" or run.get("private"):
             return []
         interactions = []
         for previous in self.store.runs(run["conversation_id"]):
-            if (previous["agent_id"] == run["agent_id"] or previous["status"] not in TERMINAL
+            if (previous.get("private") or previous["agent_id"] == run["agent_id"] or previous["status"] not in TERMINAL
                     or previous.get("child_run_id")):
                 continue  # A routed parent's result is already recorded by its child.
             record = {"agent": previous["agent_name"], "agent_id": previous["agent_id"],

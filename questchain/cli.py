@@ -534,8 +534,8 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.agents import tool_issues
         tools = definition.get("tools", [])
         selected = "all available" if tools == "all" else ", ".join(tools) or "none"
-        if definition.get("class_name") == "Router":
-            selected = "route_to_agent (hand requests to an eligible specialist)"
+        if definition.get("kind") == "main":
+            selected += ", delegate_to_agent (private subagent tasks)"
         text = f"{definition['name']} · selected tools: {selected}"
         issues = tool_issues(definition)
         if issues:
@@ -944,11 +944,9 @@ async def _agent_action_menu(
     name = agent_def["name"]
     model = agent_def.get("model") or OLLAMA_MODEL
     is_active = agent_def["id"] == active_id
-    is_builtin = agent_def.get("built_in", False)
+    is_builtin = agent_def.get("kind") == "main"
 
     options: list[tuple[str, str]] = []
-    if not is_active:
-        options.append(("Switch to this agent", "switch"))
     options.append(("Edit", "edit"))
     if not is_builtin:
         options.append(("Delete", "delete"))
@@ -1009,10 +1007,6 @@ async def _agent_action_menu(
         return None
 
     action = state["chosen"]
-
-    if action == "switch":
-        console.print(f"[blue]🔗 Switched to '[bold]{name}[/bold]'.[/blue]")
-        return agent_def
 
     if action == "edit":
         await _run_edit_wizard(console, session, agent_manager, agent_def)
@@ -1077,19 +1071,15 @@ async def _configure_agent(console, session, agent_manager, agent_def=None):
     if chosen.isdigit() and 1 <= int(chosen) <= len(AGENT_CLASSES):
         role = AGENT_CLASSES[int(chosen) - 1][0]
     selected = existing.get("tools", CLASS_TOOL_PRESETS.get(role) or [])
-    if role == "Router":
+    for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
+        console.print(f"  {i}. {tool_name} — {description}{_tool_availability_tag(tool_name)}")
+    raw = await _prompt_line(session, f"Tools [{selected}]: numbers, 'none', 'all', or Enter to keep: ")
+    if raw.lower() == "all":
+        selected = "all"
+    elif raw.lower() == "none":
         selected = []
-        console.print("Coordinator access: routing and status only.")
-    else:
-        for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
-            console.print(f"  {i}. {tool_name} — {description}{_tool_availability_tag(tool_name)}")
-        raw = await _prompt_line(session, f"Tools [{selected}]: numbers, 'none', 'all', or Enter to keep: ")
-        if raw.lower() == "all":
-            selected = "all"
-        elif raw.lower() == "none":
-            selected = []
-        elif raw:
-            selected = _parse_tool_selection(raw, [])
+    elif raw:
+        selected = _parse_tool_selection(raw, [])
     prompt = await _prompt_line(session, "System prompt (Enter for current or role preset): ")
     guidance = await _prompt_line(session, f"When to call [{existing.get('when_to_call', CLASS_GUIDANCE.get(role, ''))}]: ")
     guidance = guidance or existing.get("when_to_call", CLASS_GUIDANCE.get(role, ""))
@@ -1102,7 +1092,7 @@ async def _configure_agent(console, session, agent_manager, agent_def=None):
     exclusions = await _prompt_line(session, "When NOT to call (Enter to keep, '-' to clear): ")
     examples = await _prompt_line(session, "Example requests separated by ';' (Enter to keep, '-' to clear): ")
     values = dict(name=name, model=model or existing.get("model"), class_name=role, tools=selected,
-                  system_prompt=prompt or existing.get("system_prompt") or preset_prompt(role),
+                  system_prompt=prompt or existing.get("system_prompt", preset_prompt(role)),
                   when_to_call=guidance, routable=routable,
                   when_not_to_call="" if exclusions == "-" else exclusions or existing.get("when_not_to_call", ""),
                   routing_examples=[] if examples == "-" else [e.strip() for e in examples.split(";") if e.strip()] if examples else existing.get("routing_examples", []))
@@ -1555,30 +1545,8 @@ async def _repl_loop(
                     console.print(f"[blue]New thread started from web.[/blue] Thread: [dim]{session_state['thread_id']}[/dim]")
                     continue
                 if user_text.startswith("__switch_agent__:") and agent_manager is not None:
-                    new_id = user_text.split(":", 1)[1]
                     if response_future and not response_future.done():
-                        response_future.set_result("")
-                    new_def = agent_manager.get(new_id)
-                    if new_def:
-                        try:
-                            new_agent = _make_agent_from_def(new_def, audio_router, default_model=session_state["default_model"])
-                            agent_holder["agent"] = new_agent
-                            session_state["model_name"] = new_agent.model.model_name
-                            _init_progression(new_def)
-                            _init_metrics(new_def, new_agent)
-                            _agent_label = _build_agent_label(new_def, _progression)
-                            # Sync server module refs so _stats_payload stays correct
-                            try:
-                                from questchain.gateway.server import update_metrics, update_progression, _agents_payload as _ap
-                                from questchain.gateway.events import get_bus as _get_bus
-                                update_metrics(_metrics)
-                                update_progression(_progression)
-                                _get_bus().publish_nowait({"type": "agents", **_ap()})
-                            except Exception:
-                                pass
-                            console.print(f"[blue]Switched to agent '[bold]{new_def['name']}[/bold]' from web.[/blue]")
-                        except Exception as e:
-                            console.print(f"[bold red]Failed to switch agent:[/bold red] {e}")
+                        response_future.set_result("Chat always goes to the main assistant.")
                     continue
                 user_input = user_text
                 source = "web"
@@ -1671,7 +1639,7 @@ async def _repl_loop(
         from questchain.runtime import TaskRequest
         from questchain.runtime.terminal import run_terminal_task
         runtime = agent_holder["runtime"]
-        target_id = agent_config.get("agent_id") or agent_manager.get_active_id()
+        target_id = agent_manager.get_active_id()
         conversation_id = agent_config.get("configurable", {}).get("thread_id", session_state["thread_id"])
         try:
             result = await run_terminal_task(runtime, TaskRequest(user_input, target_id,

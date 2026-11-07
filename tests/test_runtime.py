@@ -37,11 +37,13 @@ class Model:
 
     async def chat_stream(self, messages, tools=None):
         self.calls.append(copy.deepcopy(messages))
-        if self.text:
+        if any('"status": "completed"' in m.get("content", "") for m in messages):
+            yield Chunk(text="Main synthesis", done=True)
+        elif self.text:
             yield Chunk(text=self.text, done=True)
         else:
             destination = self.destination or next(a["id"] for a in self.manager.catalog() if a["name"] == "Quill")
-            yield Chunk(done=True, tool_calls=[dict(name="route_to_agent", args=dict(agent_id=destination, context=self.context))])
+            yield Chunk(done=True, tool_calls=[dict(name="delegate_to_agent", args=dict(agent_id=destination, task=next(m["content"] for m in reversed(messages) if m["role"] == "user"), context=self.context))])
 
 
 class Runner:
@@ -62,7 +64,7 @@ async def runtime(manager, tmp_path):
     events = []
     runtime = TaskRuntime(manager, default_model="fake", path=tmp_path / "runs.sqlite3",
                           agent_factory=lambda d: Agent(model, ToolRegistry(), d["system_prompt"], d["name"])
-                              if d["class_name"] == "Router" else Runner(d, calls),
+                              if d.get("kind") == "main" else Runner(d, calls),
                           event_sink=events.append)
     runtime.test_model, runtime.test_calls, runtime.test_events = model, calls, events
     yield runtime
@@ -88,7 +90,7 @@ async def test_telegram_history_is_ordinary_chat_and_scoped_to_the_conversation(
     await telegram._submit_runtime_message(update, context, "Do you have a message history?")
     result = runtime.store.get(context.chat_data["last_run_id"])
     assert result["status"] == "completed"
-    assert "Perseus · completed" in update.message.reply_text.call_args.args[0]
+    assert "QuestChain · completed" in update.message.reply_text.call_args.args[0]
     assert [m["content"] for m in runtime.test_model.calls[-1] if m["role"] == "user"] == ["Hey you there?", "Do you have a message history?"]
     assert not runtime.test_calls
     runtime.test_model.text = "I'm here."
@@ -98,8 +100,8 @@ async def test_telegram_history_is_ordinary_chat_and_scoped_to_the_conversation(
 
 
 def test_catalog_and_migration_preserve_identity(manager):
-    assert {a["name"] for a in manager.all_agents()} == {"Perseus", "Argus", "Athena", "Talos", "Zeus"}
-    assert manager.get_active()["name"] == "Perseus"
+    assert {a["name"] for a in manager.all_agents()} == {"QuestChain", "Researcher", "Workspace", "Builder", "Scheduler"}
+    assert manager.get_active()["name"] == "QuestChain"
     agent = quill(manager)
     manager.update(agent["id"], name="Scribe", when_to_call="Write release notes.")
     catalog = manager.catalog()
@@ -110,7 +112,7 @@ def test_catalog_and_migration_preserve_identity(manager):
     assert agent["id"] not in {a["id"] for a in manager.catalog()}
     assert manager.get(agent["id"])["name"] == "Scribe"
     manager.remove(agent["id"])
-    planner = manager.get_by_class_name("Planner")
+    planner = manager.add("Optional planner", None, None, [], class_name="Planner")
     manager.remove(planner["id"])
     reloaded = AgentManager()
     reloaded.seed_preset_agents()
@@ -125,40 +127,12 @@ def test_invalid_definition_does_not_change_saved_agent(manager):
     assert manager.get(agent["id"]) == agent
     with pytest.raises(ValueError, match="Unknown agent fields"):
         manager.update(agent["id"], id="overwritten")
-    with pytest.raises(ValueError, match="coordinator"):
-        manager.update(manager.get_active_id(), tools=["shell"])
+    manager.update(manager.get_active_id(), tools=["shell"])
+    assert manager.get_active()["tools"] == ["shell"]
 
 
-async def test_router_streams_custom_specialist_without_rewriting(runtime, manager):
-    custom = quill(manager)
-    runtime.test_model.destination = custom["id"]
-    run_id = runtime.submit(TaskRequest("Polish these notes", manager.get_active_id(), "web-a", "web"))
-    result = await runtime.wait(run_id)
-    assert result["status"] == "completed"
-    assert result["result"] == "Quill: original specialist answer"
-    assert result["result_agent_id"] == custom["id"]
-    assert len(runtime.test_model.calls) == 1
-    assert runtime.test_calls[0][:2] == (custom["id"], "Polish these notes")
-    tokens = [e for e in runtime.test_events if e["type"] == "token"]
-    assert all(e["agent_id"] == custom["id"] and e["conversation_id"] == "web-a" for e in tokens)
-    assert "".join(e["content"] for e in tokens) == result["result"]
-    snapshot = runtime.snapshot("web-a")
-    assert len(snapshot["runs"]) == 2
-    assert not runtime.events("web-a", snapshot["seq"])
-    assert not runtime.snapshot("telegram-other")["runs"]
 
 
-async def test_direct_chat_bypasses_router_and_agent_selection_is_captured(runtime, manager):
-    custom = quill(manager)
-    run_id = runtime.submit(TaskRequest("Hello", custom["id"], "cli-a"))
-    manager.set_active(manager.get_by_class_name("Builder")["id"])
-    manager.update(custom["id"], name="New name")
-    result = await runtime.wait(run_id)
-    assert result["agent_name"] == "Quill"
-    assert result["result"].startswith("Quill:")
-    assert not runtime.test_model.calls
-    next_id = runtime.submit(TaskRequest("Again", custom["id"], "cli-a"))
-    assert (await runtime.wait(next_id))["agent_name"] == "New name"
 
 
 async def test_invalid_routing_and_clarification_do_not_execute(runtime, manager):
@@ -175,41 +149,17 @@ async def test_invalid_routing_and_clarification_do_not_execute(runtime, manager
 
 async def test_missing_owner_and_failure_never_fall_back(runtime, manager):
     custom = quill(manager)
-    run_id = runtime.submit(TaskRequest("Hello", custom["id"], "web-a"))
-    manager.remove(custom["id"])
+    run_id = runtime.submit(TaskRequest("Hello", manager.get_active_id(), "web-a"))
+    manager._agents = [a for a in manager._agents if a["id"] != manager.get_active_id()]
     result = await runtime.wait(run_id)
     assert result["status"] == "failed"
     assert not runtime.test_calls
     with pytest.raises(ValueError, match="no longer exists"):
-        runtime.submit(TaskRequest("Hello", custom["id"], "web-a"))
+        runtime.submit(TaskRequest("Hello", manager.get_active_id(), "web-a"))
 
 
-async def test_followup_context_is_scoped_and_model_context_is_per_agent(runtime, manager):
-    custom = quill(manager)
-    first = await runtime.wait(runtime.submit(TaskRequest("Draft", custom["id"], "web-a")))
-    another = manager.get_by_class_name("Keeper")["id"]
-    await runtime.wait(runtime.submit(TaskRequest("Summarize", another, "web-a", reply_to_run_id=first["id"])))
-    assert "original specialist answer" in runtime.test_calls[-1][1]
-    assert runtime.test_calls[0][2] != runtime.test_calls[-1][2]
-    assert ":" not in runtime.test_calls[-1][2]
-    with pytest.raises(ValueError, match="this conversation"):
-        runtime.submit(TaskRequest("Leak", custom["id"], "web-b", reply_to_run_id=first["id"]))
 
 
-async def test_clarification_handoff_preserves_original_request(runtime, manager):
-    custom = quill(manager)
-    runtime.test_model.text = "Which language?"
-    first = await runtime.wait(runtime.submit(TaskRequest("Write a CSV parser", manager.get_active_id(), "web-a")))
-    runtime.test_model.text = "Which delimiter?"
-    second = await runtime.wait(runtime.submit(TaskRequest("Python", manager.get_active_id(), "web-a")))
-    runtime.test_model.text = ""
-    runtime.test_model.destination = custom["id"]
-    runtime.test_model.context = "Write a CSV parser. Which language? Python. Which delimiter?"
-    result = await runtime.wait(runtime.submit(TaskRequest("Semicolon", manager.get_active_id(), "web-a")))
-    assert result["status"] == "completed"
-    prompt = runtime.test_calls[0][1]
-    assert all(text in prompt for text in ("Write a CSV parser", "Which language?", "Python", "Which delimiter?", "Semicolon"))
-    assert prompt.index("Write a CSV parser") < prompt.index("Python") < prompt.index("Semicolon")
 
 
 async def test_cancel_and_explicit_retry(runtime, manager):
@@ -221,7 +171,7 @@ async def test_cancel_and_explicit_retry(runtime, manager):
             await asyncio.Event().wait()
     runtime.agent_factory = lambda d: SlowRunner()
     custom = quill(manager)
-    run_id = runtime.submit(TaskRequest("Wait", custom["id"], "web-a"))
+    run_id = runtime.submit(TaskRequest("Wait", manager.get_active_id(), "web-a"))
     await entered.wait()
     runtime.cancel(run_id)
     assert (await runtime.wait(run_id))["status"] == "cancelled"
@@ -255,7 +205,7 @@ async def test_routed_cron_occurrences_start_with_fresh_context(runtime, manager
             "Draft today's summary", manager.get_active_id(), "cron-summary", "cron",
             occurrence_key=f"summary:{occurrence}")))
         assert result["status"] == "completed"
-    assert len(runtime.test_model.calls) == 2
+    assert len(runtime.test_model.calls) == 4
     assert all(len([m for m in call if m["role"] == "user"]) == 1 for call in runtime.test_model.calls)
     assert [call[1] for call in runtime.test_calls] == ["Draft today's summary"] * 2
     assert runtime.test_calls[0][2] != runtime.test_calls[1][2]
@@ -274,7 +224,7 @@ async def test_gateway_creation_validation_and_scoped_chat(runtime, manager, mon
     assert ws.send_json.call_args.args[0]["type"] == "agent_error"
     await server._handle_inbound(ws, dict(type="chat", message="Hello", agent_id=agent_id))
     run_id = ws.send_json.call_args.args[0]["run_id"]
-    assert (await runtime.wait(run_id))["result"].startswith("Quill:")
+    assert (await runtime.wait(run_id))["agent_id"] == manager.get_active_id()
     stranger = SimpleNamespace(send_json=AsyncMock())
     await server._handle_inbound(stranger, dict(type="cancel_run", run_id=run_id))
     assert stranger.send_json.call_args.args[0]["type"] == "error"
@@ -299,9 +249,9 @@ async def test_telegram_wizard_and_chat_use_custom_agent(runtime, manager, monke
     context.chat_data["agent_id"] = custom["id"]
     update.message.text = "Polish this note"
     await telegram.handle_message(update, context)
-    assert "Quill · completed" in reply.call_args.args[0]
-    assert "original specialist answer" in reply.call_args.args[0]
-    assert not runtime.test_model.calls
+    assert "QuestChain · completed" in reply.call_args.args[0]
+    assert "Main synthesis" in reply.call_args.args[0]
+    assert runtime.test_model.calls
 
 
 async def test_cron_waits_for_routed_specialist(runtime, manager, tmp_path):
@@ -315,8 +265,8 @@ async def test_cron_waits_for_routed_specialist(runtime, manager, tmp_path):
         await scheduler._execute_job(job, "one-occurrence")
         saved = scheduler.get_job(job["id"])
         assert saved["last_status"] == "success"
-        assert saved["last_agent_name"] == custom["name"]
-        assert saved["last_result"] == "Quill: original specialist answer"
+        assert saved["last_agent_name"] == "QuestChain"
+        assert saved["last_result"] == "Main synthesis"
         assert runtime.store.get(saved["last_run_id"])["delivery_status"] == "delivered"
         assert len(runtime.test_calls) == 1
         await scheduler._execute_job(job, "one-occurrence")
@@ -347,15 +297,6 @@ async def test_restart_marks_unfinished_runs_interrupted_and_keeps_results(manag
         await recovered.close()
 
 
-async def test_explicit_reply_to_specialist_bypasses_router(runtime, manager):
-    custom = quill(manager)
-    first = runtime.submit(TaskRequest("Draft", custom["id"], "web-a", "web"))
-    await runtime.wait(first)
-    reply = runtime.submit(TaskRequest("Shorter", manager.get_active_id(), "web-a", "web", reply_to_run_id=first))
-    result = await runtime.wait(reply)
-    assert result["agent_id"] == custom["id"]
-    assert not runtime.test_model.calls
-    assert "original specialist answer" in runtime.test_calls[-1][1]
 
 
 async def test_terminal_renderer_and_retry_commands(runtime, manager, monkeypatch):
@@ -370,8 +311,8 @@ async def test_terminal_renderer_and_retry_commands(runtime, manager, monkeypatc
     monkeypatch.setattr(cli, "console", terminal)
     custom = quill(manager)
     result = await run_terminal_task(runtime, TaskRequest("Draft", manager.get_active_id(), "cli-test"), terminal)
-    assert "Perseus → Quill" in output.getvalue()
-    assert "original specialist answer" in output.getvalue()
+    assert "QuestChain" in output.getvalue()
+    assert "Main synthesis" in output.getvalue()
     state = dict(runtime=runtime, agent_manager=manager, thread_id="test", last_run_id=result["id"])
     assert cli.handle_command("/retry", state)
     assert state["retry_run_id"] == result["id"]
@@ -393,7 +334,7 @@ async def test_cron_history_is_explicitly_subscribed(runtime, manager, monkeypat
     await server._handle_inbound(ws, {"type": "get_cron_history", "cron_id": "job"})
     payload = ws.send_json.call_args.args[0]
     assert payload["type"] == "cron_history"
-    assert payload["runs"][0]["result"].startswith("Quill:")
+    assert payload["runs"][0]["result"] == "Main synthesis"
     assert "definition" not in payload["runs"][0]
     with pytest.raises(ValueError, match="not found"):
         await server._handle_inbound(ws, {"type": "get_cron_history", "cron_id": "other"})
@@ -427,7 +368,7 @@ def test_legacy_agents_are_archived_until_explicit_migration(monkeypatch, tmp_pa
     manager = AgentManager()
     manager.seed_preset_agents()
     assert manager.get("custom-id") is None
-    assert manager.get_active()["name"] == "Perseus"
+    assert manager.get_active()["name"] == "QuestChain"
     assert {a["id"] for a in manager.legacy_agents()} == {"custom-id", "default"}
     archive = json.loads((tmp_path / "legacy" / "agents.json").read_text())
     assert archive[0] == legacy[0]
@@ -436,9 +377,9 @@ def test_legacy_agents_are_archived_until_explicit_migration(monkeypatch, tmp_pa
     assert migrated["tools"] == ["read_file"]
     assert migrated["system_prompt"] == "Keep my prompt."
     assert migrated["when_to_call"] and not migrated["routable"]
-    assert manager.get_active()["name"] == "Perseus"
+    assert manager.get_active()["name"] == "QuestChain"
     assert AgentManager().get("custom-id")["id"] == "custom-id"
-    assert json.loads(path.with_suffix(".v1.bak").read_text()) == legacy
+    assert json.loads((tmp_path / "legacy/before-single-assistant-v4/agents.json").read_text()) == legacy
 
 
 @pytest.mark.parametrize("saved_definitions", [False, True])
@@ -482,7 +423,7 @@ async def test_model_timeout_surfaces_failure_with_partial_output(runtime, manag
             yield "Saved partial answer"
             raise TimeoutError("Model timed out")
     runtime.agent_factory = lambda d: TimeoutRunner()
-    result = await runtime.wait(runtime.submit(TaskRequest("Draft", quill(manager)["id"], "web-a")))
+    result = await runtime.wait(runtime.submit(TaskRequest("Draft", manager.get_active_id(), "web-a")))
     assert result["status"] == "failed"
     assert result["result"] == "Saved partial answer"
     assert "timed out" in result["error"]
@@ -494,7 +435,7 @@ async def test_engine_rechecks_permissions_between_tool_calls(runtime, manager, 
     from questchain.engine.tools import make_registry, tool
     from questchain.engine import context
     monkeypatch.setattr(context, "QUESTCHAIN_DATA_DIR", tmp_path)
-    custom = manager.add("Writer", None, "Write.", ["write_file"], when_to_call="Write files.")
+    custom = manager.update(manager.get_active_id(), tools=["write_file"])
     mutations = []
     @tool
     async def write_file(path: str):
@@ -563,7 +504,7 @@ async def test_delete_archived_agents_persists_and_refreshes_settings(manager, m
     from questchain.gateway import server
     from questchain.gateway.events import get_bus
     folder = config.get_agents_path().parent / "legacy"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     archive = folder / "agents.json"
     definitions = [dict(id=key, name=key, class_name="Custom", model=None, tools=[], system_prompt="Write.")
                    for key in ("remove-me", "keep-me", "migrated")]
@@ -600,7 +541,7 @@ async def test_archived_delete_rejects_active_or_missing_agents(manager, monkeyp
     from questchain import config
     from questchain.gateway import server
     folder = config.get_agents_path().parent / "legacy"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     active = manager.get_active()
     archive = folder / "agents.json"
     archive.write_text(json.dumps([active]))

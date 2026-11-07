@@ -82,7 +82,7 @@ async def test_default_athena_creates_edits_and_deletes_knowledge_through_shared
     monkeypatch.setattr(context, "QUESTCHAIN_DATA_DIR", config.QUESTCHAIN_DATA_DIR)
     manager = AgentManager()
     manager.seed_preset_agents()
-    athena = manager.get_by_class_name("Keeper")
+    athena = manager.update(manager.get_active_id(), tools=manager.get_by_class_name("Keeper")["tools"])
     path = "/workspace/knowledge/PLAN_sprint.md"
     target = workspace / "workspace/knowledge/PLAN_sprint.md"
     steps = [
@@ -150,11 +150,11 @@ def test_default_upgrade_is_once_and_preserves_custom_permissions(workspace):
     path.with_name("agents_bootstrap_v3").write_text("3")
     manager = AgentManager()
     manager.seed_preset_agents()
-    saved = manager.get("keeper")
-    assert saved["tools"] == [*old_tools, "delete_file"]
-    assert saved["id"] == default["id"] and saved["revision"] == 2
+    saved = manager.migrate_legacy("keeper")
+    assert saved["tools"] == old_tools
+    assert saved["id"] == default["id"]
     for original in customized:
-        assert manager.get(original["id"]) == original
+        assert next(a for a in manager.legacy_agents() if a["id"] == original["id"]) == original
     manager.update("keeper", tools=old_tools)
     # Users may also create a new Keeper with an explicit selection after upgrading.
     added = manager.add("Read and write", None, None, old_tools, class_name="Keeper")

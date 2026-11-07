@@ -2,7 +2,6 @@
 
 import json
 import secrets
-import shutil
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -69,7 +68,8 @@ You are {agent_name}, a knowledge and file management specialist running locally
 ## Rules
 - Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.
 - Organize information clearly using structured files and directories.
-- Keep a concise plan for complex multi-step tasks.
+- Create, write, edit, delete, and organize workspace files, notes, and information using your enabled tools.
+- Keep information clearly structured and verify saved changes. The main assistant owns the overall plan.
 - Never hallucinate file contents or paths — verify with tools.
 - Be concise, precise, and thorough.
 """
@@ -138,44 +138,36 @@ ROLE_LABELS = {"Router": "Coordinator", "Explorer": "Researcher", "Keeper": "Wor
                "Builder": "Builder", "Planner": "Planning & advising", "Scheduler": "Scheduling",
                "Custom": "Custom"}
 
+MAIN_SYSTEM_PROMPT = """You are {agent_name}, a capable assistant running locally via Ollama.
+You are the single assistant the user talks to. Own each request from start to finish.
+Handle planning yourself: break complex goals into steps, track dependencies and priorities,
+adapt the plan as results arrive, and explain decisions. Delegate bounded execution, not ownership of the plan.
+Handle simple work directly. Use delegate_to_agent when a configured subagent is useful.
+Treat worker outcomes as evidence, review errors and limitations, then give your own final answer.
+Never claim an action succeeded without evidence. Verify facts and file contents with tools.
+Respect enabled tools and the approved workspace boundary. Confirm ambiguous destructive actions.
+"""
+
+PREVIOUS_MAIN_SYSTEM_PROMPT = MAIN_SYSTEM_PROMPT.replace(
+    "Handle planning yourself: break complex goals into steps, track dependencies and priorities,\n"
+    "adapt the plan as results arrive, and explain decisions. Delegate bounded execution, not ownership of the plan.\n", "")
+
 PRESET_AGENTS = [
-    {"name": "Perseus", "model": None, "system_prompt": ROUTER_SYSTEM_PROMPT,
-     "tools": [], "class_name": "Router"},
-    {
-        "name": "Athena",
-        "model": None,
-        "system_prompt": KEEPER_SYSTEM_PROMPT,
-        "tools": [*_FILE_TOOLS, "delete_file"],
-        "class_name": "Keeper",
-    },
-    {
-        "name": "Argus",
-        "model": None,
-        "system_prompt": EXPLORER_SYSTEM_PROMPT,
-        "tools": ["web_search", "web_browse"],
-        "class_name": "Explorer",
-    },
-    {
-        "name": "Talos",
-        "model": None,
-        "system_prompt": BUILDER_SYSTEM_PROMPT,
-        "tools": [*_FILE_TOOLS, "shell"],
-        "class_name": "Builder",
-    },
-    {
-        "name": "Zeus",
-        "model": None,
-        "system_prompt": PLANNER_SYSTEM_PROMPT,
-        "tools": [*_FILE_TOOLS],
-        "class_name": "Planner",
-    },
+    {"name": "Researcher", "model": None, "system_prompt": EXPLORER_SYSTEM_PROMPT,
+     "tools": ["web_search", "web_browse"], "class_name": "Explorer"},
+    {"name": "Workspace", "model": None, "system_prompt": KEEPER_SYSTEM_PROMPT,
+     "tools": [*_FILE_TOOLS, "delete_file"], "class_name": "Keeper"},
+    {"name": "Builder", "model": None, "system_prompt": BUILDER_SYSTEM_PROMPT,
+     "tools": [*_FILE_TOOLS, "shell"], "class_name": "Builder"},
+    {"name": "Scheduler", "model": None, "system_prompt": SENTINEL_SYSTEM_PROMPT,
+     "tools": ["cron"], "class_name": "Scheduler"},
 ]
 
 
 def preset_prompt(class_name: str) -> str:
     from questchain.agent import SYSTEM_PROMPT
     return next((p["system_prompt"] for p in PRESET_AGENTS if p["class_name"] == class_name),
-                SENTINEL_SYSTEM_PROMPT if class_name == "Scheduler" else SYSTEM_PROMPT)
+                PLANNER_SYSTEM_PROMPT if class_name == "Planner" else ROUTER_SYSTEM_PROMPT if class_name == "Router" else SYSTEM_PROMPT)
 
 SELECTABLE_TOOLS = [
     ("read_file",   "Read a file"),
@@ -210,8 +202,6 @@ def tool_access_allowed(definition: dict, tool_name: str) -> bool:
     """Check live configured access, including grouped tools and role restrictions."""
     from questchain.agent import _CLASS_TOOL_BLACKLIST
     selected_name = "shell" if tool_name == "execute" else "cron" if tool_name.startswith("cron_") else tool_name
-    if definition.get("class_name") == "Router":
-        return False
     if selected_name in _CLASS_TOOL_BLACKLIST.get(definition.get("class_name"), ()):
         return False
     selected = definition.get("tools", [])
@@ -244,11 +234,13 @@ def tool_issues(definition: dict) -> list[str]:
 
 
 BUILTIN_AGENT = {
-    "id": "default",
+    "id": "main",
+    "kind": "main",
+    "definition_version": 3,
     "name": "QuestChain",
     "built_in": True,
     "model": None,
-    "system_prompt": None,
+    "system_prompt": MAIN_SYSTEM_PROMPT,
     "tools": "all",
     "class_name": DEFAULT_CLASS,
     "when_to_call": "",
@@ -264,7 +256,6 @@ class AgentManager:
 
     def __init__(self):
         self._agents: list[dict] = []
-        self._fresh = not get_agents_path().exists() and not get_active_agent_path().exists()
         self._load()
 
     # ------------------------------------------------------------------
@@ -294,8 +285,8 @@ class AgentManager:
         role = _CLASS_MIGRATIONS.get(original.get("class_name"), original.get("class_name", "Custom"))
         if role not in {c[0] for c in AGENT_CLASSES}:
             role = "Custom"
-        agent = {**original, "class_name": role, "definition_version": 2,
-                 "system_prompt": original.get("system_prompt") or preset_prompt(role),
+        agent = {**original, "class_name": role, "definition_version": 3, "kind": "subagent",
+                 "system_prompt": original.get("system_prompt", preset_prompt(role)),
                  "when_to_call": original.get("when_to_call", CLASS_GUIDANCE.get(role, "")),
                  "when_not_to_call": original.get("when_not_to_call", ""),
                  "routing_examples": original.get("routing_examples", []),
@@ -338,7 +329,7 @@ class AgentManager:
             "id": secrets.token_hex(3),
             "name": name,
             "model": model or None,
-            "system_prompt": system_prompt or preset_prompt(class_name or DEFAULT_CLASS),
+            "system_prompt": preset_prompt(class_name or DEFAULT_CLASS) if system_prompt is None else system_prompt,
             "tools": tools,
             "class_name": class_name or DEFAULT_CLASS,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -347,7 +338,8 @@ class AgentManager:
             "routing_examples": routing_examples or [],
             "routable": bool(when_to_call) if routable is None else routable,
             "revision": 1,
-            "definition_version": 2,
+            "definition_version": 3,
+            "kind": "subagent",
         }
         self._validate(agent_def)
         self._agents.append(agent_def)
@@ -374,14 +366,14 @@ class AgentManager:
     def _validate(agent: dict) -> None:
         for field, maximum in (("name", 80), ("system_prompt", 4000), ("when_to_call", 2000),
                                ("when_not_to_call", 2000)):
+            if field == "system_prompt" and agent.get(field) is None:
+                continue
             value = agent.get(field) or ""
             if not isinstance(value, str) or len(value) > maximum:
                 raise ValueError(f"{field} must be text of at most {maximum} characters.")
-            agent[field] = value.strip()
+            agent[field] = value if field == "system_prompt" else value.strip()
         if not agent["name"]:
             raise ValueError("Name is required.")
-        if not agent["system_prompt"]:
-            agent["system_prompt"] = preset_prompt(agent.get("class_name", DEFAULT_CLASS))
         if agent.get("class_name") not in {c[0] for c in AGENT_CLASSES}:
             raise ValueError("Choose an existing role or Custom.")
         if not isinstance(agent.get("routable", False), bool):
@@ -398,8 +390,6 @@ class AgentManager:
             not isinstance(t, str) or not t or len(t) > 100 for t in selected
         )):
             raise ValueError("Tools must be a list of tool names or the explicit selection 'all'.")
-        if agent.get("class_name") == "Router" and selected:
-            raise ValueError("The coordinator uses routing and status only; choose a specialist role to use tools.")
         if agent.get("model") is not None and (not isinstance(agent["model"], str) or len(agent["model"]) > 200):
             raise ValueError("Model must be a model name.")
 
@@ -408,9 +398,11 @@ class AgentManager:
         fields = ("id", "name", "class_name", "when_to_call", "when_not_to_call", "routing_examples", "revision")
         return [{**{k: a.get(k) for k in fields}, "tools": a.get("tools", [])}
                 for a in self.all_agents() if a.get("routable") and a.get("when_to_call")
-                and a.get("class_name") != "Router" and not tool_issues(a)]
+                and a.get("kind") == "subagent" and not tool_issues(a)]
 
     def remove(self, agent_id: str) -> bool:
+        if agent_id == self.get_active_id():
+            raise ValueError("The main assistant cannot be deleted.")
         if len(self._agents) <= 1 and self.get(agent_id):
             raise ValueError("Keep at least one agent, or create a replacement first.")
         active_id = self.get_active_id()
@@ -430,13 +422,8 @@ class AgentManager:
         return agent
 
     def get_active_id(self) -> str:
-        path = get_active_agent_path()
-        if path.exists():
-            active_id = path.read_text(encoding="utf-8").strip()
-            if self.get(active_id):
-                return active_id
-        router = self.get_by_class_name("Router")
-        return router["id"] if router else self._agents[0]["id"] if self._agents else ""
+        main = next((a for a in self._agents if a.get("kind") == "main"), None)
+        return main["id"] if main else "main"
 
     def get_by_class_name(self, class_name: str) -> dict | None:
         """Return the first agent with the given class_name, or None."""
@@ -446,45 +433,12 @@ class AgentManager:
         ))
 
     def seed_preset_agents(self) -> None:
-        """Bootstrap the new roster once, independently of the legacy archive."""
-        self._upgrade_keeper_defaults()
-        marker = get_agents_path().with_name("agents_bootstrap_v3")
-        if marker.exists():
-            return
-        existing_classes = {a.get("class_name") for a in self._agents}
-        for preset in PRESET_AGENTS:
-            if preset["class_name"] not in existing_classes:
-                self.add(**preset, when_to_call=CLASS_GUIDANCE[preset["class_name"]], routable=True)
-        if self._fresh or not get_active_agent_path().exists() or not self.get(get_active_agent_path().read_text().strip()):
-            self.set_active(self.get_active_id())
-        marker.write_text("3", encoding="utf-8")
-
-    def _upgrade_keeper_defaults(self) -> None:
-        """Upgrade untouched Keeper presets once; preserve edited permissions."""
-        marker = get_agents_path().with_name("agents_keeper_defaults_v1")
-        if marker.exists():
-            return
-        old_prompt = KEEPER_SYSTEM_PROMPT.replace(
-            "Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.",
-            "Read files carefully before modifying; confirm before any destructive changes.",
-        ).strip()
-        changed = False
-        for agent in self._agents:
-            if (agent.get("class_name") == "Keeper" and agent.get("revision", 1) == 1
-                    and not agent.get("migrated_at") and agent.get("tools") == _FILE_TOOLS
-                    and (agent.get("system_prompt") or "").strip() == old_prompt):
-                agent["tools"] = [*_FILE_TOOLS, "delete_file"]
-                agent["system_prompt"] = KEEPER_SYSTEM_PROMPT.strip()
-                agent["revision"] = 2
-                changed = True
-        if changed:
-            self._save()
-        marker.write_text("1", encoding="utf-8")
+        """The versioned migration seeds the complete roster atomically."""
+        return
 
     def set_active(self, agent_id: str) -> None:
-        """Persist the active agent ID to disk."""
-        if self.get(agent_id) is None:
-            raise ValueError("Agent not found.")
+        if agent_id != self.get_active_id():
+            raise ValueError("Subagents cannot be direct chat destinations.")
         path = get_active_agent_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(agent_id, encoding="utf-8")
@@ -494,34 +448,8 @@ class AgentManager:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        path = get_agents_path()
-        if self._fresh:
-            return
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        if not isinstance(data, list):
-            raise ValueError("Invalid agents.json; saved definitions were left unchanged.")
-        legacy = [a for a in data if a.get("definition_version") != 2]
-        self._agents = [a for a in data if a.get("definition_version") == 2]
-        # The old implicit QuestChain agent belongs in the archive too.
-        marker = path.with_name("agents_bootstrap_v3")
-        if not marker.exists() and (legacy or not self._agents) and not any(a["id"] == "default" for a in data):
-            legacy.append(deepcopy(BUILTIN_AGENT))
-        if legacy:
-            self._backup()
-            folder = path.parent / "legacy"
-            folder.mkdir(parents=True, exist_ok=True)
-            archive = folder / "agents.json"
-            prior = json.loads(archive.read_text(encoding="utf-8")) if archive.exists() else []
-            by_id = {a["id"]: a for a in prior}
-            for agent in legacy:
-                by_id.setdefault(agent["id"], agent)
-            temp = archive.with_suffix(".tmp")
-            temp.write_text(json.dumps(list(by_id.values()), indent=2), encoding="utf-8")
-            temp.replace(archive)
-            selection = get_active_agent_path()
-            if selection.exists() and not (folder / "active_agent.txt").exists():
-                shutil.copy2(selection, folder / "active_agent.txt")
-            self._save()  # Archive is durable before active definitions change.
+        from questchain.migration import migrate_roster
+        self._agents = migrate_roster(deepcopy(BUILTIN_AGENT), PRESET_AGENTS, CLASS_GUIDANCE)
 
     def _save(self) -> None:
         path = get_agents_path()
@@ -529,9 +457,3 @@ class AgentManager:
         temp = path.with_suffix(".tmp")
         temp.write_text(json.dumps(self._agents, indent=2), encoding="utf-8")
         temp.replace(path)
-
-    def _backup(self) -> None:
-        path = get_agents_path()
-        backup = path.with_suffix(".v1.bak")
-        if path.exists() and not backup.exists():
-            shutil.copy2(path, backup)
