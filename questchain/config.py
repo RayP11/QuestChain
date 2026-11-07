@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from questchain.engine.budget import validate_tool_call_limit
+
 # ── .env loading (order matters) ──────────────────────────────────────────────
 # 1. Data-dir .env first — the installer writes QUESTCHAIN_WORKSPACE_DIR here
 #    so the app can locate its workspace from any terminal, on any machine.
@@ -23,6 +25,13 @@ MEMORY_DIR = WORKSPACE_DIR / "workspace" / "memory"
 
 # 3. Workspace .env — project/API-key settings, overrides data-dir .env.
 load_dotenv(WORKSPACE_DIR / ".env", override=True)
+
+# Aggregate dispatch attempts per root run, including private workers. Invalid
+# settings fail at startup instead of silently disabling the limit.
+try:
+    MAX_TOOL_CALLS = validate_tool_call_limit(int(os.getenv("QUESTCHAIN_MAX_TOOL_CALLS", "128")))
+except ValueError as exc:
+    raise ValueError("QUESTCHAIN_MAX_TOOL_CALLS must be an integer from 1 to 10000.") from exc
 
 # --- Ollama settings ---
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

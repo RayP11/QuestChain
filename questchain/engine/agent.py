@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from questchain.engine.budget import ToolBudgetExceeded, ToolCallBudget, new_tool_budget
 from questchain.engine.context import ContextManager
 from questchain.engine.model import OllamaModel
 from questchain.engine.tools import ToolRegistry
@@ -66,6 +67,7 @@ class Agent:
         max_iterations: int = _MAX_ITERATIONS,
         initial_messages: list[dict] | None = None,
         shared_history: list[dict] | None = None,
+        tool_budget: ToolCallBudget | None = None,
     ) -> AsyncIterator[str]:
         """Run the agent loop, yielding response text tokens as they stream.
 
@@ -78,9 +80,11 @@ class Agent:
             max_iterations: Safety cap on tool-call loops.
             initial_messages: Saved interactions to restore if no engine session exists yet.
             shared_history: Attributed records from other agents in this conversation.
+            tool_budget: Shared root-run dispatch budget; standalone calls get a fresh one.
         """
         self.last_iterations = 0
         self.last_tool_errors = 0
+        budget = tool_budget if tool_budget is not None else new_tool_budget()
 
         context = ContextManager(
             thread_id,
@@ -99,6 +103,7 @@ class Agent:
         text_chunks: list[str] = []
         pending_calls: list[dict] = []
         results: list[dict] = []
+        dispatch_started = False
         try:
             tool_schemas = self.tools.schemas()
 
@@ -137,9 +142,13 @@ class Agent:
 
                     # Validate current permissions immediately before each execution.
                     for tc in tool_calls:
+                        dispatch_started = False
+                        budget.reserve()
                         if on_tool_call:
                             await on_tool_call(tc["name"], tc["args"])
+                        dispatch_started = True
                         results.extend(await self.tools.execute_parallel([tc]))
+                        dispatch_started = False
                     for r in results:
                         content = r.get("content", "")
                         if isinstance(content, str) and content.startswith("Error"):
@@ -168,16 +177,26 @@ class Agent:
                 "Agent reached max_iterations (%d) for thread %s", max_iterations, thread_id
             )
             raise IterationLimitError(f"Agent reached its limit of {max_iterations} tool steps.")
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as exc:
             # Keep the request, partial reply, and completed tools on failed turns too.
-            # Pair unfinished calls with an explicit unknown outcome, never a success.
+            # Distinguish a dispatch interrupted in flight from a call never started.
             if pending_calls:
                 context.extend(results)
-                context.extend([
-                    {"role": "tool", "name": tc["name"],
-                     "content": "Error: Response interrupted before this tool result was recorded. Its outcome is unknown."}
-                    for tc in pending_calls[len(results):]
-                ])
+                for index, tc in enumerate(pending_calls[len(results):]):
+                    if index == 0 and dispatch_started:
+                        content = (
+                            "Error: Delegated execution stopped because the aggregate tool-call budget was exhausted. "
+                            "Earlier actions are not undone; review the worker results."
+                            if isinstance(exc, ToolBudgetExceeded) else
+                            "Error: Response interrupted before this tool result was recorded. Its outcome is unknown."
+                        )
+                    elif isinstance(exc, ToolBudgetExceeded):
+                        content = "Error: Tool not started: aggregate tool-call budget exhausted."
+                    elif index == 0 and isinstance(exc, PermissionError):
+                        content = "Error: Tool not started: permission denied."
+                    else:
+                        content = "Error: Tool not started: response stopped before dispatch."
+                    context.add({"role": "tool", "name": tc["name"], "content": content})
             context.add({"role": "assistant", "content": (
                 "".join(text_chunks) + "\n[Response interrupted; the previous request is no longer running.]"
             ).strip()})
