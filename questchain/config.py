@@ -37,9 +37,12 @@ OLLAMA_NUM_GPU: int | None = int(_num_gpu_env) if _num_gpu_env else None
 _num_thread_env = os.getenv("OLLAMA_NUM_THREAD", "")
 OLLAMA_NUM_THREAD: int | None = int(_num_thread_env) if _num_thread_env else None
 
-# --- Web search settings (explicit opt-in; no automatic provider fallback) ---
+# --- Web search settings (explicit provider selection; no automatic fallback) ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "tavily").strip().lower()
+# Preserve pre-provider installations with a saved key; fresh installs need no setup.
+WEB_SEARCH_PROVIDER = os.getenv(
+    "WEB_SEARCH_PROVIDER", "tavily" if TAVILY_API_KEY else "ddgs"
+).strip().lower()
 SEARXNG_SEARCH_URL = os.getenv("SEARXNG_SEARCH_URL", "")
 
 # --- Telegram settings ---

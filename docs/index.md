@@ -6,7 +6,7 @@
 
 **A party of specialized AI agents, running entirely on your machine, working through your tasks while you sleep.**
 
-No cloud. No subscriptions. No data leaving your machine. Ever.
+Models run locally through Ollama. Web search and other network tools send data to external services.
 
 ---
 
@@ -30,9 +30,9 @@ Build your party. Level them up. Put them to work.
 
 ## What makes it different
 
-**It works offline.** Disconnect your internet and QuestChain keeps running. The only thing that needs a connection is optional web search.
+**Local models can work offline.** Web search and other network integrations need a connection. Fresh installs enable experimental DDGS / DuckDuckGo search without setup; it sends queries externally. See [search privacy, provider terms, and disabling search](web-search.md).
 
-**It never phones home.** No telemetry. No analytics. No accounts. Optional API keys stay in a local file and go nowhere.
+**Network tools use external services.** Models run locally. Web search sends queries to the selected provider, and optional API keys are stored locally and sent to their configured services.
 
 **It works while you sleep.** Schedule a cron job and your agent runs it automatically while QuestChain is open.
 

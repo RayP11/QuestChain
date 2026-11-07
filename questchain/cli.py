@@ -232,7 +232,8 @@ def print_banner(model_name: str):
     meta.append("\n")
     from questchain.tools.web_search import search_configuration_issue
     if not search_configuration_issue():
-        meta.append("Web search: enabled", style="blue")
+        from questchain.tools.web_search import search_provider_label
+        meta.append(f"Web search: {search_provider_label()}", style="blue")
     else:
         meta.append("Web search: disabled  ", style="yellow")
         meta.append(search_configuration_issue(), style="dim")

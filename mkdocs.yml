@@ -1,5 +1,5 @@
 site_name: QuestChain
-site_description: A fully local, autonomous AI agent framework powered by Ollama — no cloud, no subscriptions, nothing leaving your machine.
+site_description: An autonomous AI agent framework with local Ollama models and configurable network tools.
 site_url: https://rayp11.github.io/QuestChain/
 repo_url: https://github.com/RayP11/QuestChain
 repo_name: RayP11/QuestChain
@@ -56,4 +56,4 @@ extra:
       link: https://discord.gg/C8Rc3u7KKx
       name: Discord
 
-copyright: QuestChain — No cloud. No cost. No compromise.
+copyright: QuestChain — Local models. Configurable tools.

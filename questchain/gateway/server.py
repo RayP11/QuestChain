@@ -783,7 +783,7 @@ def _settings_payload() -> dict:
         "integrations": {
             "tavily": bool(TAVILY_API_KEY),
             "web_search": search_configuration_issue() is None,
-            "search_provider": WEB_SEARCH_PROVIDER if WEB_SEARCH_PROVIDER in {"tavily", "searxng"} else "invalid",
+            "search_provider": WEB_SEARCH_PROVIDER if WEB_SEARCH_PROVIDER in {"ddgs", "tavily", "searxng", "none"} else "invalid",
             "claude_code": is_claude_code_available(),
             "telegram": bool(TELEGRAM_BOT_TOKEN),
             "speak": _get_speak_available(),

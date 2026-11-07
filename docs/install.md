@@ -42,6 +42,6 @@ Open **[http://127.0.0.1:8765](http://127.0.0.1:8765)** in your browser and star
 
 On first run, QuestChain walks you through a short setup — it learns your name, what you do, and how you like to work. After that, it remembers.
 
-!!! tip "Enable web search (optional)"
-    Type `/tavily` in the chat and paste in your free API key from [tavily.com](https://tavily.com) to give your agent live web search.
+!!! tip "Web search without setup (experimental)"
+    Fresh installs use DDGS / DuckDuckGo without a key or service setup. Queries and network IP leave the machine. Read [provider terms, privacy, and limitations](web-search.md) before production use. SearXNG and Tavily remain optional; `/tavily` saves a Tavily key.
 
