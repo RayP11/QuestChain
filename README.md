@@ -173,6 +173,22 @@ questchain start -t <thread-id>       # Resume a previous conversation
 questchain start --web                # Start with web UI (gateway + CLI)
 ```
 
+The web control plane binds only to loopback (`127.0.0.1`, `localhost`, or `::1`).
+Direct LAN/wildcard binding is rejected. For remote use, keep it on loopback and
+connect through an authenticated SSH tunnel, for example
+`ssh -N -L 8765:127.0.0.1:8765 your-host`, then open `http://localhost:8765`.
+Do not publish the tunnel port or put the gateway behind a public forwarding proxy.
+
+Set `QUESTCHAIN_WS_TOKEN` to a strong private password to require authentication
+for both the web page and WebSocket. The browser login username is `questchain`;
+the password is that setting's value. The secret is never included in the HTML.
+Existing native WebSocket clients can still use `?token=...`, but should prefer
+HTTP Basic authentication headers to avoid putting secrets in URLs. Without a
+password, local processes can control the application. This is a single-user
+control plane with the application's OS privileges, not a sandbox or multi-user
+service. Existing direct-network `--web-host` configurations must switch to a
+loopback tunnel.
+
 ### Updating an installed copy
 
 Exit QuestChain with Ctrl+C, Ctrl+D, or `/exit`, then run:
