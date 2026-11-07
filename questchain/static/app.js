@@ -457,6 +457,7 @@ function renderSettings() {
   // Integrations
   const intg = s.integrations || {};
   const intRows = [
+    { id: 'intg-search', key: 'web_search', ok: intg.search_provider === 'searxng' ? 'SearXNG (search only)' : 'Tavily', fail: 'Not configured' },
     { id: 'intg-tavily',   key: 'tavily',      ok: 'Configured', fail: 'Not configured' },
     { id: 'intg-claude',   key: 'claude_code', ok: 'Found',       fail: 'Not found' },
     { id: 'intg-telegram', key: 'telegram',    ok: 'Configured', fail: 'Not configured' },

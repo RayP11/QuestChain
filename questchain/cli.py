@@ -230,11 +230,12 @@ def print_banner(model_name: str):
     meta.append("  |  ", style="dim")
     meta.append(f"Model: {model_name}", style="cyan")
     meta.append("\n")
-    if TAVILY_API_KEY:
+    from questchain.tools.web_search import search_configuration_issue
+    if not search_configuration_issue():
         meta.append("Web search: enabled", style="blue")
     else:
         meta.append("Web search: disabled  ", style="yellow")
-        meta.append("/tavily to set up", style="dim")
+        meta.append(search_configuration_issue(), style="dim")
     meta.append("\n")
     from questchain.tools import is_claude_code_available
     if is_claude_code_available():
@@ -1036,7 +1037,13 @@ def _tool_availability_tag(tool_name: str) -> str:
     """Return a Rich markup tag like ' [dim](no API key)[/dim]' if a tool needs setup."""
     from questchain.config import TAVILY_API_KEY
     from questchain.tools import is_claude_code_available
-    if tool_name in ("web_search", "web_browse") and not TAVILY_API_KEY:
+    from questchain.tools.web_search import search_configuration_issue
+    if tool_name == "web_search" and search_configuration_issue():
+        return f"  [dim]({search_configuration_issue()})[/dim]"
+    from questchain.config import WEB_SEARCH_PROVIDER
+    if tool_name == "web_browse" and WEB_SEARCH_PROVIDER != "tavily":
+        return "  [dim](Tavily extraction disabled for this search provider)[/dim]"
+    if tool_name == "web_browse" and not TAVILY_API_KEY:
         return "  [dim](no Tavily key — /tavily)[/dim]"
     if tool_name == "claude_code" and not is_claude_code_available():
         return "  [dim](claude not found — /claudecode)[/dim]"

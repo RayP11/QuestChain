@@ -392,7 +392,8 @@ async def run_setup_speak(console, prompt_session) -> bool:
 async def _run_integration_setup(console, prompt_session) -> None:
     """Offer Tavily, Claude Code, and Telegram setup as optional post-onboarding steps."""
     import shutil
-    needs_tavily = not os.getenv("TAVILY_API_KEY")
+    from questchain.config import WEB_SEARCH_PROVIDER
+    needs_tavily = WEB_SEARCH_PROVIDER == "tavily" and not os.getenv("TAVILY_API_KEY")
     needs_claude = not shutil.which("claude")
     needs_telegram = not os.getenv("TELEGRAM_BOT_TOKEN")
     if not needs_tavily and not needs_claude and not needs_telegram:

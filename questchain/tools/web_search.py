@@ -1,4 +1,4 @@
-"""Tavily web search tool for QuestChain."""
+"""Web search provider selection and the backward-compatible Tavily factory."""
 
 import os
 
@@ -15,18 +15,43 @@ def create_search_tool(api_key: str, max_results: int = 5) -> TavilySearch:
     Returns:
         Configured TavilySearch tool.
     """
-    kwargs = dict(
-        max_results=max_results,
-        search_depth="advanced",
-        name="web_search",
-        description=(
+    kwargs = {
+        "max_results": max_results,
+        "search_depth": "advanced",
+        "name": "web_search",
+        "description": (
             "Search the web for current information, news, or documentation. "
             "Use web_browse to read the full content of a specific URL."
         ),
-    )
+    }
     try:
         return TavilySearch(tavily_api_key=api_key, **kwargs)
     except TypeError:
         # Older langchain-tavily versions don't accept tavily_api_key= directly
         os.environ.setdefault("TAVILY_API_KEY", api_key)
         return TavilySearch(**kwargs)
+
+
+def search_configuration_issue(api_key: str | None = None) -> str | None:
+    """Explain unavailable search without disclosing configuration values."""
+    from questchain import config
+    from questchain.tools.searxng import validate_endpoint
+    if config.WEB_SEARCH_PROVIDER == "tavily":
+        return None if (config.TAVILY_API_KEY if api_key is None else api_key) else "configure Tavily with /tavily"
+    if config.WEB_SEARCH_PROVIDER == "searxng":
+        try:
+            validate_endpoint(config.SEARXNG_SEARCH_URL)
+        except ValueError:
+            return "configure a valid SEARXNG_SEARCH_URL (see web search documentation)"
+        return None
+    return "WEB_SEARCH_PROVIDER must be tavily or searxng"
+
+
+def create_configured_search_tool(api_key: str | None = None):
+    from questchain import config
+    from questchain.tools.searxng import create_searxng_tool
+    if search_configuration_issue(api_key):
+        return None
+    if config.WEB_SEARCH_PROVIDER == "searxng":
+        return create_searxng_tool(config.SEARXNG_SEARCH_URL)
+    return create_search_tool(config.TAVILY_API_KEY if api_key is None else api_key)

@@ -16,7 +16,9 @@ Your Explorer agent can search the web and read full pages — not just headline
 
 > *"Search for tutorials on FastAPI WebSocket authentication and pull out the key steps."*
 
-Powered by [Tavily](https://tavily.com) — set up in one command with `/tavily`.
+Uses [Tavily](https://tavily.com) by default — set up with `/tavily`.
+For search without a Tavily key, explicitly configure your own
+[SearXNG service](web-search.md). Web search still sends queries over the network.
 
 ---
 

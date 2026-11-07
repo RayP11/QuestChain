@@ -28,6 +28,7 @@ nav:
   - Telegram Setup: telegram.md
   - Command Guide: cli-reference.md
   - What Can It Do: capabilities.md
+  - Web Search: web-search.md
   - Your Agents: agent-classes.md
   - Cron Jobs: cron-jobs.md
   - Progression: progression.md

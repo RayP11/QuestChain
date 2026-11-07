@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from questchain.tools.claude_code import create_claude_code_tool
 from questchain.tools.cron import create_cron_tools
-from questchain.tools.web_search import create_search_tool
+from questchain.tools.web_search import create_configured_search_tool
 from questchain.tools.web_browse import create_browse_tool
 from questchain.tools.speak import create_speak_tool, is_speak_available
 
@@ -23,7 +23,7 @@ def get_custom_tools(
     """Return custom tools for the QuestChain agent.
 
     Args:
-        api_key: Tavily API key; omit to skip web tools.
+        api_key: Tavily API key; SearXNG uses explicit environment configuration.
         on_audio: Callback for TTS audio; omit to skip speak tool.
         tools_filter: When provided, only include tools whose name appears in
             this list. ``"cron"`` expands to all three cron tools. ``None``
@@ -34,6 +34,8 @@ def get_custom_tools(
             return True
         return name in tools_filter
 
+    from questchain import config
+
     tools = []
 
     if _want("claude_code") and is_claude_code_available():
@@ -42,9 +44,11 @@ def get_custom_tools(
     if _want("cron"):
         tools.extend(create_cron_tools())
 
-    if api_key and _want("web_search"):
-        tools.append(create_search_tool(api_key))
-    if api_key and _want("web_browse"):
+    if _want("web_search"):
+        search = create_configured_search_tool(api_key or "")
+        if search is not None:
+            tools.append(search)
+    if config.WEB_SEARCH_PROVIDER == "tavily" and api_key and _want("web_browse"):
         tools.append(create_browse_tool(api_key))
 
     if on_audio and _want("speak") and is_speak_available():
