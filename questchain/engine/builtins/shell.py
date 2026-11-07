@@ -12,6 +12,52 @@ from questchain.engine.tools import tool
 
 # Shell metacharacters that require a shell interpreter
 _SHELL_CHARS = frozenset('|&;<>(){}$`!')
+_MAX_OUTPUT_BYTES = 256 * 1024
+_MAX_TIMEOUT_SECONDS = 1800
+
+
+class _OutputLimitExceeded(Exception):
+    pass
+
+
+async def _communicate_bounded(proc, timeout: int) -> tuple[bytes, bytes]:
+    """Drain both pipes concurrently; retain at most one shared output budget.
+
+    Readers keep draining after overflow so process-tree cleanup cannot deadlock
+    on a full pipe. No overflowing output is returned to the model or persisted.
+    """
+    remaining = _MAX_OUTPUT_BYTES
+    exceeded = asyncio.Event()
+
+    async def read(stream):
+        nonlocal remaining
+        chunks = []
+        while chunk := await stream.read(8192):
+            if len(chunk) > remaining:
+                exceeded.set()
+            if not exceeded.is_set():
+                remaining -= len(chunk)
+                chunks.append(chunk)
+        return b"".join(chunks)
+
+    stdout = asyncio.create_task(read(proc.stdout))
+    stderr = asyncio.create_task(read(proc.stderr))
+    completed = asyncio.gather(stdout, stderr, proc.wait())
+    overflow = asyncio.create_task(exceeded.wait())
+    try:
+        async with asyncio.timeout(timeout):
+            await asyncio.wait((completed, overflow), return_when=asyncio.FIRST_COMPLETED)
+            if exceeded.is_set():
+                raise _OutputLimitExceeded
+            out, err, _ = await completed
+            return out, err
+    except BaseException:
+        await _stop_process_tree(proc)
+        raise
+    finally:
+        completed.cancel()
+        overflow.cancel()
+        await asyncio.gather(completed, overflow, return_exceptions=True)
 
 
 def _needs_shell(command: str) -> bool:
@@ -57,11 +103,13 @@ async def execute(command: str, timeout: int = 60) -> str:
 
     Args:
         command: Shell command to run
-        timeout: Max seconds to wait (default: 60)
+        timeout: Max seconds to wait, integer 1–1800 (default: 60).
+            Combined stdout/stderr is limited to 256 KiB; overflow stops the command.
     """
     proc = None
-    finished = False
     try:
+        if type(timeout) is not int or not 1 <= timeout <= _MAX_TIMEOUT_SECONDS:
+            return "Error: timeout must be an integer between 1 and 1800 seconds"
         if not command.strip():
             return "Error: empty command"
         process_options = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
@@ -81,8 +129,7 @@ async def execute(command: str, timeout: int = 60) -> str:
                 stderr=asyncio.subprocess.PIPE,
                 **process_options,
             )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        finished = True
+        stdout, stderr = await _communicate_bounded(proc, timeout)
         out = stdout.decode("utf-8", errors="replace").strip()
         err = stderr.decode("utf-8", errors="replace").strip()
 
@@ -98,8 +145,7 @@ async def execute(command: str, timeout: int = 60) -> str:
         return "\n".join(parts)
     except asyncio.TimeoutError:
         return f"Error: timed out after {timeout}s"
+    except _OutputLimitExceeded:
+        return f"Error: output exceeded {_MAX_OUTPUT_BYTES} bytes; command stopped. Narrow the command's output before retrying."
     except Exception as e:
         return f"Error: {e}"
-    finally:
-        if proc is not None and not finished:
-            await _stop_process_tree(proc)
