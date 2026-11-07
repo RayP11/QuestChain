@@ -17,6 +17,11 @@ from questchain.runtime.routing import add_routing_tool
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"completed", "partial", "failed", "cancelled", "interrupted", "waiting_input"})
+_MAX_PENDING_RUNS = 32  # Root runs: queued plus executing; inline children reuse their parent's slot.
+
+
+class TaskCapacityError(ValueError):
+    """Admission was rejected; no run was accepted or queued for later replay."""
 
 
 def now() -> str:
@@ -48,7 +53,7 @@ class TaskRuntime:
         self._audio_callbacks = {}
         self.lock = busy_lock or asyncio.Lock()
         self.event_sink = event_sink or get_bus().publish_nowait
-        self.queue = asyncio.PriorityQueue()
+        self.queue = asyncio.PriorityQueue(maxsize=_MAX_PENDING_RUNS)
         self._counter = 0
         self._worker_task = None
         self._active_task = None
@@ -73,6 +78,10 @@ class TaskRuntime:
             existing = self.store.occurrence(request.occurrence_key)
             if existing:
                 return existing["id"]
+        # submit() contains no awaits: admission and allocation are atomic within
+        # the runtime's event loop. Check before creating durable state or futures.
+        if len(self._futures) >= _MAX_PENDING_RUNS:
+            raise TaskCapacityError("Task capacity reached (32 pending runs). Wait for work to finish or cancel a queued run, then retry explicitly.")
         definition = self.manager.get(request.agent_id)
         if not definition:
             raise ValueError("The assigned agent no longer exists.")
@@ -175,8 +184,29 @@ class TaskRuntime:
         self.store.put(run)
         self._emit(run, "assistant_done", content=run["result"], error=error)
         future = self._futures.pop(run["id"], None)
+        self._remove_queued(run["id"])
         if future and not future.done():
             future.set_result(dict(run))
+
+    def _remove_queued(self, run_id: str) -> None:
+        """Reclaim cancelled queue entries immediately, preserving priority/join.
+
+        The bounded queue is rebuilt synchronously through its public API so
+        cancellation bursts cannot leave an unbounded number of tombstones.
+        """
+        retained = []
+        removed_count = 0
+        while not self.queue.empty():
+            item = self.queue.get_nowait()
+            removed_count += 1
+            if item[2] != run_id:
+                retained.append(item)
+        for item in retained:
+            self.queue.put_nowait(item)
+        # Reinsert first: unfinished work must never transiently reach zero and
+        # wake join() while retained requests still await execution.
+        for _ in range(removed_count):
+            self.queue.task_done()
 
     async def _worker(self) -> None:
         while not self.queue.empty():
