@@ -440,7 +440,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             else:
                 scheduler.run_now(job_id)
             await ws.send_json({"type": "cron_saved", "cron_id": job_id, "action": t})
-        except (ValueError, KeyError, RuntimeError, TypeError) as exc:
+        except (ValueError, KeyError, RuntimeError, TypeError, OSError) as exc:
             await ws.send_json({"type": "cron_error", "message": str(exc)})
 
     elif t == "get_settings":

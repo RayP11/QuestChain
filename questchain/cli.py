@@ -580,7 +580,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.cron_commands import execute
         try:
             console.print(execute(command.strip().split(maxsplit=1)[1]), markup=False)
-        except (ValueError, KeyError, RuntimeError) as exc:
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             console.print(str(exc), style="red", markup=False)
         return True
 
@@ -696,7 +696,7 @@ async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
             else:
                 job_id = await _prompt_line(session, "Job ID: ")
                 console.print(execute(f"{action} {job_id}"), markup=False)
-        except (ValueError, KeyError, RuntimeError) as exc:
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             console.print(str(exc), style="red", markup=False)
 
 
