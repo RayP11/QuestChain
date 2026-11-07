@@ -50,7 +50,7 @@ def parse_args():
         "--web-host",
         default="127.0.0.1",
         metavar="HOST",
-        help="Web UI host (default: 127.0.0.1)",
+        help="Web UI loopback host: 127.0.0.1, localhost, or ::1 (default: 127.0.0.1)",
     )
     parser.add_argument(
         "--web-port",

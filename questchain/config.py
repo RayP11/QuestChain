@@ -51,8 +51,8 @@ SPEAK_MODEL_DIR = os.getenv("SPEAK_MODEL_DIR", "")   # resolved below after QUES
 SPEAK_VOICE     = os.getenv("SPEAK_VOICE", "bm_fable")
 
 # --- Web gateway settings ---
-# Optional shared secret for WebSocket auth. Set QUESTCHAIN_WS_TOKEN in .env
-# to require all WebSocket clients to supply ?token=<value> on connect.
+# Optional shared secret for HTTP and WebSocket auth. Browser login uses
+# username "questchain" and this password. Native WS ?token= clients still work.
 QUESTCHAIN_WS_TOKEN = os.getenv("QUESTCHAIN_WS_TOKEN", "")
 
 # --- Data directory ---

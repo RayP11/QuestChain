@@ -47,11 +47,10 @@ const State = {
 };
 
 // ── WebSocket ─────────────────────────────────────────────────
-const _WS_TOKEN = document.querySelector('meta[name="ws-token"]')?.content || '';
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}${_WS_TOKEN ? '&token=' + encodeURIComponent(_WS_TOKEN) : ''}`;
+  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}`;
   const ws = new WebSocket(`${proto}://${location.host}/ws${tokenParam}`);
   State.ws = ws;
 
