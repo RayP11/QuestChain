@@ -193,7 +193,7 @@ async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     command = text.partition(" ")[2]
     try:
         result = execute(command)
-    except (ValueError, KeyError, RuntimeError) as exc:
+    except (ValueError, KeyError, RuntimeError, OSError) as exc:
         result = str(exc)
     for chunk in _split_message(result):
         await update.message.reply_text(chunk)
