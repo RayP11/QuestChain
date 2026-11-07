@@ -224,6 +224,30 @@ python -m questchain
 
 > Ollama must still be running before starting QuestChain. See Step 1 above.
 
+### Regression checks
+
+Pull requests run Linux Python regressions, the chat Markdown JavaScript tests,
+a strict documentation build, and a separate Windows launcher upgrade check.
+The regression tests use fake model responses; Ollama and API keys are not needed.
+To reproduce the Linux checks with Python 3.13, Node.js 24, and uv 0.13.5:
+
+```bash
+uv sync --locked --python 3.13
+QUESTCHAIN_DATA_DIR="$(mktemp -d)" uv run --no-sync python -m pytest -q -ra
+node --test tests/chat-markdown.test.cjs
+uv tool run --from mkdocs-material==9.6.23 mkdocs build --strict
+```
+
+The two launcher tests are intentionally skipped on Linux. The Windows CI job
+runs only `tests/test_updater_windows.py`, using temporary offline wheels and
+isolated uv tool directories; it does not claim full Windows regression coverage.
+PR checks have read-only repository permissions, no persisted checkout credentials,
+no shared caches or application secrets, and bounded GitHub-hosted jobs. The
+existing documentation deployment workflow remains separate. Application
+dependencies come from `uv.lock`; documentation and launcher test tools have
+pinned direct versions but their transitive dependencies are not locked. When
+updating action pins, verify the full commit against the upstream release tag.
+
 ---
 
 ## What It Can Do
