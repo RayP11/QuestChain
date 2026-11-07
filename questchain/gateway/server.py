@@ -173,11 +173,11 @@ async def serve_chat_markdown() -> FileResponse:
 _CLASS_IMAGES: dict[str, list[str]] = {
     "Router":    ["Pixel_idle.png", "evolve2.png", "draft-evolve-3.png"],
     "Custom":    ["Pixel_idle.png",                        "evolve2.png",                           "draft-evolve-3.png"],
-    "Keeper":    ["Sage1.png",                             "Sage2.png",                             "Sage3.png"],
-    "Explorer":  ["Explorer1-jukebox-bg-removed.png",      "Explorer2-jukebox-bg-removed.png",      "Explorer3-jukebox-bg-removed.png"],
-    "Builder":   ["Arch1-jukebox-bg-removed.png",          "Arch2-jukebox-bg-removed.png",          "Arch3-jukebox-bg-removed.png"],
+    "Keeper":    ["workspace-stage-1.png", "workspace-stage-2.png", "workspace-stage-3.png"],
+    "Explorer":  ["researcher-stage-1.png", "researcher-stage-2.png", "researcher-stage-3.png"],
+    "Builder":   ["builder-stage-1.png", "builder-stage-2.png", "builder-stage-3.png"],
     "Planner":   ["Oracle1-jukebox-bg-removed.png",        "Oracle2-jukebox-bg-removed.png",        "Oracle3-jukebox-bg-removed.png"],
-    "Scheduler": ["Scheduler1-jukebox-bg-removed.png",     "Scheduler2-jukebox-bg-removed.png",     "Scheduler3-jukebox-bg-removed.png"],
+    "Scheduler": ["scheduler-stage-1.png", "scheduler-stage-2.png", "scheduler-stage-3.png"],
 }
 
 
