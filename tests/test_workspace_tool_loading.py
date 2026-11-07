@@ -101,3 +101,20 @@ def test_broken_unselected_file_does_not_prevent_valid_selection(tmp_path):
     write_tool(tmp_path, "selected.py", "approved", marker)
     (tmp_path / "workspace/tools/broken.py").write_text("not valid python !!")
     assert [t.name for t in load_workspace_tools(tmp_path, ["approved"])] == ["approved"]
+
+
+def test_parser_recursion_in_unrelated_file_does_not_block_selection(tmp_path, monkeypatch):
+    from questchain.engine import workspace_tools
+    marker = tmp_path / "selected.marker"
+    write_tool(tmp_path, "selected.py", "approved", marker)
+    (tmp_path / "workspace/tools/deep.py").write_text("deep expression fixture")
+    parse = workspace_tools.ast.parse
+    def bounded_recursion_failure(source, *args, **kwargs):
+        if source == "deep expression fixture":
+            raise RecursionError("maximum recursion depth exceeded during ast construction")
+        return parse(source, *args, **kwargs)
+    monkeypatch.setattr(workspace_tools.ast, "parse", bounded_recursion_failure)
+    assert [name for name, _ in get_tool_entries(tmp_path)] == ["approved"]
+    assert not marker.exists()
+    assert [t.name for t in load_workspace_tools(tmp_path, ["approved"])] == ["approved"]
+    assert marker.exists()

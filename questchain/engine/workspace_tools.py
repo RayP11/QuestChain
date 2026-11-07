@@ -32,7 +32,7 @@ def _scan_modules(workspace_dir: Path) -> list[tuple[Path, str, list[tuple[str, 
         try:
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source)
-        except (OSError, UnicodeError, SyntaxError):
+        except (OSError, UnicodeError, SyntaxError, RecursionError):
             continue
         entries = []
         for node in tree.body:
