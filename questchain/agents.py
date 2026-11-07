@@ -188,7 +188,7 @@ SELECTABLE_TOOLS = [
     ("shell",       "Run terminal commands"),
     ("write_todos", "Write the workspace task list"),
     ("read_todos",  "Read the workspace task list"),
-    ("web_search",  "Web search via Tavily"),
+    ("web_search",  "Web search via configured provider"),
     ("web_browse",  "Full page content via Tavily"),
     ("claude_code", "Delegate coding to Claude Code"),
     ("speak",       "Text-to-speech voice output"),
@@ -221,6 +221,7 @@ def tool_access_allowed(definition: dict, tool_name: str) -> bool:
 def tool_issues(definition: dict) -> list[str]:
     """Explain configured capabilities that cannot currently be provided."""
     from questchain import config
+    from questchain.tools.web_search import search_configuration_issue
     from questchain.tools import is_claude_code_available
     selected = definition.get("tools", [])
     if selected == "all":
@@ -230,7 +231,11 @@ def tool_issues(definition: dict) -> list[str]:
     for name in selected:
         if name not in known:
             issues.append(f"{name}: tool is no longer installed")
-        elif name in {"web_search", "web_browse"} and not config.TAVILY_API_KEY:
+        elif name == "web_search" and search_configuration_issue():
+            issues.append(f"web_search: {search_configuration_issue()}")
+        elif name == "web_browse" and config.WEB_SEARCH_PROVIDER != "tavily":
+            issues.append("web_browse: Tavily extraction is disabled for this search provider")
+        elif name == "web_browse" and not config.TAVILY_API_KEY:
             issues.append(f"{name}: configure Tavily in Settings")
         elif name == "claude_code" and not is_claude_code_available():
             issues.append("claude_code: install/configure Claude Code or deselect this tool")

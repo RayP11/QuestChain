@@ -724,8 +724,9 @@ def _get_speak_available() -> bool:
 
 def _settings_payload() -> dict:
     import json as _json
+    from questchain.tools.web_search import search_configuration_issue
     from questchain.config import (
-        TAVILY_API_KEY, TELEGRAM_BOT_TOKEN, MODEL_PRESETS, get_cron_jobs_path,
+        WEB_SEARCH_PROVIDER, TAVILY_API_KEY, TELEGRAM_BOT_TOKEN, MODEL_PRESETS, get_cron_jobs_path,
     )
     from questchain.tools import is_claude_code_available
     from questchain.agents import AGENT_CLASSES, SELECTABLE_TOOLS, CLASS_GUIDANCE, CLASS_TOOL_PRESETS, preset_prompt, ROLE_LABELS, tool_issues
@@ -781,6 +782,8 @@ def _settings_payload() -> dict:
         "cron_jobs": cron_jobs,
         "integrations": {
             "tavily": bool(TAVILY_API_KEY),
+            "web_search": search_configuration_issue() is None,
+            "search_provider": WEB_SEARCH_PROVIDER if WEB_SEARCH_PROVIDER in {"tavily", "searxng"} else "invalid",
             "claude_code": is_claude_code_available(),
             "telegram": bool(TELEGRAM_BOT_TOKEN),
             "speak": _get_speak_available(),

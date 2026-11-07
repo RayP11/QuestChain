@@ -393,3 +393,9 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 <br>
 <sub>If QuestChain is meaningful to you, a ⭐ helps others find it.</sub>
 </div>
+
+### Self-hosted web search
+
+Tavily remains the default. To use an explicitly configured SearXNG instance
+without a Tavily key, see [web search configuration](docs/web-search.md).
+Self-hosted search still contacts upstream Internet search engines; it is not offline.

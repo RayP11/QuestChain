@@ -37,8 +37,10 @@ OLLAMA_NUM_GPU: int | None = int(_num_gpu_env) if _num_gpu_env else None
 _num_thread_env = os.getenv("OLLAMA_NUM_THREAD", "")
 OLLAMA_NUM_THREAD: int | None = int(_num_thread_env) if _num_thread_env else None
 
-# --- Tavily settings ---
+# --- Web search settings (explicit opt-in; no automatic provider fallback) ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "tavily").strip().lower()
+SEARXNG_SEARCH_URL = os.getenv("SEARXNG_SEARCH_URL", "")
 
 # --- Telegram settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
