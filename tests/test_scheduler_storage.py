@@ -247,3 +247,134 @@ def test_invalid_record_fields_fail_closed(tmp_path, bad_field):
     with pytest.raises(ValueError, match="load quests"):
         scheduler._load_jobs()
     assert json.loads(path.read_text()) == data
+
+
+@pytest.mark.parametrize('scenario', ['add', 'remove', 'pause', 'resume', 'result', 'edit_result', 'failed_add', 'registration'])
+async def test_thread_transaction_serializes_with_event_loop_mutation(scheduler, monkeypatch, scenario):
+    """Force a stale snapshot window; a helper releases it even if the UI blocks.
+
+    No sleep-based ordering: the second operation either contends for the lock
+    or finishes (the pre-fix behavior) before the first is allowed to commit.
+    """
+    import os
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    existing = add(scheduler)
+    if scenario == 'resume':
+        scheduler.set_enabled(existing['id'], False)
+    paused = threading.Event()
+    release = threading.Event()
+    second_attempted = threading.Event()
+    contended = threading.Event()
+    original_lock = getattr(scheduler, '_state_lock', threading.RLock())
+
+    class ObservedLock:
+        def __enter__(self):
+            if not original_lock.acquire(blocking=False):
+                contended.set()
+                second_attempted.set()
+                assert original_lock.acquire(timeout=5), 'transaction deadlock'
+            return self
+
+        def __exit__(self, *args):
+            original_lock.release()
+
+    monkeypatch.setattr(scheduler, '_state_lock', ObservedLock(), raising=False)
+    original = scheduler._register_job if scenario == 'registration' else os.replace
+    first_thread = None
+    gated = False
+
+    def gate(*args, **kwargs):
+        nonlocal gated
+        if threading.get_ident() == first_thread and not gated:
+            gated = True
+            paused.set()
+            assert release.wait(5), 'test release timed out'
+            if scenario == 'failed_add':
+                raise OSError('injected concurrent write failure')
+        return original(*args, **kwargs)
+
+    if scenario == 'registration':
+        monkeypatch.setattr(scheduler, '_register_job', gate)
+    else:
+        monkeypatch.setattr(os, 'replace', gate)
+
+    def first():
+        nonlocal first_thread
+        first_thread = threading.get_ident()
+        if scenario == 'resume':
+            scheduler.set_enabled(existing['id'], False)
+        elif scenario == 'edit_result':
+            scheduler._record_result(existing['id'], 'success', 'retained result')
+        else:
+            add(scheduler, 'thread quest')
+
+    def unblock():
+        try:
+            assert second_attempted.wait(5), 'second operation never started'
+        finally:
+            release.set()
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        pending = workers.submit(first)
+        assert paused.wait(5), 'first operation never reached commit boundary'
+        releaser = workers.submit(unblock)
+        try:
+            # This deliberately runs on the event-loop thread, as UI handlers do.
+            # A lock holder waiting for the loop would deadlock here.
+            if scenario in {'add', 'failed_add', 'registration'}:
+                add(scheduler, 'UI quest')
+            elif scenario == 'remove':
+                scheduler.remove_job(existing['id'])
+            elif scenario in {'pause', 'resume'}:
+                scheduler.set_enabled(existing['id'], scenario == 'resume')
+            elif scenario == 'result':
+                scheduler._record_result(existing['id'], 'success', 'retained result')
+            else:
+                scheduler.update_job(existing['id'], name='edited', cron_expression='0 0 1 1 *', prompt='new')
+        finally:
+            second_attempted.set()
+            release.set()
+        releaser.result(timeout=5)
+        if scenario == 'failed_add':
+            with pytest.raises(OSError, match='concurrent write failure'):
+                pending.result(timeout=5)
+        else:
+            pending.result(timeout=5)
+
+    disk = json.loads(scheduler._jobs_path.read_text())
+    assert disk == scheduler._jobs
+    by_name = {job['name']: job for job in disk}
+    expected = {'edited' if scenario == 'edit_result' else 'original'}
+    if scenario == 'remove':
+        expected.remove('original')
+    if scenario not in {'failed_add', 'resume', 'edit_result'}:
+        expected.add('thread quest')
+    if scenario in {'add', 'failed_add', 'registration'}:
+        expected.add('UI quest')
+    assert set(by_name) == expected
+    if scenario in {'pause', 'resume'}:
+        assert by_name['original']['enabled'] is (scenario == 'resume')
+    if scenario in {'result', 'edit_result'}:
+        assert by_name['edited' if scenario == 'edit_result' else 'original']['last_result'] == 'retained result'
+    live = {job.id for job in scheduler._scheduler.get_jobs()}
+    assert live == {'cron:' + job['id'] for job in disk if job['enabled']}
+    assert contended.is_set(), "second mutation interleaved with an unfinished transaction"
+    # Let queued APScheduler wakeups and UI notifications run after lock release.
+    await asyncio.wait_for(asyncio.sleep(0), timeout=1)
+
+
+async def test_tool_thread_notification_wakes_loop_subscriber(scheduler):
+    from questchain.gateway.events import get_bus
+    bus = get_bus()
+    queue = bus.subscribe()
+    try:
+        waiting = asyncio.create_task(queue.get())
+        await asyncio.sleep(0)
+        await asyncio.to_thread(add, scheduler, 'thread notification')
+        event = await asyncio.wait_for(waiting, timeout=2)
+        assert event['type'] == 'cron_jobs'
+        assert event['jobs'][0]['name'] == 'thread notification'
+    finally:
+        bus.unsubscribe(queue)

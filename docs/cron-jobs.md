@@ -49,6 +49,13 @@ unchanged and returns an error. New snapshot files use private temporary-file
 permissions; existing POSIX permission bits are preserved without changing the
 parent directory's permissions.
 
+Within one scheduler instance, tool-thread and UI mutations are serialized from
+reading the current snapshot through persistence and live registration. Run-result
+updates use the same lock, so concurrent changes cannot overwrite one another.
+The lock is never held across an async wait; scheduler wakeups and UI notifications
+are queued without waiting for the event loop. Disk writes remain synchronous, so
+slow storage can temporarily delay UI operations. This is not a cross-process lock.
+
 Malformed or unreadable existing files stop scheduler startup instead of being
 silently replaced with an empty list. Repair or restore the file and restart.
 Missing owners must be durably paused before any schedule starts. Restart loads
@@ -60,7 +67,7 @@ the change is already committed and a warning reports uncertain crash durability
 it is not reported as a rollback. Windows does not use this directory-sync step.
 If applying committed state to the live scheduler fails, scheduling is paused and
 the error explicitly says the state was saved. Repair the cause and restart;
-already running tasks are not undone. These guarantees assume a single writer and
+already running tasks are not undone. These guarantees assume one scheduler instance per file and
 a local filesystem supporting atomic replacement; they do not guarantee behavior
 under storage hardware failure, network filesystem semantics, or concurrent
 external edits. Existing runtime deduplication and interrupted-run recovery remain

@@ -6,8 +6,10 @@ import logging
 import os
 import stat
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
@@ -43,6 +45,15 @@ def set_scheduler(scheduler: "CronScheduler | None") -> None:
     _scheduler_instance = scheduler
 
 
+def _serialized(method):
+    """Serialize synchronous state transactions, including candidate construction."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._state_lock:
+            return method(self, *args, **kwargs)
+    return guarded
+
+
 class CronScheduler:
     """Manages persistent quests for the QuestChain agent."""
 
@@ -58,6 +69,10 @@ class CronScheduler:
         busy_lock=None,
         runtime=None,
     ):
+        # Never hold this lock across await or wait for an event-loop callback.
+        # APScheduler mutations are synchronous and only enqueue their wakeups.
+        self._state_lock = threading.RLock()
+        self._event_loop = None
         self._agent = agent
         self._send_callback = send_callback
         self._jobs_path = jobs_path or get_cron_jobs_path()
@@ -75,6 +90,11 @@ class CronScheduler:
 
     async def start(self) -> None:
         """Load persisted jobs, seed builtins, register with APScheduler, start."""
+        self._event_loop = asyncio.get_running_loop()
+        self._start()
+
+    @_serialized
+    def _start(self) -> None:
         self._load_jobs()
         self.seed_builtin_jobs()
         if self._agent_manager:
@@ -99,6 +119,7 @@ class CronScheduler:
 
     # --- CRUD (called by tools) ---
 
+    @_serialized
     def add_job(
         self,
         name: str,
@@ -149,12 +170,14 @@ class CronScheduler:
             month=fields[3], day_of_week=fields[4], timezone=timezone_str,
         )
 
+    @_serialized
     def get_job(self, job_id: str) -> dict:
         for job in self._jobs:
             if job["id"] == job_id:
                 return dict(job)
         raise ValueError("Quest not found.")
 
+    @_serialized
     def update_job(self, job_id: str, *, name: str, cron_expression: str,
                    prompt: str, timezone_str: str = "UTC", agent_id: str | None = None) -> dict:
         old = self.get_job(job_id)
@@ -175,6 +198,7 @@ class CronScheduler:
         self._publish()
         return dict(old)
 
+    @_serialized
     def set_enabled(self, job_id: str, enabled: bool) -> None:
         job = self.get_job(job_id)
         job["enabled"] = enabled
@@ -189,16 +213,25 @@ class CronScheduler:
             self._remove_registered(f"cron:{job_id}")
         self._publish()
 
+    @_serialized
     def run_now(self, job_id: str) -> None:
         job = self.get_job(job_id)
         if job_id in self._running or self._scheduler.get_job(f"manual:{job_id}"):
             raise ValueError("This job is already running or queued.")
         self._scheduler.add_job(self._execute_job, trigger="date", args=[job, "manual-" + uuid.uuid4().hex], id=f"manual:{job_id}")
 
+    @_serialized
     def _publish(self) -> None:
         from questchain.gateway.events import get_bus
-        get_bus().publish_nowait({"type": "cron_jobs", "jobs": self.list_jobs()})
+        event = {"type": "cron_jobs", "jobs": self.list_jobs()}
+        # asyncio queues must only be touched on their owning event loop. Enqueue
+        # without waiting: the loop may itself be waiting for this transaction.
+        if self._event_loop is not None:
+            self._event_loop.call_soon_threadsafe(get_bus().publish_nowait, event)
+        else:
+            get_bus().publish_nowait(event)
 
+    @_serialized
     def remove_job(self, job_id: str) -> dict[str, Any]:
         """Remove a job by ID. Raises KeyError if not found."""
         for job in self._jobs:
@@ -212,6 +245,7 @@ class CronScheduler:
                 return removed
         raise KeyError(f"No quest with ID '{job_id}'")
 
+    @_serialized
     def list_jobs(self) -> list[dict[str, Any]]:
         """Return all jobs."""
         result = []
@@ -256,6 +290,7 @@ class CronScheduler:
             self._scheduler.pause()
         raise RuntimeError("Quest state was saved, but live scheduling failed. Scheduling is paused; repair the error and restart. " + str(exc)) from exc
 
+    @_serialized
     def seed_builtin_jobs(self) -> None:
         """Insert builtin quests if they are not already present (by id)."""
         existing_ids = {j["id"] for j in self._jobs}
@@ -297,10 +332,11 @@ class CronScheduler:
 
     async def _execute_job(self, job: dict, occurrence: str | None = None) -> None:
         job_id = job["id"]
-        if job_id in self._running:
-            return
-        self._running.add(job_id)
-        self._publish()
+        with self._state_lock:
+            if job_id in self._running:
+                return
+            self._running.add(job_id)
+            self._publish()
         try:
             if self._runtime:
                 await self._run_task(self.get_job(job_id), occurrence)
@@ -308,13 +344,15 @@ class CronScheduler:
                 async with self._busy_lock:
                     await self._run_job(job)
         finally:
-            self._running.discard(job_id)
-            self._publish()
+            with self._state_lock:
+                self._running.discard(job_id)
+                self._publish()
 
     def _record_result(self, job_id: str, status: str, result: str) -> None:
         self._update_saved(job_id, last_run=datetime.now(timezone.utc).isoformat(),
                            last_status=status, last_result=result[:16000])
 
+    @_serialized
     def _update_saved(self, job_id: str, **changes) -> None:
         self._save_jobs([{**job, **changes} if job["id"] == job_id else job for job in self._jobs])
 
@@ -412,6 +450,7 @@ class CronScheduler:
                     server._progression.load()
         await self._send_callback(f"Quest: {job_name}\n\n{full_response}")
 
+    @_serialized
     def _load_jobs(self) -> None:
         """Validate the whole file before enabling schedules; never reset corruption."""
         try:
@@ -441,6 +480,7 @@ class CronScheduler:
         self._load_failed = False
         self._loaded = True
 
+    @_serialized
     def _save_jobs(self, jobs: list[dict] | None = None) -> None:
         """Replace a complete snapshot before changing memory or live registrations.
 
