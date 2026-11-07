@@ -32,7 +32,7 @@ Build your party. Level them up. Put them to work.
 
 **Local models can work offline.** Web search and other network integrations need a connection. Fresh installs enable experimental DDGS / DuckDuckGo search without setup; it sends queries externally. See [search privacy, provider terms, and disabling search](web-search.md).
 
-**It never phones home.** No telemetry. No analytics. No accounts. Optional API keys stay in a local file and go nowhere.
+**Network tools use external services.** Models run locally. Web search sends queries to the selected provider, and optional API keys are stored locally and sent to their configured services.
 
 **It works while you sleep.** Schedule a cron job and your agent runs it automatically while QuestChain is open.
 

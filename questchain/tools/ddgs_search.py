@@ -7,6 +7,7 @@ Only the fixed DuckDuckGo HTML endpoint can receive a search request.
 import asyncio
 from importlib.metadata import version
 from threading import BoundedSemaphore
+from urllib.parse import urlsplit
 
 import httpx
 from ddgs.engines.duckduckgo import Duckduckgo
@@ -54,9 +55,12 @@ def _failure(code: str, message: str) -> dict:
 def _parse(body: bytes) -> dict:
     parser = _Parser()
     html = body.decode("utf-8", errors="replace")
-    # Do not solve challenges or silently treat a challenge page as no matches.
-    if any(marker in html.lower() for marker in ("challenge-form", "anomaly.js", "captcha")):
-        return _failure("unavailable", "DuckDuckGo challenged the request. No retry or fallback was attempted.")
+    # Inspect challenge forms, not words in legitimate result titles/snippets.
+    tree = parser.extract_tree(html)
+    for form in tree.xpath("//form"):
+        action_path = urlsplit(form.get("action", "")).path
+        if form.get("id") == "challenge-form" or action_path == "/anomaly.js":
+            return _failure("unavailable", "DuckDuckGo challenged the request. No retry or fallback was attempted.")
     rows = parser.post_extract_results(parser.extract_results(html))
     results = []
     for row in rows:

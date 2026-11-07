@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from pathlib import Path
 from threading import BoundedSemaphore
 
 import httpx
@@ -102,7 +103,9 @@ async def test_refusal_failure_and_redirect_are_not_empty_success(mock_client, s
     (b"<html><p>No results found</p></html>", "inconclusive"),
     (b"<html><div class='changed-markup'>Some results</div></html>", "inconclusive"),
     (b"<html><form id='challenge-form'>Solve challenge</form></html>", "unavailable"),
-    (b"<html>CAPTCHA</html>", "unavailable"),
+    (b"<html>CAPTCHA</html>", "inconclusive"),
+    (b"<html><form action='https://duckduckgo.com/anomaly.js?sv=html'>Challenge</form></html>", "unavailable"),
+    (b"<html><form action='//duckduckgo.com/anomaly.js'>Challenge</form></html>", "unavailable"),
 ])
 async def test_empty_200_and_provider_markup_fragility(mock_client, body, status):
     mock_client(lambda r: response(body))
@@ -302,3 +305,14 @@ def test_gateway_discloses_provider_without_configuration_values(monkeypatch):
     assert integrations["web_search"] is True
     monkeypatch.setattr(config, "WEB_SEARCH_PROVIDER", "none")
     assert _settings_payload()["integrations"]["web_search"] is False
+
+
+async def test_legitimate_captcha_results_are_not_challenges(mock_client):
+    body = (Path(__file__).parent / "fixtures" / "ddgs-captcha-results.html").read_bytes()
+    mock_client(lambda r: response(body))
+    result = await invoke("CAPTCHA documentation")
+    assert result["status"] == "ok"
+    assert len(result["results"]) == 1
+    assert "CAPTCHA" in result["results"][0]["title"]
+    assert "CAPTCHA" in result["results"][0]["content"]
+    assert result["results"][0]["url"] == "https://example.com/captcha"
