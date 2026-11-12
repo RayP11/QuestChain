@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="ws-token" content="">
 <title>QuestChain</title>
 <style>
 /* ── Reset & base ──────────────────────────────────────────── */
@@ -546,7 +545,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .roster-item-action:hover { background: var(--surface3); color: var(--text); }
 .roster-item-action.danger:hover { background: rgba(255,76,110,0.15); color: var(--red); }
 
-/* ── PAGE 3: CRON JOBS ─────────────────────────────────────────── */
+/* ── PAGE 3: QUESTS ─────────────────────────────────────────── */
 #page-jobs { flex-direction: row; }
 
 #jobs-sidebar {
@@ -902,7 +901,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
     </button>
 
-    <button class="nav-btn" data-page="jobs" title="Cron Jobs">
+    <button class="nav-btn" data-page="jobs" title="Quests">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     </button>
 
@@ -1073,15 +1072,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       </div>
     </div>
 
-    <!-- PAGE 3: CRON JOBS -->
+    <!-- PAGE 3: QUESTS -->
     <div class="page" id="page-jobs">
       <div id="jobs-sidebar">
-        <div class="jobs-header"><span class="jobs-title">Cron Jobs</span><button class="btn-new" id="btn-new-job">+ New Job</button></div>
+        <div class="jobs-header"><span class="jobs-title">Quests</span><button class="btn-new" id="btn-new-job">+ New Quest</button></div>
         <div class="job-list" id="job-list"></div>
       </div>
       <div id="job-editor">
-        <h2>Automate a job</h2>
-        <p class="job-hint">Jobs run while QuestChain is open. Pause a job to stop future scheduled runs.</p>
+        <h2>Automate a quest</h2>
+        <p class="job-hint">Quests run while QuestChain is open. Pause a quest to stop future scheduled runs.</p>
         <label for="job-name-input">Name</label><input id="job-name-input" maxlength="120" placeholder="Daily summary">
         <div class="job-fields">
           <div><label for="job-time-input">Time</label><input id="job-time-input" type="time" value="09:00" required step="60"></div>
@@ -1092,8 +1091,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
         <p class="job-hint" id="job-schedule-hint">Choose or type a time in the timezone above.</p>
         <label for="job-agent-select">Agent</label><select id="job-agent-select"><option value="">Default agent</option></select>
-        <label for="job-prompt-input">Instructions</label><textarea id="job-prompt-input" maxlength="16000" placeholder="What should the agent do each time this job runs?"></textarea>
-        <div class="job-actions"><button class="btn-save" id="btn-save-job">Save Job</button><button class="btn-ghost" id="btn-run-job" disabled>Run Now</button><button class="btn-ghost" id="btn-toggle-job" disabled>Pause</button><button class="btn-ghost" id="btn-delete-job" disabled>Delete</button></div>
+        <label for="job-prompt-input">Instructions</label><textarea id="job-prompt-input" maxlength="16000" placeholder="What should the agent do each time this quest runs?"></textarea>
+        <div class="job-actions"><button class="btn-save" id="btn-save-job">Save Quest</button><button class="btn-ghost" id="btn-run-job" disabled>Run Now</button><button class="btn-ghost" id="btn-toggle-job" disabled>Pause</button><button class="btn-ghost" id="btn-delete-job" disabled>Delete</button></div>
         <p id="job-message" role="status" aria-live="polite"></p>
         <p id="job-status"></p><pre id="job-result"></pre>
         <h3>Run history</h3><div id="job-history" aria-live="polite"></div>
@@ -1168,18 +1167,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
               <label class="form-label" for="af-prompt">System prompt</label>
               <textarea class="form-input form-textarea" id="af-prompt" maxlength="4000" placeholder="How should this agent work?"></textarea>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="af-guidance">When to call this agent</label>
-              <textarea class="form-input form-textarea" id="af-guidance" maxlength="2000" placeholder="Describe the requests this agent should receive. The coordinator uses this to choose an agent."></textarea>
-              <label><input id="af-routable" type="checkbox" checked> Allow automatic routing</label>
-            </div>
-            <details>
-              <summary>Routing examples and exclusions</summary>
-              <label class="form-label" for="af-exclusions">When NOT to call</label>
-              <textarea class="form-input" id="af-exclusions" maxlength="2000" placeholder="Work this agent should leave to another specialist"></textarea>
-              <label class="form-label" for="af-examples">Example requests (one per line)</label>
-              <textarea class="form-input" id="af-examples" placeholder="Polish these release notes"></textarea>
-            </details>
+
             <div id="af-error" role="alert"></div>
             <div class="form-group" id="af-tools-group">
               <label class="form-label">Tools <span class="text-muted-hint">Select the tools this agent can use. No selection means no tools.</span></label>
@@ -1194,13 +1182,13 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         </div>
       </div>
 
-      <!-- Cron Jobs -->
+      <!-- Quests -->
       <div class="settings-section">
         <div class="settings-section-header">
-          <span class="settings-section-title">Cron Jobs</span>
+          <span class="settings-section-title">Quests</span>
         </div>
         <div class="settings-section-body" id="settings-cron-body">
-          <span class="cron-empty">No cron jobs configured.</span>
+          <span class="cron-empty">No quests configured.</span>
         </div>
       </div>
 
@@ -1235,7 +1223,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <span class="settings-section-title">Legacy agents</span>
         </div>
         <div class="settings-section-body">
-          <p class="text-muted-hint">Archived agents are inactive. Migrate one to keep its original name, tools, prompt and ID. Review its settings before enabling automatic routing.</p>
+          <p class="text-muted-hint">Archived agents are inactive. Migrate one to keep its original name, tools, prompt and ID. Review its settings, then select it to chat directly.</p>
           <div id="legacy-agent-list"></div>
           <p id="legacy-agent-message" role="status"></p>
         </div>

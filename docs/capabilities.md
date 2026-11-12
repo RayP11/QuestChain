@@ -58,15 +58,15 @@ Your Scheduler agent can set up recurring tasks that run automatically and repor
 
 > *"Every Monday, search for the top AI news from the past week and save it to my notes."*
 
-Use `/cron` to see and manage all scheduled jobs.
+Use `/quests` to see and manage all scheduled jobs.
 
 ---
 
 ## Automated jobs
 
-Use the Cron Jobs page or `/cron` to schedule recurring work, choose its agent and timezone, and inspect results. Jobs run while QuestChain is open.
+Use the Quests page or `/quests` to schedule recurring work, choose its agent and timezone, and inspect results. Quests run while QuestChain is open.
 
-[→ Learn more about Cron Jobs](cron-jobs.md)
+[→ Learn more about Quests](cron-jobs.md)
 
 ---
 
@@ -89,3 +89,20 @@ Inspect `profile.md` and `ABOUT.md` in your workspace's `workspace/memory` direc
 Once set up, you can talk to your agent from your phone while QuestChain is running on your machine. Agent definitions and saved memory are shared; each Telegram chat has its own conversation history.
 
 [→ Telegram Setup](telegram.md)
+
+## Custom Python tools
+
+Custom Python tool discovery reads static declarations without importing files.
+Selecting a tool imports only the module that declares that name; disabled and
+unrelated modules are not imported by the loader. Use a unique top-level function
+with `@tool`, `@tool()`, or a literal `@tool(name="my_tool")`. Ambiguous duplicate
+names and dynamically computed declarations are not selectable. Built-in names,
+including `execute`, `cron_add`, `cron_list`, `cron_remove`, `read_todos`, and
+`write_todos`, cannot be overridden by custom definitions.
+
+Review the entire selected module and its imports before enabling it. All its
+top-level Python executes with the application's OS privileges, including
+decorators and imports; selecting a function does not isolate it from other code
+in that module. This is an import-selection boundary, not a Python sandbox or a
+persisted approval of a file's contents. Changes to enabled files take effect on
+the next load, and cancelling a custom Python thread cannot stop its side effects.

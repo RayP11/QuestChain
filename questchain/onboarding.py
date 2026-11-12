@@ -553,10 +553,10 @@ async def run_onboarding(agent, console, prompt_session=None) -> bool:
     name_input = await _prompt_user(prompt_session, console)
     if name_input is None:
         return False
-    agent_name = "QuestChain"
+    from questchain.agents import AgentManager
+    manager = AgentManager()
+    agent_name = manager.get_active()["name"]
     if name_input:
-        from questchain.agents import AgentManager
-        manager = AgentManager()
         manager.update(manager.get_active_id(), name=name_input)
         agent_name = name_input
 

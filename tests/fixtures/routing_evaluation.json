@@ -17,12 +17,12 @@
   {"category":"clear","request":"Create a Python tool that validates our configuration files.","action":"dispatch","agent_id":"Builder"},
   {"category":"clear","request":"Refactor the scheduler code and verify that its tests still pass.","action":"dispatch","agent_id":"Builder"},
   {"category":"clear","request":"Inspect the source code for the form validation bug and implement a fix.","action":"dispatch","agent_id":"Builder"},
-  {"category":"clear","request":"Help plan a phased migration from JSON storage to SQLite. Discuss risks before implementation.","action":"dispatch","agent_id":"Planner"},
-  {"category":"clear","request":"Advise whether we should prioritize reliability or new features next sprint.","action":"dispatch","agent_id":"Planner"},
-  {"category":"clear","request":"Break our goal of launching the app into milestones and dependencies.","action":"dispatch","agent_id":"Planner"},
-  {"category":"clear","request":"Compare these two proposed architectures and recommend one with tradeoffs.","action":"dispatch","agent_id":"Planner"},
-  {"category":"clear","request":"Develop a scope and risk assessment for offline mode; no implementation yet.","action":"dispatch","agent_id":"Planner"},
-  {"category":"clear","request":"Given our limited time, recommend an order for the five tasks in this roadmap.","action":"dispatch","agent_id":"Planner"},
+  {"category":"clear","request":"Help plan a phased migration from JSON storage to SQLite. Discuss risks before implementation.","action":"reply"},
+  {"category":"clear","request":"Advise whether we should prioritize reliability or new features next sprint.","action":"reply"},
+  {"category":"clear","request":"Break our goal of launching the app into milestones and dependencies.","action":"reply"},
+  {"category":"clear","request":"Compare these two proposed architectures and recommend one with tradeoffs.","action":"reply"},
+  {"category":"clear","request":"Develop a scope and risk assessment for offline mode; no implementation yet.","action":"reply"},
+  {"category":"clear","request":"Given our limited time, recommend an order for the five tasks in this roadmap.","action":"reply"},
   {"category":"ambiguous","request":"Fix it.","action":"clarify"},
   {"category":"ambiguous","request":"Handle the thing from before.","action":"clarify"},
   {"category":"ambiguous","request":"Can you do that for me?","action":"clarify"},
@@ -37,6 +37,7 @@
   {"category":"followup","request":"Add those entries to the same index.","action":"dispatch","agent_id":"Keeper","previous":"Organize workspace notes into an index.","result":"The index is in notes/index.md. Two additional notes are kickoff.md and review.md."},
   {"category":"followup","request":"Add a regression test for that edge case too.","action":"dispatch","agent_id":"Builder","previous":"Fix the parser's empty-input crash.","result":"The parser now handles an empty string. A whitespace-only string also needs coverage."},
   {"category":"followup","request":"Apply the same fix to the second form.","action":"dispatch","agent_id":"Builder","previous":"Fix validation in the account form.","result":"Account validation is fixed. The settings form uses the same old validation pattern."},
-  {"category":"followup","request":"What if we only have two weeks?","action":"dispatch","agent_id":"Planner","previous":"Plan the app launch.","result":"A six-week launch plan includes reliability, onboarding, documentation, and release preparation."},
-  {"category":"followup","request":"Which risk should we tackle first?","action":"dispatch","agent_id":"Planner","previous":"Assess the risks of offline mode.","result":"The main risks are stale data, conflicting edits, and insufficient storage."}
+  {"category":"followup","request":"What if we only have two weeks?","action":"reply","previous":"Plan the app launch.","result":"A six-week launch plan includes reliability, onboarding, documentation, and release preparation."},
+  {"category":"followup","request":"Which risk should we tackle first?","action":"reply","previous":"Assess the risks of offline mode.","result":"The main risks are stale data, conflicting edits, and insufficient storage."},
+  {"category":"planning","request":"Plan a two-week launch without changing files.","action":"reply"}
 ]

@@ -62,3 +62,75 @@ else:
                     os.kill(child_pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr", "both"])
+async def test_shell_rejects_excess_output(tmp_path, stream):
+    script = tmp_path / "noisy.py"
+    script.write_text(
+        "import sys\n"
+        + ("sys.stdout.buffer.write(b'x' * 262145)\n" if stream == "stdout" else
+           "sys.stderr.buffer.write(b'x' * 262145)\n" if stream == "stderr" else
+           "sys.stdout.buffer.write(b'x' * 150000)\nsys.stderr.buffer.write(b'y' * 150000)\n")
+    )
+    result = await execute(f'"{sys.executable}" "{script}"')
+    assert result.startswith("Error: output exceeded")
+    assert len(result) < 1000
+
+
+@pytest.mark.parametrize("timeout", [None, True, 0, -1, 1801, float("inf"), float("nan"), "60"])
+async def test_shell_rejects_invalid_deadline_before_execution(tmp_path, timeout):
+    marker = tmp_path / "executed"
+    script = tmp_path / "marker.py"
+    script.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+    result = await execute(f'"{sys.executable}" "{script}"', timeout=timeout)
+    assert result.startswith("Error: timeout must be")
+    assert not marker.exists()
+
+
+async def test_shell_preserves_output_at_budget_and_nonzero_exit(tmp_path):
+    script = tmp_path / "boundary.py"
+    script.write_text("import sys\nsys.stdout.buffer.write(b'x' * 131072)\n"
+                      "sys.stderr.buffer.write(b'y' * 131072)\nsys.exit(7)\n")
+    result = await execute(f'"{sys.executable}" "{script}"')
+    assert result == "Error: command exited with code 7\n" + "x" * 131072 + "\n[stderr]\n" + "y" * 131072
+
+
+async def test_output_overflow_stops_process_tree(tmp_path):
+    script = tmp_path / "flood.py"
+    script.write_text('''import os, subprocess, sys, time
+from pathlib import Path
+folder = Path(sys.argv[1])
+if len(sys.argv) == 2:
+    subprocess.Popen([sys.executable, __file__, str(folder), "child"]).wait()
+else:
+    (folder / "child.pid").write_text(str(os.getpid()))
+    for count in range(600):
+        (folder / "heartbeat").write_text(str(count))
+        sys.stdout.buffer.write(b'x' * 65536)
+        sys.stdout.buffer.flush()
+        time.sleep(0.01)
+''')
+    task = asyncio.create_task(execute(f'"{sys.executable}" "{script}" "{tmp_path}"', timeout=10))
+    try:
+        result = await asyncio.wait_for(task, 8)
+        assert result.startswith("Error: output exceeded")
+        heartbeat = tmp_path / "heartbeat"
+        before = heartbeat.stat().st_mtime_ns
+        await asyncio.sleep(.2)
+        assert heartbeat.stat().st_mtime_ns == before
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        pid_file = tmp_path / "child.pid"
+        if pid_file.exists():
+            pid = int(pid_file.read_text())
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            else:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass

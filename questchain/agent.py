@@ -5,6 +5,7 @@ from questchain.engine.agent import Agent
 from questchain.engine.model import OllamaModel
 from questchain.engine.tools import make_registry, wrap_lc_tool
 from questchain.engine.builtins import filesystem, shell, planning
+from questchain.prompts import SYSTEM_PROMPT, resolve_prompt
 
 # Tools that are NEVER allowed for a given class, regardless of the stored tools field.
 # This prevents small models from hallucinating tool calls that bypass the filter.
@@ -15,16 +16,6 @@ _CLASS_TOOL_BLACKLIST: dict[str, frozenset[str]] = {
     "Scheduler": frozenset({"shell"}),
 }
 
-SYSTEM_PROMPT = """\
-You are {agent_name}, a capable AI assistant running locally via Ollama.
-
-## Rules
-- Never hallucinate file contents, URLs, or facts — verify with tools first.
-- Coding tasks → use `claude_code`. Need current info → `web_search` then `web_browse`.
-- All virtual file paths start with `/` (e.g. `/workspace/memory/ABOUT.md`).
-- Confirm before risky or destructive actions.
-- Be concise and direct.
-"""
 
 
 def create_questchain_agent(
@@ -90,18 +81,8 @@ def create_questchain_agent(
         for tool_def in load_workspace_tools(WORKSPACE_DIR, tools_filter):
             registry.register(tool_def)
 
-    system_prompt = (system_prompt_override or SYSTEM_PROMPT).replace("{agent_name}", agent_name)
-    if class_name == "Keeper":
-        system_prompt += (
-            "\n\nManage workspace knowledge using your enabled file tools. "
-            "When asked to save notes or organize knowledge, use write_file to create files and edit_file to revise them; "
-            "do not just describe the edits. Read an existing file before changing it and preserve unrelated content. "
-            "Use virtual paths such as /workspace/knowledge/notes.md. "
-            "Carry out requested routine file creation and edits. Use delete_file for a specific file the user asks to delete; "
-            "that explicit request counts as confirmation. Confirm exact paths before an ambiguous cleanup or destructive replacement. "
-            "After creation or editing, verify saved content with read_file; after deletion, verify absence with ls. Report the paths changed. "
-            "If a required tool is disabled, explain that limitation rather than claiming a file was changed."
-        )
+    system_prompt = resolve_prompt(system_prompt_override, class_name, registry.names()).replace("{agent_name}", agent_name)
+    system_prompt += "\n\nUse only enabled tools. Agent selection is manual; do not route or delegate to other QuestChain agents."
 
     return Agent(
         model=model,
@@ -128,7 +109,7 @@ def make_agent_from_def(agent_def: dict, audio_router=None, *, default_model: st
     # profile.md is injected into every agent; ABOUT.md only for the default agent.
     memory_dir = WORKSPACE_DIR / "workspace" / "memory"
     injected_files = [memory_dir / "profile.md"]
-    if agent_def.get("id") == "default":
+    if agent_def.get("kind") == "main" or agent_def.get("id") == "default":
         injected_files.append(memory_dir / "ABOUT.md")
 
     pm = ProgressionManager(

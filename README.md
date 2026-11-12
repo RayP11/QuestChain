@@ -21,7 +21,7 @@
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
+QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Model inference runs locally; enabled web search, Telegram, and other integrations communicate with their providers.
 
 ---
 
@@ -29,7 +29,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 - [Why QuestChain?](#why-questchain)
 - [RPG Progression](#rpg-progression)
-- [Cron Jobs](#cron-jobs)
+- [Quests](#quests)
 - [Install](#install)
 - [What It Can Do](#what-it-can-do)
 - [Built for the Edge](#built-for-the-edge)
@@ -46,7 +46,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot of fun playing around with it. However, I couldn't afford the api token cost and I wasn't able to run local models quickly without having to buy even more expensive hardware. So I was inspired to create a framework which could run models as small as 3B autonomously and productively.
 
-QuestChain is that framework: a party of micro agents all jam-packed with tool loadouts for specific tasks, fully autonomous, and with a twist of gamification.
+QuestChain is that framework: a main assistant and manually selected specialists with focused tool loadouts, and with a twist of gamification.
 
 ### At a glance
 
@@ -85,44 +85,42 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
 | Custom | 🌀 | You decide | You configure |
-| Coordinator | 🧭 | Routes work and communicates status | No execution tools |
+| Legacy Coordinator | 🧭 | Manually selected legacy profile | No execution tools |
 | Keeper | 📚 | Files & knowledge | File tools |
 | Explorer | 🔭 | Research & discovery | Web search + browse |
 | Builder | ⚒️ | Code & systems | Files and shell; optional Claude Code |
 | Planner | 🔮 | Planning & strategy | File tools |
-| Scheduler | ⏱️ | Automation | Cron only |
+| Scheduler | ⏱️ | Automation | Quests only |
 
 ---
 
-## Coordinator and specialists
+## QuestChain and manually selected specialists
 
-Chat with **Perseus** to route work to **Argus** (research), **Athena** (workspace knowledge), **Talos** (building), or **Zeus** (planning and advice). Each specialist streams its own response under its own name. Direct chat is always available.
+Select **QuestChain**, **Researcher**, **Workspace**, **Builder**, or **Scheduler** yourself. Each uses its own configured tools, model and prompt and answers you directly. No automatic routing or private delegation takes place. Switch through the chat roster, Agents page, or `/agents` in terminal and Telegram. Main QuestChain is configurable too.
 
-Perseus uses the same chat engine as every other agent: he can answer you directly or hand your request to a specialist. A conversation is one shared thread in the interface, with separate saved context for each agent. Perseus also receives attributed records of the other agents' requests, replies, and outcomes in that thread, so he can route follow-ups and remember completed work. Specialists see their own interactions, including work routed to them and any context supplied with a handoff. Starting a new thread starts fresh for all agents; reopening one restores their saved context. Every agent summarizes older history as the estimated context budget fills, including during tool-call loops. Use the web chat's conversation selector, terminal `/history`, or Telegram `/history` to resume a thread.
+New Chat and saved history remain separate per interface; agent model context is scoped to that agent. Upgrading preserves existing identities, permissions, custom prompts and schedules. Previously archived definitions can still be imported explicitly; paused schedules are not resumed. See the [agent and migration guide](docs/agent-classes.md).
 
-Athena's workspace knowledge role includes creating, editing, and deleting files with the built-in `write_file`, `edit_file`, and `delete_file` tools. These tools are enabled by default for the Keeper role and remain configurable per agent. Deletion accepts individual workspace files, rejects directories and symbolic links, and stays inside the workspace. Existing untouched Keeper presets gain deletion once when upgrading; customized permissions are preserved.
+## Quests
 
-Create additional agents in the web UI, terminal, or Telegram with a name, tools, system prompt, and guidance describing when the coordinator should call them. Legacy agents are archived under `~/.questchain/legacy` and can be migrated explicitly through any interface. [Agent guide](docs/agent-classes.md).
+Quests is the new name for the persistent scheduler. `/quests` is the preferred command; `/cron` remains a compatible alias. Existing schedules, IDs, paused state, results, and history are unchanged. Technical cron expressions, `cron_*` tool names and WebSocket messages, and the `cron_jobs.json` storage file retain their names. The `cron-jobs` skill and documentation URL remain stable. This rebrand does not restore the retired quest-file runner, `/quest` commands, or `--quests` / `--no-quests` startup flags.
 
-## Cron Jobs
-
-Automate recurring work from the **Cron Jobs** page, the terminal `/cron` menu, or Telegram `/cron` commands. Jobs share one persistent scheduler and run while QuestChain is open.
+Automate recurring work from the **Quests** page, the terminal `/quests` menu, or Telegram `/quests` commands. Jobs share one persistent scheduler and run while QuestChain is open.
 
 Each job has a name, instructions, a schedule, timezone, and assigned agent. The web UI uses a standard time selector; terminal and Telegram commands accept cron expressions. Create, edit, pause, resume, run now, or delete a job. The web UI shows its next run, last status, and result. Results also appear in the terminal, or on Telegram when connected.
 
 ```text
-/cron add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
-/cron list
-/cron show JOB_ID
-/cron pause JOB_ID
-/cron resume JOB_ID
-/cron run JOB_ID
-/cron delete JOB_ID
+/quests add Morning summary | 0 9 * * mon-fri | America/New_York | Summarize my notes
+/quests list
+/quests show JOB_ID
+/quests pause JOB_ID
+/quests resume JOB_ID
+/quests run JOB_ID
+/quests delete JOB_ID
 ```
 
 Use weekday names (`mon`–`sun`); numeric weekdays follow APScheduler: Monday=0, Sunday=6. Pausing or deleting a job prevents future runs; a run already underway finishes.
 
-The old quest folder and periodic quest runner have been retired. Existing quest files remain on disk and are no longer executed. Recreate desired recurring tasks as cron jobs. The `--quests` and `--no-quests` startup flags have been removed.
+The old quest folder and periodic quest runner have been retired. Existing quest files remain on disk and are no longer executed. Recreate desired recurring tasks as quests. The `--quests` and `--no-quests` startup flags have been removed.
 
 ---
 
@@ -170,6 +168,22 @@ questchain start -m qwen3:4b          # Use a specific model
 questchain start -t <thread-id>       # Resume a previous conversation
 questchain start --web                # Start with web UI (gateway + CLI)
 ```
+
+The web control plane binds only to loopback (`127.0.0.1`, `localhost`, or `::1`).
+Direct LAN/wildcard binding is rejected. For remote use, keep it on loopback and
+connect through an authenticated SSH tunnel, for example
+`ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 your-host`, then open `http://localhost:8765`.
+Do not publish the tunnel port or put the gateway behind a public forwarding proxy.
+
+Set `QUESTCHAIN_WS_TOKEN` to a strong private password to require authentication
+for both the web page and WebSocket. The browser login username is `questchain`;
+the password is that setting's value. The secret is never included in the HTML.
+Existing native WebSocket clients can still use `?token=...`, but should prefer
+HTTP Basic authentication headers to avoid putting secrets in URLs. Without a
+password, local processes can control the application. This is a single-user
+control plane with the application's OS privileges, not a sandbox or multi-user
+service. Existing direct-network `--web-host` configurations must switch to a
+loopback tunnel.
 
 ### Updating an installed copy
 
@@ -222,6 +236,30 @@ python -m questchain
 
 > Ollama must still be running before starting QuestChain. See Step 1 above.
 
+### Regression checks
+
+Pull requests run Linux Python regressions, the chat Markdown JavaScript tests,
+a strict documentation build, and a separate Windows launcher upgrade check.
+The regression tests use fake model responses; Ollama and API keys are not needed.
+To reproduce the Linux checks with Python 3.13, Node.js 24, and uv 0.13.5:
+
+```bash
+uv sync --locked --python 3.13
+QUESTCHAIN_DATA_DIR="$(mktemp -d)" uv run --no-sync python -m pytest -q -ra
+node --test tests/chat-markdown.test.cjs
+uv tool run --from mkdocs-material==9.6.23 mkdocs build --strict
+```
+
+The two launcher tests are intentionally skipped on Linux. The Windows CI job
+runs only `tests/test_updater_windows.py`, using temporary offline wheels and
+isolated uv tool directories; it does not claim full Windows regression coverage.
+PR checks have read-only repository permissions, no persisted checkout credentials,
+no shared caches or application secrets, and bounded GitHub-hosted jobs. The
+existing documentation deployment workflow remains separate. Application
+dependencies come from `uv.lock`; documentation and launcher test tools have
+pinned direct versions but their transitive dependencies are not locked. When
+updating action pins, verify the full commit against the upstream release tag.
+
 ---
 
 ## What It Can Do
@@ -230,7 +268,7 @@ python -m questchain
 - 📁 **File Operations:** Read, write, edit, list, search files on your real filesystem
 - 💻 **Shell Commands:** Run terminal commands and scripts directly
 - 🖥️ **Self-Coding:** Delegate programming tasks to Claude Code; modify its own codebase *(optional)*
-- ⏰ **Cron Jobs:** Schedule recurring tasks that run automatically and report back
+- ⏰ **Quests:** Schedule recurring tasks that run automatically and report back
 - 📱 **Telegram Bot:** Access QuestChain remotely from your phone
 - 💾 **Persistent Memory:** Learns your preferences and saves notes across sessions
 - 🗣️ **Voice Output:** Speak responses aloud via Kokoro TTS (CLI) or Telegram voice messages
@@ -276,8 +314,8 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 | `/new` | Start a fresh conversation |
 | `/model` | Change the global default model; restart to apply |
 | `/tools` | Show the selected agent's tools and availability |
-| `/cron` | Open the cron menu; `/cron help` shows text commands |
-| `/agents` | Manage agent profiles (list, switch, create, edit) |
+| `/quests` | Open the Quests menu; `/quests help` shows text commands |
+| `/agents` | Select or configure QuestChain and specialists |
 | `/runs` | List runs in the current conversation |
 | `/retry [run ID]` | Retry the last run or a specified run in this conversation |
 | `/cancel [run ID]` | Cancel a queued or running task in this conversation |
@@ -316,8 +354,8 @@ Restart QuestChain and the bot starts alongside the CLI. Telegram conversations 
 | `/new` | Start a fresh conversation and clear the previous run selection |
 | `/model` | Show the selected agent's current model, including its override |
 | `/tools` | Show the selected agent's tools and availability |
-| `/agents` | List, switch, create, edit, or migrate agents |
-| `/cron` | List cron jobs and show scheduling commands |
+| `/agents` | Select, create, edit, or import specialists |
+| `/quests` | List quests and show scheduling commands |
 | `/runs [run ID]` | List this conversation's runs, or read one saved result |
 | `/history [conversation ID]` | List this chat's saved conversations, or resume one |
 | `/retry [run ID]` | Retry the latest run or a specified run in this conversation |
@@ -376,7 +414,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 - **[Claude Code](https://claude.ai/code):** Anthropic's coding agent; QuestChain delegates programming tasks to it
 - **[Tavily](https://tavily.com):** web search and full-page extraction API
 - **[python-telegram-bot](https://python-telegram-bot.org):** Telegram bot SDK
-- **[APScheduler](https://apscheduler.readthedocs.io):** async cron job scheduling
+- **[APScheduler](https://apscheduler.readthedocs.io):** async cron scheduling
 - **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx):** fast local text-to-speech
 - **[Rich](https://github.com/Textualize/rich):** beautiful terminal output
 - **[prompt-toolkit](https://python-prompt-toolkit.readthedocs.io):** interactive terminal input with history
@@ -393,3 +431,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 <br>
 <sub>If QuestChain is meaningful to you, a ⭐ helps others find it.</sub>
 </div>
+
+## Manual specialist selection
+
+Choose QuestChain or a specialist directly from the chat roster, Agents page, terminal `/agents`, or Telegram `/agents`. The selected agent uses its own configured tools and model. Automatic agent-to-agent routing/delegation is disabled. Scheduled quests execute as their assigned agent without a second synthesis step. See [agent behavior and migration](docs/agent-classes.md).

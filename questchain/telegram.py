@@ -152,7 +152,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     manager = context.bot_data.get("agent_manager")
     if manager is None:
         return await update.message.reply_text("Agent manager not available.")
-    definition = manager.get(context.chat_data.get("agent_id", manager.get_active_id())) or manager.get_active()
+    definition = manager.get_active()
     runtime = context.bot_data.get("runtime")
     default_model = runtime.default_model if runtime else context.bot_data.get("model_name", OLLAMA_MODEL)
     model_name = definition.get("model") or default_model
@@ -169,11 +169,9 @@ async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if manager is None:
         return await update.message.reply_text("Agent manager not available.")
     from questchain.agents import tool_issues
-    definition = manager.get(context.chat_data.get("agent_id", manager.get_active_id())) or manager.get_active()
+    definition = manager.get_active()
     tools = definition.get("tools", [])
     selected = "all available" if tools == "all" else ", ".join(tools) or "none"
-    if definition.get("class_name") == "Router":
-        selected = "route_to_agent (hand requests to an eligible specialist)"
     text = f"{definition['name']} · selected tools: {selected}"
     issues = tool_issues(definition)
     if issues:
@@ -193,7 +191,7 @@ async def cmd_cron(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     command = text.partition(" ")[2]
     try:
         result = execute(command)
-    except (ValueError, KeyError, RuntimeError) as exc:
+    except (ValueError, KeyError, RuntimeError, OSError) as exc:
         result = str(exc)
     for chunk in _split_message(result):
         await update.message.reply_text(chunk)
@@ -222,7 +220,7 @@ async def cmd_level(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active = agent_manager.get(context.chat_data.get("agent_id", agent_manager.get_active_id())) or agent_manager.get_active()
+    active = agent_manager.get_active()
     agent_id = active.get("id", "default")
     class_name = active.get("class_name", DEFAULT_CLASS)
     pm = ProgressionManager(agent_id, class_name)
@@ -274,7 +272,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active = agent_manager.get(context.chat_data.get("agent_id", agent_manager.get_active_id())) or agent_manager.get_active()
+    active = agent_manager.get_active()
     agent_id = active.get("id", "default")
     mm = MetricsManager(agent_id)
     mm.load()
@@ -311,7 +309,7 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Agent manager not available.")
         return
 
-    active_id = context.chat_data.get("agent_id", agent_manager.get_active_id())
+    active_id = agent_manager.get_active_id()
     keyboard = []
     for agent_def in agent_manager.all_agents():
         agent_id = agent_def["id"]
@@ -327,7 +325,7 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         label = f"{'✓ ' if is_active else ''}{name} · {ROLE_LABELS.get(agent_def.get('class_name'), 'Custom')}{level_tag}"
         row = [InlineKeyboardButton(label, callback_data=f"agent:pick:{agent_id}")]
         row.append(InlineKeyboardButton("✏️", callback_data=f"agent:edit:{agent_id}"))
-        if not agent_def.get("built_in"):
+        if agent_def.get("kind") != "main":
             row.append(InlineKeyboardButton("🗑️", callback_data=f"agent:delete:{agent_id}"))
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton("➕ New agent", callback_data="agent:build")])
@@ -355,27 +353,24 @@ async def callback_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return await query.edit_message_text("Agent manager not available.")
         try:
             saved = agent_manager.migrate_legacy(data[len("agent:migrate:"):])
-            await query.edit_message_text(f"Migrated {saved['name']} with its original ID. Automatic routing is off. Use /agents to review its settings.")
+            await query.edit_message_text(f"Migrated {saved['name']} with its original ID. Use /agents to select it or review its settings.")
         except ValueError as exc:
             await query.edit_message_text(str(exc))
         return
 
     if data.startswith("agent:pick:"):
-        agent_id = data[len("agent:pick:"):]
         if agent_manager is None:
-            await query.edit_message_text("Agent manager not available.")
-            return
-        active_id = context.chat_data.get("agent_id", agent_manager.get_active_id())
-        if agent_id == active_id:
-            return  # Already active — silently ignore
-        agent_def = agent_manager.get(agent_id)
-        if agent_def is None:
-            await query.edit_message_text(f"Agent not found: {agent_id}")
-            return
-        # The runtime resolves this definition and its model when work starts.
-        # Selection belongs to this chat, not the shared bot configuration.
-        context.chat_data["agent_id"] = agent_id
-        await query.edit_message_text(f"🔗 Switched to '{agent_def['name']}'.")
+            return await query.edit_message_text("Agent manager not available.")
+        agent_id = data[len("agent:pick:"):]
+        context.chat_data.pop("agent_id", None)
+        try:
+            agent_manager.set_active(agent_id)
+        except ValueError as exc:
+            return await query.edit_message_text(str(exc))
+        from questchain.gateway.events import get_bus
+        from questchain.gateway.server import _agents_payload
+        get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+        await query.edit_message_text(f"Switched to {agent_manager.get_active()['name']}.")
 
     elif data == "agent:build":
         context.chat_data["building_agent"] = {"step": "name", "data": {}}
@@ -456,7 +451,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
     data = state["data"]
     step = state["step"]
     tools = get_dynamic_selectable_tools()
-    steps = ["name", "model", "class", "tools", "prompt", "guidance", "routable", "exclusions", "examples", "confirm"]
+    steps = ["name", "model", "class", "tools", "prompt", "confirm"]
     try:
         if step == "name":
             if text != "-":
@@ -484,38 +479,17 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
                 if any(not i.isdigit() or not 1 <= int(i) <= len(tools) for i in indices):
                     raise ValueError("Use tool numbers, 'none', 'all', or '-' to keep the shown selection.")
                 data["tools"] = [tools[int(i) - 1][0] for i in indices]
-            if data.get("class_name") == "Router" and data.get("tools"):
-                raise ValueError("A coordinator uses routing and status only. Select 'none'.")
         elif step == "prompt":
             if text != "-":
                 data["system_prompt"] = text
-            data["system_prompt"] = data.get("system_prompt") or preset_prompt(data.get("class_name", DEFAULT_CLASS))
-        elif step == "guidance":
-            if text != "-":
-                data["when_to_call"] = "" if text.lower() == "none" else text
-            data.setdefault("when_to_call", CLASS_GUIDANCE.get(data.get("class_name"), ""))
-        elif step == "routable":
-            if text.lower() not in ("yes", "no", "-", "y", "n"):
-                raise ValueError("Send yes or no.")
-            if text != "-":
-                data["routable"] = text.lower() in ("yes", "y")
-            data.setdefault("routable", bool(data.get("when_to_call")))
-            if data["routable"] and not data.get("when_to_call"):
-                state["step"] = "guidance"
-                raise ValueError("Describe when to call this agent before enabling routing. Send that guidance now.")
-        elif step == "exclusions":
-            if text != "-":
-                data["when_not_to_call"] = "" if text.lower() == "none" else text
-        elif step == "examples":
-            if text != "-":
-                data["routing_examples"] = [] if text.lower() == "none" else [e.strip() for e in text.split(";") if e.strip()]
+            data["system_prompt"] = data.get("system_prompt", preset_prompt(data.get("class_name", DEFAULT_CLASS)))
         elif step == "confirm":
             if text.lower() in ("yes", "y"):
                 manager = context.bot_data["agent_manager"]
-                keys = ("name", "model", "class_name", "tools", "system_prompt", "when_to_call", "routable", "when_not_to_call", "routing_examples")
+                keys = ("name", "model", "class_name", "tools", "system_prompt")
                 values = {key: data[key] for key in keys if key in data}
                 saved = manager.update(data["edit_id"], **values) if data.get("edit_id") else manager.add(**values)
-                await update.message.reply_text(f"Saved {saved['name']}. Use /agents to chat directly. Routing catalog refreshed.")
+                await update.message.reply_text(f"Saved {saved['name']}. Use /agents to chat directly.")
             else:
                 await update.message.reply_text("Cancelled.")
             context.chat_data.pop("building_agent", None)
@@ -527,11 +501,7 @@ async def _handle_build_agent_wizard(update: Update, context: ContextTypes.DEFAU
             "class": "Role — send a number, or '-' to keep:\n" + "\n".join(f"{i}. {ROLE_LABELS.get(c[0], c[0])}" for i, c in enumerate(AGENT_CLASSES, 1)),
             "tools": f"Tools [{data.get('tools', [])}]. Select numbers, 'none', 'all', or '-' to keep:\n" + "\n".join(f"{i}. {name} — {desc}" for i, (name, desc) in enumerate(tools, 1)),
             "prompt": "System prompt — how should this agent work? Send '-' for current or role preset.",
-            "guidance": "When should the coordinator call this agent?\nCurrent/preset: " + (data.get("when_to_call") or CLASS_GUIDANCE.get(data.get("class_name"), "(none)")) + "\nSend '-' to keep or 'none' for direct chat only.",
-            "routable": "Allow automatic routing? yes / no (direct chat remains available).",
-            "exclusions": "When NOT to call? Send exclusions, '-' to keep, or 'none'.",
-            "examples": "Example requests? Separate with ';', send '-' to keep, or 'none'.",
-            "confirm": "Confirm agent:\n" + "\n".join(f"{k}: {str(v)[:600]}" for k, v in data.items() if k in ("name", "class_name", "model", "tools", "system_prompt", "when_to_call", "routable", "when_not_to_call", "routing_examples")) + "\n\nSend yes to save, anything else to cancel.",
+            "confirm": "Confirm agent:\n" + "\n".join(f"{k}: {str(v)[:600]}" for k, v in data.items() if k in ("name", "class_name", "model", "tools", "system_prompt")) + "\n\nSend yes to save, anything else to cancel.",
         }
         for chunk in _split_message(prompts[next_step]):
             await update.message.reply_text(chunk)
@@ -734,7 +704,7 @@ async def _submit_runtime_message(update, context, text):
     chat_id = update.effective_chat.id
     message_id = getattr(update.message, "message_id", None)
     try:
-        run_id = runtime.submit(TaskRequest(text, context.chat_data.get("agent_id", manager.get_active_id()),
+        run_id = runtime.submit(TaskRequest(text, manager.get_active_id(),
             "telegram-" + _get_thread_id(chat_id), "telegram", destination=str(chat_id),
             occurrence_key=f"telegram:{chat_id}:{message_id}" if message_id is not None else None,
             audio_callback=_voice_delivery(update)))
@@ -898,7 +868,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         from questchain.agent import create_questchain_agent
         agent = create_questchain_agent(model_name=context.bot_data.get("model_name", OLLAMA_MODEL),
                     tools_filter=["read_file", "write_file"], system_prompt_override=ONBOARDING_SYSTEM,
-                    agent_name="QuestChain")
+                    agent_name=context.bot_data["agent_manager"].get_active()["name"])
         thread_id = "onboarding-" + str(chat_id)
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 200}
 
@@ -930,9 +900,10 @@ _COMMANDS = (
     ("new", "Start a fresh conversation", cmd_new),
     ("model", "Show the selected agent's current model", cmd_model),
     ("tools", "Show the selected agent's tools", cmd_tools),
-    ("cron", "Manage scheduled cron jobs", cmd_cron),
+    ("quests", "Manage scheduled quests", cmd_cron),
+    ("cron", "Alias for /quests", cmd_cron),
     ("onboard", "Re-run the onboarding flow", cmd_onboard),
-    ("agents", "Manage agents: list, switch, create, edit", cmd_agent),
+    ("agents", "Switch or configure agents", cmd_agent),
     ("runs", "List runs; /runs ID shows a result; /runs page N for more", cmd_runs),
     ("history", "Browse conversations; /history ID resumes; /history page N for more", cmd_history),
     ("cancel", "Cancel agent creation or a run in this conversation: /cancel [ID]", cmd_cancel),

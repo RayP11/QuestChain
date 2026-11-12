@@ -1,4 +1,4 @@
-"""Cron job management tools for QuestChain."""
+"""Quest management tools for QuestChain."""
 
 from langchain_core.tools import tool
 
@@ -11,7 +11,7 @@ def cron_add(
     timezone: str = "UTC",
     agent_id: str | None = None,
 ) -> str:
-    """Schedule a recurring cron job that will run the given prompt on a schedule.
+    """Schedule a recurring quest that will run the given prompt on a schedule.
 
     The cron_expression uses 5-field format (numeric weekdays: 0=Monday through 6=Sunday): minute hour day month weekday.
     Examples:
@@ -25,7 +25,7 @@ def cron_add(
         cron_expression: 5-field cron schedule (minute hour day month weekday).
         prompt: The prompt/instruction to execute when the job fires.
         timezone: IANA timezone name (default: UTC). Examples: America/New_York, Europe/London.
-        agent_id: Optional agent ID. If omitted, the coordinator is selected.
+        agent_id: Optional agent ID. If omitted, the main agent is selected.
             Unknown or archived IDs are rejected. Find active IDs with /agents.
     """
     from questchain.scheduler import get_scheduler
@@ -45,7 +45,7 @@ def cron_add(
         )
         agent_line = f"\n  Agent: {job['agent_id']}" if job.get("agent_id") else ""
         return (
-            f"Cron job created successfully.\n"
+            f"Quest created successfully.\n"
             f"  ID: {job['id']}\n"
             f"  Name: {job['name']}\n"
             f"  Schedule: {job['cron_expression']} ({job['timezone']}){agent_line}\n"
@@ -54,12 +54,12 @@ def cron_add(
     except ValueError as e:
         return f"Invalid cron expression: {e}"
     except Exception as e:
-        return f"Failed to create cron job: {e}"
+        return f"Failed to create quest: {e}"
 
 
 @tool
 def cron_list() -> str:
-    """List all scheduled cron jobs with their IDs, schedules, and prompts."""
+    """List all scheduled quests with their IDs, schedules, and prompts."""
     from questchain.scheduler import get_scheduler
 
     try:
@@ -69,9 +69,9 @@ def cron_list() -> str:
 
     jobs = scheduler.list_jobs()
     if not jobs:
-        return "No cron jobs scheduled."
+        return "No quests scheduled."
 
-    lines = [f"Scheduled cron jobs ({len(jobs)}):"]
+    lines = [f"Scheduled quests ({len(jobs)}):"]
     for j in jobs:
         status = "enabled" if j.get("enabled", True) else "disabled"
         agent_line = f"\n    Agent: {j['agent_id']}" if j.get("agent_id") else ""
@@ -86,10 +86,10 @@ def cron_list() -> str:
 
 @tool
 def cron_remove(job_id: str) -> str:
-    """Remove a scheduled cron job by its ID.
+    """Remove a scheduled quest by its ID.
 
     Args:
-        job_id: The ID of the cron job to remove (shown by cron_list).
+        job_id: The ID of the quest to remove (shown by cron_list).
     """
     from questchain.scheduler import get_scheduler
 
@@ -100,11 +100,11 @@ def cron_remove(job_id: str) -> str:
 
     try:
         removed = scheduler.remove_job(job_id)
-        return f"Removed cron job '{removed['name']}' (ID: {removed['id']})"
+        return f"Removed quest '{removed['name']}' (ID: {removed['id']})"
     except KeyError as e:
         return str(e)
     except Exception as e:
-        return f"Failed to remove cron job: {e}"
+        return f"Failed to remove quest: {e}"
 
 
 def create_cron_tools() -> list:

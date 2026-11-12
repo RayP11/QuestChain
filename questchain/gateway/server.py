@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import hmac
 import json
 import logging
 import re
@@ -53,13 +56,44 @@ def _is_loopback_bind() -> bool:
 
 
 def _host_allowed(hostname: str) -> bool:
-    """Return True if a Host/Origin hostname is permitted to reach this server."""
-    hostname = hostname.lower().strip("[]")  # normalise IPv6 brackets
-    if _is_loopback_bind():
-        return hostname in _LOCALHOST_NAMES
-    if _bound_host == "0.0.0.0":
-        return True  # user explicitly exposed the server on all interfaces
-    return hostname in (*_LOCALHOST_NAMES, _bound_host)
+    """The local control plane never accepts arbitrary DNS names."""
+    return _is_loopback_bind() and hostname.lower() in _LOCALHOST_NAMES
+
+
+def _authority(value: str, scheme: str) -> tuple[str, int] | None:
+    """Validate a Host authority without splitting IPv6 addresses on colons."""
+    if not value or any(c.isspace() for c in value) or any(c in value for c in "/?#@\\"):
+        return None
+    try:
+        parsed = urlparse(f"{scheme}://{value}")
+        if not parsed.hostname or not _host_allowed(parsed.hostname):
+            return None
+        return parsed.hostname.lower(), parsed.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
+
+
+def _basic_authenticated(header: str) -> bool:
+    """Use the configured shared secret without exposing it in HTML."""
+    try:
+        scheme, value = header.split(" ", 1)
+        if scheme.lower() != "basic":
+            return False
+        username, password = base64.b64decode(value, validate=True).decode("utf-8").split(":", 1)
+        return username == "questchain" and hmac.compare_digest(password.encode(), _ws_token.encode())
+    except (ValueError, UnicodeError, binascii.Error):
+        return False
+
+
+def _origin_allowed(origin: str, host: str, scheme: str) -> bool:
+    try:
+        parsed = urlparse(origin)
+        return (parsed.scheme == scheme and not parsed.path and not parsed.params
+                and not parsed.query and not parsed.fragment
+                and _authority(parsed.netloc, scheme) is not None
+                and _authority(parsed.netloc, scheme) == _authority(host, scheme))
+    except ValueError:
+        return False
 
 
 @app.middleware("http")
@@ -67,15 +101,21 @@ async def _security_headers(request: Request, call_next) -> Response:
     # DNS rebinding protection: reject requests whose Host header doesn't match
     # the address this server is bound to.
     host_header = request.headers.get("host", "")
-    hostname = host_header.split(":")[0]
-    if not _host_allowed(hostname):
+    if _authority(host_header, request.url.scheme) is None:
         return Response("Misdirected Request", status_code=421)
+
+    if _ws_token and not _basic_authenticated(request.headers.get("authorization", "")):
+        return Response("Authentication required", status_code=401, headers={
+            "WWW-Authenticate": 'Basic realm="QuestChain", charset="UTF-8"',
+            "Cache-Control": "no-store",
+        })
 
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Content-Security-Policy"] = _CSP
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 # Shared state — set by CLI at startup via setup()
@@ -145,14 +185,7 @@ def _get_app_js() -> str:
 
 @app.get("/")
 async def serve_ui() -> HTMLResponse:
-    html = _get_html()
-    # Inject WS token into the meta tag so app.js can pick it up
-    if _ws_token:
-        html = html.replace(
-            '<meta name="ws-token" content="">',
-            f'<meta name="ws-token" content="{_ws_token}">',
-        )
-    return HTMLResponse(html)
+    return HTMLResponse(_get_html())
 
 
 @app.get("/app.js")
@@ -209,19 +242,24 @@ async def serve_agent_image(agent_id: str = Query(default="")) -> Response:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    host = ws.headers.get("host", "")
+    scheme = "https" if ws.url.scheme == "wss" else "http"
+    if _authority(host, scheme) is None:
+        await ws.close(code=1008)
+        return
     # Block cross-site WebSocket hijacking: browsers always send Origin.
     # Non-browser clients (CLI tools) omit it — those are allowed through.
     origin = ws.headers.get("origin")
     if origin is not None:
-        hostname = urlparse(origin).hostname or ""
-        if not _host_allowed(hostname):
+        if not _origin_allowed(origin, host, scheme):
             await ws.close(code=1008)
             return
 
     # Optional token auth — enforced when QUESTCHAIN_WS_TOKEN is set.
     if _ws_token:
         provided = ws.query_params.get("token", "")
-        if provided != _ws_token:
+        if not (_basic_authenticated(ws.headers.get("authorization", ""))
+                or hmac.compare_digest(provided.encode(), _ws_token.encode())):
             await ws.close(code=1008)
             return
 
@@ -347,7 +385,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
         if state:
             cron_id = msg.get("cron_id", "")
             if cron_id and cron_id not in {job["id"] for job in _list_cron_jobs()}:
-                raise ValueError("Cron job not found.")
+                raise ValueError("Quest not found.")
             state["cron_id"] = cron_id
             await _send_cron_history(ws)
         return
@@ -358,7 +396,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                                               "agent_id": _agent_manager.get_active_id()})
         try:
             if t == "chat":
-                agent_id = msg.get("agent_id") or state["agent_id"]
+                agent_id = _agent_manager.get_active_id()
                 run_id = _runtime.submit(TaskRequest(
                     text=msg.get("message", ""), agent_id=agent_id, conversation_id=state["conversation_id"],
                     source="web", reply_to_run_id=msg.get("reply_to_run_id", ""), destination=state["conversation_id"],
@@ -366,9 +404,9 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                 await ws.send_json({"type": "run_accepted", "run_id": run_id, "conversation_id": state["conversation_id"]})
             elif t == "switch_agent":
                 agent_id = msg.get("agent_id", "")
-                if not _agent_manager.get(agent_id):
-                    raise ValueError("Agent not found.")
+                _agent_manager.set_active(agent_id)
                 state["agent_id"] = agent_id
+                get_bus().publish_nowait({"type": "agents", **_agents_payload()})
                 await ws.send_json({"type": "agent_selected", "agent_id": agent_id})
             elif t == "new_thread":
                 state["conversation_id"] = "web-" + uuid.uuid4().hex
@@ -416,12 +454,16 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
 
     elif t == "switch_agent":
         if _agent_manager:
-            agent_id = msg.get("agent_id", "")
-            _agent_manager.set_active(agent_id)
-            get_bus().publish_nowait({"type": "agents", **_agents_payload()})
-            if _web_queue is not None:
-                fut: asyncio.Future = asyncio.get_event_loop().create_future()
-                await _web_queue.put((f"__switch_agent__:{agent_id}", fut))
+            try:
+                agent_id = msg.get("agent_id", "")
+                _agent_manager.set_active(agent_id)
+                get_bus().publish_nowait({"type": "agents", **_agents_payload()})
+                await ws.send_json({"type": "agent_selected", "agent_id": agent_id})
+                if _web_queue is not None:
+                    fut = asyncio.get_running_loop().create_future()
+                    await _web_queue.put((f"__switch_agent__:{agent_id}", fut))
+            except ValueError as exc:
+                await ws.send_json({"type": "error", "action": t, "error": str(exc)})
 
     elif t == "get_stats":
         await ws.send_json({"type": "stats", **_stats_payload(msg.get("agent_id"))})
@@ -450,7 +492,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
             else:
                 scheduler.run_now(job_id)
             await ws.send_json({"type": "cron_saved", "cron_id": job_id, "action": t})
-        except (ValueError, KeyError, RuntimeError, TypeError) as exc:
+        except (ValueError, KeyError, RuntimeError, TypeError, OSError) as exc:
             await ws.send_json({"type": "cron_error", "message": str(exc)})
 
     elif t == "get_settings":
@@ -494,7 +536,7 @@ async def _handle_inbound(ws: WebSocket, msg: dict) -> None:
                     when_to_call=msg.get("when_to_call", CLASS_GUIDANCE.get(class_name, "")),
                     when_not_to_call=msg.get("when_not_to_call", ""),
                     routing_examples=msg.get("routing_examples", []),
-                    routable=msg.get("routable", True),
+                    routable=False,
                 )
                 await ws.send_json({"type": "agent_saved", "agent_id": saved["id"]})
                 get_bus().publish_nowait({"type": "agents", **_agents_payload()})
@@ -560,7 +602,7 @@ async def _send_conversation(ws) -> None:
     state = _clients.get(id(ws))
     if state and _runtime:
         await ws.send_json({"type": "conversation", **_runtime.snapshot(state["conversation_id"]),
-                            "selected_agent_id": state["agent_id"]})
+                            "selected_agent_id": _agent_manager.get_active_id()})
 
 def _agents_payload() -> dict:
     if _agent_manager is None:
@@ -577,7 +619,7 @@ def _agents_payload() -> dict:
     from questchain.agents import ROLE_LABELS, tool_issues
     for agent in agents:
         a = dict(agent)
-        a["role_label"] = ROLE_LABELS.get(a.get("class_name"), "Custom")
+        a["role_label"] = "Main assistant" if a.get("kind") == "main" else ROLE_LABELS.get(a.get("class_name"), "Custom")
         a["availability_issues"] = tool_issues(a)
         agent_id = agent["id"]
         class_name = agent.get("class_name", "Custom")
@@ -746,9 +788,10 @@ def _settings_payload() -> dict:
             agents.append({
                 "id": a["id"],
                 "name": a.get("name", ""),
+                "kind": a.get("kind", "specialist"),
                 "class_name": a.get("class_name", "Custom"),
                 "model": a.get("model") or "",
-                "system_prompt": a.get("system_prompt") or "",
+                "system_prompt": a.get("system_prompt"),
                 "tools": a.get("tools", "all"),
                 "when_to_call": a.get("when_to_call", ""),
                 "when_not_to_call": a.get("when_not_to_call", ""),
@@ -788,7 +831,7 @@ def _settings_payload() -> dict:
     }
 
 
-# ── Cron job helpers ──────────────────────────────────────────────────────────
+# ── Quest helpers ──────────────────────────────────────────────────────────
 
 def _list_cron_jobs() -> list[dict]:
     from questchain.scheduler import get_scheduler
@@ -824,6 +867,9 @@ def install_connection_error_handler() -> None:
 async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Start uvicorn in the current event loop as a background task."""
     global _bound_host, _bound_port, _ws_token
+    if host not in _LOCALHOST_NAMES:
+        raise ValueError("The web control plane requires a loopback host (127.0.0.1, localhost, or ::1). "
+                         "For remote access, use an authenticated SSH tunnel to loopback; direct network exposure is unsupported.")
     _bound_host = host
     _bound_port = port
     from questchain.config import QUESTCHAIN_WS_TOKEN
@@ -839,6 +885,7 @@ async def start_gateway_server(host: str = "127.0.0.1", port: int = 8765) -> Non
         loop="none",
         log_level="critical",
         access_log=False,
+        proxy_headers=False,  # Never let untrusted forwarding headers change origin checks.
     )
     server = uvicorn.Server(config)
     server.install_signal_handlers = lambda: None  # don't steal SIGINT from CLI

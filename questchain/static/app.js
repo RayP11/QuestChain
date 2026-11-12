@@ -43,15 +43,16 @@ const State = {
   page: 'map',
   settings: null,
   editingAgentId: null,
+  editingOriginalPrompt: null,
+  editingDisplayedPrompt: '',
   pendingEditId: null,   // agent to open in edit form once settings load
 };
 
 // ── WebSocket ─────────────────────────────────────────────────
-const _WS_TOKEN = document.querySelector('meta[name="ws-token"]')?.content || '';
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}${_WS_TOKEN ? '&token=' + encodeURIComponent(_WS_TOKEN) : ''}`;
+  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}`;
   const ws = new WebSocket(`${proto}://${location.host}/ws${tokenParam}`);
   State.ws = ws;
 
@@ -107,7 +108,7 @@ function handleEvent(msg) {
       State.editingAgentId = null;
       break;
     case 'legacy_migrated':
-      document.getElementById('legacy-agent-message').textContent = `${msg.name} migrated. Automatic routing is off until you enable it in Edit.`;
+      document.getElementById('legacy-agent-message').textContent = `${msg.name} migrated. Select it from the roster to chat directly.`;
       break;
     case 'legacy_deleted':
       document.getElementById('legacy-agent-message').textContent = `${msg.name} deleted from the archive.`;
@@ -130,7 +131,7 @@ function handleEvent(msg) {
     case 'cron_history': renderCronHistory(msg); break;
     case 'cron_error': document.getElementById('job-message').textContent = msg.message; break;
     case 'cron_saved':
-      document.getElementById('job-message').textContent = msg.action === 'run_cron' ? 'Job queued.' : 'Changes saved.';
+      document.getElementById('job-message').textContent = msg.action === 'run_cron' ? 'Quest queued.' : 'Changes saved.';
       if (msg.action === 'save_cron') { State.pendingJobId = msg.cron_id; send({ type: 'get_cron_jobs' }); }
       if (msg.action === 'delete_cron') clearJobEditor();
       break;
@@ -303,9 +304,9 @@ function renderConversations(conversations) {
 
 function onAgents(msg) {
   State.agents = msg.agents || [];
-  if (!State.agents.some(a => a.id === State.activeAgentId)) State.activeAgentId = msg.active_id || '';
-  // Always update viewing to match active when agents list refreshes
-  State.viewingAgentId = State.activeAgentId;
+  State.activeAgentId = msg.active_id || '';
+  // Keep the inspected stats panel stable across roster refreshes.
+  if (!State.agents.some(a => a.id === State.viewingAgentId)) State.viewingAgentId = State.activeAgentId;
   renderRoster();
   renderChatAgentList();
   updateChatHeader();
@@ -398,11 +399,11 @@ function renderSettings() {
   tbody.innerHTML = (s.agents || []).map(a => `
     <tr>
       <td class="agent-tbl-name">${escHtml(a.name)}${a.availability_issues?.length ? `<small class="form-error">${escHtml(a.availability_issues.join("; "))}</small>` : ""}</td>
-      <td class="agent-tbl-class">${escHtml(roleLabel(a.class_name))}</td>
-      <td class="agent-tbl-model">${escHtml(a.model || '—')}</td>
+      <td class="agent-tbl-class">${escHtml(a.kind === 'main' ? 'Main assistant' : roleLabel(a.class_name))}</td>
+      <td class="agent-tbl-model">${escHtml(a.model ? a.model + ' (override)' : 'Inherited default')}</td>
       <td><div class="agent-tbl-actions">
         <button class="btn-icon" data-edit-id="${escAttr(a.id)}">Edit</button>
-        <button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>
+        ${a.kind === 'main' ? '' : `<button class="btn-icon danger" data-delete-id="${escAttr(a.id)}">Delete</button>`}
       </div></td>
     </tr>
   `).join('');
@@ -436,7 +437,7 @@ function renderSettings() {
     });
   }
 
-  // Cron jobs
+  // Quests
   const cronBody = document.getElementById('settings-cron-body');
   if (s.cron_jobs && s.cron_jobs.length) {
     cronBody.innerHTML = s.cron_jobs.map(j => `
@@ -451,7 +452,7 @@ function renderSettings() {
       btn.addEventListener('click', () => deleteCronJob(btn.dataset.cronId));
     });
   } else {
-    cronBody.innerHTML = '<span class="cron-empty">No cron jobs configured.</span>';
+    cronBody.innerHTML = '<span class="cron-empty">No quests configured.</span>';
   }
 
   // Integrations
@@ -505,12 +506,12 @@ function openAgentForm(agent) {
   State.editingAgentId = agent ? agent.id : null;
   document.getElementById('af-name').value = agent ? agent.name : '';
   document.getElementById('af-model').value = agent ? (agent.model || '') : '';
-  document.getElementById('af-prompt').value = agent ? (agent.system_prompt || '') : '';
+  const promptInput = document.getElementById('af-prompt');
+  State.editingOriginalPrompt = agent ? (agent.system_prompt ?? null) : null;
+  promptInput.value = State.editingOriginalPrompt ?? '';
+  // Textareas normalize line endings; retain the exact saved value when untouched.
+  State.editingDisplayedPrompt = promptInput.value;
   document.getElementById('af-class').value = agent?.class_name || 'Custom';
-  document.getElementById('af-guidance').value = agent?.when_to_call || '';
-  document.getElementById('af-exclusions').value = agent?.when_not_to_call || '';
-  document.getElementById('af-examples').value = (agent?.routing_examples || []).join('\n');
-  document.getElementById('af-routable').checked = agent ? !!agent.routable : true;
   document.getElementById('af-error').textContent = '';
   renderToolPicker(agent ? (agent.tools || []) : []);
   if (!agent) applyRolePreset();
@@ -544,7 +545,7 @@ function deleteAgent(id) {
 }
 
 function deleteCronJob(id) {
-  if (!confirm('Remove this cron job?')) return;
+  if (!confirm('Remove this quest?')) return;
   send({ type: 'delete_cron', cron_id: id });
 }
 
@@ -659,13 +660,8 @@ function renderChatAgentList() {
   list.querySelectorAll('.chat-agent-item').forEach(el => {
     el.addEventListener('click', () => {
       const id = el.dataset.id;
-      if (id === State.activeAgentId) return;
-      State.activeAgentId = id;
       State.viewingAgentId = id;
-      send({ type: 'switch_agent', agent_id: id });
-      renderChatAgentList();
-      renderRoster();
-      updateChatHeader();
+      send({type: 'switch_agent', agent_id: id});
     });
   });
 }
@@ -766,7 +762,7 @@ function renderRoster() {
     const isViewing = a.id === State.viewingAgentId;
     const isActive = a.id === State.activeAgentId;
     const icon = CLASS_ICONS[a.class_name] || '🌀';
-    const delBtn = a.id !== 'default'
+    const delBtn = a.kind !== 'main'
       ? `<button class="roster-item-action danger" data-action="delete" data-id="${escAttr(a.id)}" title="Delete agent">✕</button>`
       : '';
     return `
@@ -776,7 +772,7 @@ function renderRoster() {
           <div class="roster-item-name">${escHtml(a.name || 'Agent')}</div>
           <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(roleLabel(a.class_name))}</div>
         </div>
-        ${isActive ? '<div class="roster-item-active-dot" title="Active in CLI"></div>' : ''}
+        ${isActive ? '<div class="roster-item-active-dot" title="Active agent"></div>' : ''}
         <div class="roster-item-actions">
           <button class="roster-item-action" data-action="edit" data-id="${escAttr(a.id)}" title="Edit agent">✏</button>
           ${delBtn}
@@ -789,8 +785,7 @@ function renderRoster() {
       if (e.target.closest('[data-action]')) return;
       const id = el.dataset.id;
       State.viewingAgentId = id;
-      State.activeAgentId = id;
-      send({ type: 'switch_agent', agent_id: id });
+      send({type: 'switch_agent', agent_id: id});
       renderRoster();
       renderStatsFromAgents();
       updateChatHeader();
@@ -817,10 +812,10 @@ function renderRoster() {
   });
 }
 
-// ── Cron job editor ───────────────────────────────────────────
+// ── Quest editor ───────────────────────────────────────────
 function renderJobAgentSelect(id = '') {
   const sel = document.getElementById('job-agent-select');
-  sel.innerHTML = '<option value="">Coordinator (Perseus)</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
+  sel.innerHTML = '<option value="">Main assistant</option>' + State.agents.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.name)}</option>`).join('');
   if (id && !State.agents.some(a => a.id === id)) {
     const missing = document.createElement('option');
     missing.value = id; missing.textContent = `Archived or missing agent (${id}) — migrate or reassign`;
@@ -830,7 +825,7 @@ function renderJobAgentSelect(id = '') {
 }
 function renderJobList() {
   const list = document.getElementById('job-list');
-  list.innerHTML = State.jobs.length ? State.jobs.map(j => `<button class="job-item ${j.id === State.selectedJobId ? 'active' : ''}" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="job-item-title">${escHtml(j.name)}<br><small>${escHtml(cronToHuman(j.cron_expression))} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'}</small></span></button>`).join('') : '<div class="job-empty">No cron jobs yet. Create one to automate a task.</div>';
+  list.innerHTML = State.jobs.length ? State.jobs.map(j => `<button class="job-item ${j.id === State.selectedJobId ? 'active' : ''}" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="job-item-title">${escHtml(j.name)}<br><small>${escHtml(cronToHuman(j.cron_expression))} · ${j.running ? 'Running' : j.enabled ? 'Enabled' : 'Paused'}</small></span></button>`).join('') : '<div class="job-empty">No quests yet. Create one to automate a task.</div>';
   list.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => selectJob(el.dataset.jobId)));
 }
 function selectJob(id) {
@@ -900,7 +895,7 @@ function updateJobScheduleFields() {
   document.getElementById('job-monthday-wrap').hidden = repeat !== 'monthly';
   document.getElementById('job-time-input').disabled = repeat === 'existing';
   document.getElementById('job-schedule-hint').textContent = repeat === 'existing'
-    ? 'This job uses a custom recurring schedule. It will stay unchanged unless you choose a new repeat option.'
+    ? 'This quest uses a custom recurring schedule. It will stay unchanged unless you choose a new repeat option.'
     : repeat === 'monthly' ? 'Choose or type a time in the timezone above. Months without the selected day are skipped.'
     : 'Choose or type a time in the timezone above.';
 }
@@ -959,7 +954,7 @@ function renderBattleMap() {
   if (countEl) countEl.textContent = `Party: ${State.agents.length} agent${State.agents.length !== 1 ? 's' : ''}`;
 
   const objZone = document.getElementById('map-objectives');
-  objZone.innerHTML = '<div class="map-section-label">Cron Jobs</div>' + State.jobs.map(j => `<button class="map-cron-tile" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="map-cron-body"><span class="map-cron-name">${escHtml(j.name)}</span><br><span class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))} · ${escHtml(j.timezone)}</span></span><span class="map-cron-status ${j.enabled ? 'on' : 'off'}">${j.running ? 'Running' : j.enabled ? 'On' : 'Paused'}</span></button>`).join('') + (State.jobs.length ? '' : '<div class="map-empty">No scheduled jobs</div>') + '<button id="map-new-job" class="btn-new">+ New Job</button>';
+  objZone.innerHTML = '<div class="map-section-label">Quests</div>' + State.jobs.map(j => `<button class="map-cron-tile" data-job-id="${escAttr(j.id)}"><span>⏰</span><span class="map-cron-body"><span class="map-cron-name">${escHtml(j.name)}</span><br><span class="map-cron-schedule">${escHtml(cronToHuman(j.cron_expression))} · ${escHtml(j.timezone)}</span></span><span class="map-cron-status ${j.enabled ? 'on' : 'off'}">${j.running ? 'Running' : j.enabled ? 'On' : 'Paused'}</span></button>`).join('') + (State.jobs.length ? '' : '<div class="map-empty">No scheduled quests</div>') + '<button id="map-new-job" class="btn-new">+ New Quest</button>';
   objZone.querySelectorAll('[data-job-id]').forEach(el => el.addEventListener('click', () => { switchPage('jobs'); selectJob(el.dataset.jobId); }));
   document.getElementById('map-new-job').addEventListener('click', () => { switchPage('jobs'); clearJobEditor(); });
 
@@ -994,10 +989,9 @@ function renderBattleMap() {
     partyZone.querySelectorAll('.map-agent-tile').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.id;
-        if (id !== State.activeAgentId) {
-          State.activeAgentId = id;
+        {
           State.viewingAgentId = id;
-          send({ type: 'switch_agent', agent_id: id });
+          send({type: 'switch_agent', agent_id: id});
           renderChatAgentList();
           renderRoster();
           updateChatHeader();
@@ -1079,7 +1073,7 @@ function doSend() {
   sendBtn.disabled = false;
 }
 
-// ── Cron job actions ──────────────────────────────────────────
+// ── Quest actions ──────────────────────────────────────────
 document.getElementById('btn-new-job').addEventListener('click', clearJobEditor);
 document.getElementById('btn-save-job').addEventListener('click', () => {
   if (!State.connected) { document.getElementById('job-message').textContent = 'Disconnected. Reconnect before saving.'; return; }
@@ -1094,7 +1088,7 @@ document.getElementById('btn-save-job').addEventListener('click', () => {
 });
 for (const action of ['run', 'toggle', 'delete']) {
   document.getElementById(`btn-${action}-job`).addEventListener('click', () => {
-    if (action === 'delete' && !confirm('Delete this cron job? A running job will finish.')) return;
+    if (action === 'delete' && !confirm('Delete this quest? A running quest will finish.')) return;
     send({ type: `${action}_cron`, cron_id: State.selectedJobId });
   });
 }
@@ -1121,13 +1115,9 @@ document.getElementById('af-cancel').addEventListener('click', () => {
 document.getElementById('af-save').addEventListener('click', () => {
   const name = document.getElementById('af-name').value.trim();
   if (!name) { document.getElementById('af-name').focus(); return; }
-  const guidance = document.getElementById('af-guidance').value.trim();
-  const routable = document.getElementById('af-routable').checked;
-  const prompt = document.getElementById('af-prompt').value.trim();
-  if (!prompt || (routable && !guidance)) {
-    document.getElementById('af-error').textContent = !prompt ? 'Add a system prompt.' : 'Describe when to call this agent.';
-    return;
-  }
+  const promptValue = document.getElementById('af-prompt').value;
+  const prompt = State.editingAgentId && promptValue === State.editingDisplayedPrompt
+    ? State.editingOriginalPrompt : promptValue;
   if (!State.connected) { document.getElementById('af-error').textContent = 'Reconnect before saving.'; return; }
   const payload = {
     name,
@@ -1135,9 +1125,6 @@ document.getElementById('af-save').addEventListener('click', () => {
     class_name: document.getElementById('af-class').value,
     model: document.getElementById('af-model').value.trim() || null,
     system_prompt: prompt,
-    when_to_call: guidance, routable,
-    when_not_to_call: document.getElementById('af-exclusions').value.trim(),
-    routing_examples: document.getElementById('af-examples').value.split('\n').map(s => s.trim()).filter(Boolean),
   };
   if (State.editingAgentId) {
     send({ type: 'update_agent', agent_id: State.editingAgentId, ...payload });
@@ -1175,7 +1162,6 @@ function applyRolePreset() {
   const preset = State.settings?.agent_presets?.[role];
   if (!preset) return;
   document.getElementById('af-prompt').value = preset.system_prompt;
-  document.getElementById('af-guidance').value = preset.when_to_call;
   renderToolPicker(preset.tools);
 }
 document.getElementById('af-class').addEventListener('change', applyRolePreset);

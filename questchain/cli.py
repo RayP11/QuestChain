@@ -377,7 +377,8 @@ def show_metrics(mm: MetricsManager) -> None:
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/agents",       "Manage agent profiles (list, switch, create, edit)"),
     ("/claudecode",   "Set up Claude Code CLI integration"),
-    ("/cron",         "Manage scheduled cron jobs"),
+    ("/quests",       "Manage scheduled quests"),
+    ("/cron",         "Alias for /quests"),
     ("/exit",         "Exit QuestChain"),
     ("/help",         "Show all available commands"),
     ("/legacy",       "List archived agents; /legacy migrate ID restores one"),
@@ -516,7 +517,7 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         try:
             if len(parts) == 3 and parts[1].lower() == "migrate":
                 saved = manager.migrate_legacy(parts[2])
-                console.print(f"Migrated {saved['name']} [{saved['id']}]. Automatic routing is off; review it with /agents.", markup=False)
+                console.print(f"Migrated {saved['name']} [{saved['id']}]. Select it with /agents to chat directly.", markup=False)
             elif len(parts) == 1:
                 archived = manager.legacy_agents()
                 for agent in archived:
@@ -534,8 +535,6 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         from questchain.agents import tool_issues
         tools = definition.get("tools", [])
         selected = "all available" if tools == "all" else ", ".join(tools) or "none"
-        if definition.get("class_name") == "Router":
-            selected = "route_to_agent (hand requests to an eligible specialist)"
         text = f"{definition['name']} · selected tools: {selected}"
         issues = tool_issues(definition)
         if issues:
@@ -572,14 +571,14 @@ def handle_command(command: str, session_state: dict) -> bool | None:
         return True
 
 
-    if cmd == "/cron":
+    if cmd in {"/quests", "/cron"}:
         session_state["run_cron_menu"] = True
         return True
-    if cmd.startswith("/cron "):
+    if cmd.startswith(("/quests ", "/cron ")):
         from questchain.cron_commands import execute
         try:
-            console.print(execute(command.strip()[6:]), markup=False)
-        except (ValueError, KeyError, RuntimeError) as exc:
+            console.print(execute(command.strip().split(maxsplit=1)[1]), markup=False)
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             console.print(str(exc), style="red", markup=False)
         return True
 
@@ -671,7 +670,7 @@ async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
     from questchain.scheduler import get_scheduler
     while True:
         console.print(execute("list"), markup=False)
-        action = (await _prompt_line(session, "Cron action [add/edit/show/pause/resume/run/delete, Enter=close]: ")).strip()
+        action = (await _prompt_line(session, "Quest action [add/edit/show/pause/resume/run/delete, Enter=close]: ")).strip()
         if not action:
             return
         try:
@@ -691,11 +690,11 @@ async def _cron_menu(session: PromptSession, agent_manager=None) -> None:
                 agent_id = await field("Agent ID (default agent if blank)", "agent_id")
                 values = dict(name=name, cron_expression=schedule, timezone_str=tz, prompt=prompt, agent_id=agent_id or None)
                 job = scheduler.update_job(job_id, **values) if job_id else scheduler.add_job(**values)
-                console.print(f"Saved cron job [{job['id']}] {job['name']}", markup=False)
+                console.print(f"Saved quest [{job['id']}] {job['name']}", markup=False)
             else:
                 job_id = await _prompt_line(session, "Job ID: ")
                 console.print(execute(f"{action} {job_id}"), markup=False)
-        except (ValueError, KeyError, RuntimeError) as exc:
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             console.print(str(exc), style="red", markup=False)
 
 
@@ -944,11 +943,11 @@ async def _agent_action_menu(
     name = agent_def["name"]
     model = agent_def.get("model") or OLLAMA_MODEL
     is_active = agent_def["id"] == active_id
-    is_builtin = agent_def.get("built_in", False)
+    is_builtin = agent_def.get("kind") == "main"
 
     options: list[tuple[str, str]] = []
     if not is_active:
-        options.append(("Switch to this agent", "switch"))
+        options.append(("Switch", "switch"))
     options.append(("Edit", "edit"))
     if not is_builtin:
         options.append(("Delete", "delete"))
@@ -1011,7 +1010,6 @@ async def _agent_action_menu(
     action = state["chosen"]
 
     if action == "switch":
-        console.print(f"[blue]🔗 Switched to '[bold]{name}[/bold]'.[/blue]")
         return agent_def
 
     if action == "edit":
@@ -1077,41 +1075,24 @@ async def _configure_agent(console, session, agent_manager, agent_def=None):
     if chosen.isdigit() and 1 <= int(chosen) <= len(AGENT_CLASSES):
         role = AGENT_CLASSES[int(chosen) - 1][0]
     selected = existing.get("tools", CLASS_TOOL_PRESETS.get(role) or [])
-    if role == "Router":
+    for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
+        console.print(f"  {i}. {tool_name} — {description}{_tool_availability_tag(tool_name)}")
+    raw = await _prompt_line(session, f"Tools [{selected}]: numbers, 'none', 'all', or Enter to keep: ")
+    if raw.lower() == "all":
+        selected = "all"
+    elif raw.lower() == "none":
         selected = []
-        console.print("Coordinator access: routing and status only.")
-    else:
-        for i, (tool_name, description) in enumerate(get_dynamic_selectable_tools(), 1):
-            console.print(f"  {i}. {tool_name} — {description}{_tool_availability_tag(tool_name)}")
-        raw = await _prompt_line(session, f"Tools [{selected}]: numbers, 'none', 'all', or Enter to keep: ")
-        if raw.lower() == "all":
-            selected = "all"
-        elif raw.lower() == "none":
-            selected = []
-        elif raw:
-            selected = _parse_tool_selection(raw, [])
+    elif raw:
+        selected = _parse_tool_selection(raw, [])
     prompt = await _prompt_line(session, "System prompt (Enter for current or role preset): ")
-    guidance = await _prompt_line(session, f"When to call [{existing.get('when_to_call', CLASS_GUIDANCE.get(role, ''))}]: ")
-    guidance = guidance or existing.get("when_to_call", CLASS_GUIDANCE.get(role, ""))
-    if guidance == "-":
-        guidance = ""
-    routable = existing.get("routable", bool(guidance))
-    automatic = await _prompt_line(session, f"Allow automatic routing? [{'Y/n' if routable else 'y/N'}]: ")
-    if automatic:
-        routable = automatic.lower() in ("y", "yes")
-    exclusions = await _prompt_line(session, "When NOT to call (Enter to keep, '-' to clear): ")
-    examples = await _prompt_line(session, "Example requests separated by ';' (Enter to keep, '-' to clear): ")
     values = dict(name=name, model=model or existing.get("model"), class_name=role, tools=selected,
-                  system_prompt=prompt or existing.get("system_prompt") or preset_prompt(role),
-                  when_to_call=guidance, routable=routable,
-                  when_not_to_call="" if exclusions == "-" else exclusions or existing.get("when_not_to_call", ""),
-                  routing_examples=[] if examples == "-" else [e.strip() for e in examples.split(";") if e.strip()] if examples else existing.get("routing_examples", []))
+                  system_prompt=prompt or existing.get("system_prompt", preset_prompt(role)))
     try:
         saved = agent_manager.update(existing["id"], **values) if editing else agent_manager.add(**values)
     except ValueError as exc:
         console.print(str(exc), style="red", markup=False)
         return None
-    console.print(f"Saved {saved['name']} · {ROLE_LABELS.get(role, role)}. Automatic routing: {'on' if routable else 'off'}.", style="blue", markup=False)
+    console.print(f"Saved {saved['name']}. Select it with /agents.", style="blue", markup=False)
     return saved
 
 
@@ -1624,9 +1605,12 @@ async def _repl_loop(
 
                 if retry_id := session_state.pop("retry_run_id", None):
                     from questchain.runtime.terminal import run_terminal_task
-                    retry_id = agent_holder["runtime"].retry(retry_id)
-                    await run_terminal_task(agent_holder["runtime"], None, console, run_id=retry_id)
-                    session_state["last_run_id"] = retry_id
+                    try:
+                        retry_id = agent_holder["runtime"].retry(retry_id)
+                        await run_terminal_task(agent_holder["runtime"], None, console, run_id=retry_id)
+                        session_state["last_run_id"] = retry_id
+                    except ValueError as exc:
+                        console.print(str(exc), style="yellow", markup=False)
 
                 if session_state.pop("run_history", False):
                     await show_history(session, session_state)
@@ -1671,7 +1655,7 @@ async def _repl_loop(
         from questchain.runtime import TaskRequest
         from questchain.runtime.terminal import run_terminal_task
         runtime = agent_holder["runtime"]
-        target_id = agent_config.get("agent_id") or agent_manager.get_active_id()
+        target_id = agent_manager.get_active_id()
         conversation_id = agent_config.get("configurable", {}).get("thread_id", session_state["thread_id"])
         try:
             result = await run_terminal_task(runtime, TaskRequest(user_input, target_id,

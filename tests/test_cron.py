@@ -173,7 +173,7 @@ def test_legacy_progression_is_preserved_as_jobs(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_telegram_registers_cron_without_quest_commands(tmp_path, monkeypatch):
+async def test_telegram_registers_quests_and_legacy_cron_alias(tmp_path, monkeypatch):
     from questchain import config, telegram
 
     monkeypatch.setattr(config, "QUESTCHAIN_DATA_DIR", tmp_path)
@@ -193,12 +193,58 @@ async def test_telegram_registers_cron_without_quest_commands(tmp_path, monkeypa
     try:
         commands = {c.command for c in app.bot.set_my_commands.call_args.args[0]}
         assert "cron" in commands
-        assert not commands.intersection({"quest", "quests", "tasks"})
+        assert "quests" in commands
+        assert not commands.intersection({"quest", "tasks"})
         registered = set().union(*(getattr(h, "commands", set()) for h in handlers))
         assert registered == commands
         assert {"runs", "history", "cancel", "retry", "model", "new", "cron"} <= registered
         help_commands = {line.split()[0].removeprefix("/") for line in telegram._HELP_TEXT.splitlines() if line.startswith("/")}
         assert help_commands == registered
-        assert not registered.intersection({"quest", "quests"})
+        assert "quests" in registered
+        assert "quest" not in registered
     finally:
         await stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["/quests", "/cron"])
+async def test_quest_cli_aliases_share_scheduler_and_preserve_arguments(scheduler, command):
+    from questchain import cli
+
+    state = {}
+    assert cli.handle_command(command, state) is True
+    assert state["run_cron_menu"] is True
+    assert cli.handle_command(f"{command} add Mixed Case | 15 8 * * mon-fri | UTC | Keep My Case", {}) is True
+    job = scheduler.list_jobs()[0]
+    assert job["name"] == "Mixed Case"
+    assert job["prompt"] == "Keep My Case"
+    assert job["cron_expression"] == "15 8 * * mon-fri"
+    other = "/cron" if command == "/quests" else "/quests"
+    cli.handle_command(f"{other} pause {job['id']}", {})
+    assert scheduler.get_job(job["id"])["enabled"] is False
+    cli.handle_command(f"{command} resume {job['id']}", {})
+    assert scheduler.get_job(job["id"])["enabled"] is True
+    cli.handle_command(f"{other} delete {job['id']}", {})
+    assert scheduler.list_jobs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["quests", "cron"])
+@pytest.mark.parametrize("owner", [True, False])
+async def test_telegram_quest_aliases_use_owner_guard(scheduler, monkeypatch, command, owner):
+    from questchain import telegram
+
+    monkeypatch.setattr(telegram, "_is_owner", lambda user_id: owner)
+    monkeypatch.setattr(telegram, "_reject", AsyncMock())
+    handler = next(handler for name, _, handler in telegram._COMMANDS if name == command)
+    reply = AsyncMock()
+    update = SimpleNamespace(effective_user=SimpleNamespace(id=42), message=SimpleNamespace(
+        text=f"/{command}@QuestChainBot add My Quest | 0 9 * * mon | UTC | Preserve Case", reply_text=reply))
+    await handler(update, SimpleNamespace())
+    if owner:
+        assert scheduler.list_jobs()[0]["prompt"] == "Preserve Case"
+        assert "Saved quest" in reply.call_args.args[0]
+        telegram._reject.assert_not_awaited()
+    else:
+        assert scheduler.list_jobs() == []
+        telegram._reject.assert_awaited_once_with(update)

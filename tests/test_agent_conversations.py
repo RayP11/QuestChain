@@ -52,83 +52,10 @@ def setup(monkeypatch, tmp_path):
     return manager, models, events, runtime
 
 
-async def test_router_restores_shared_thread_while_specialists_keep_their_own_context(setup):
-    manager, models, events, create = setup
-    router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Planner")["id"]
-    runtime = create()
-    try:
-        for text, owner, thread in [("Call me Rowan", router, "telegram-a"),
-                                    ("Private planning details", specialist, "telegram-a"),
-                                    ("Another conversation", router, "telegram-b")]:
-            result = await runtime.wait(runtime.submit(TaskRequest(text, owner, thread, "telegram")))
-            assert result["status"] == "completed", result["error"]
-        assert any(e["type"] == "token" and e["agent_id"] == router for e in events)
-    finally:
-        await runtime.close()
-    runtime = create()
-    try:
-        result = await runtime.wait(runtime.submit(TaskRequest("What did I ask you to call me?", router, "telegram-a", "telegram")))
-        assert result["status"] == "completed"
-        messages = models[router].calls[-1]
-        assert [m["content"] for m in messages if m["role"] == "user"] == ["Call me Rowan", "What did I ask you to call me?"]
-        assert "Private planning details" in str(messages)
-        assert "Another conversation" not in str(messages)
-        await runtime.wait(runtime.submit(TaskRequest("Continue planning", specialist, "telegram-a", "telegram")))
-        assert "Private planning details" in str(models[specialist].calls[-1])
-        assert "Call me Rowan" not in str(models[specialist].calls[-1])
-        await runtime.wait(runtime.submit(TaskRequest("New thread", router, "telegram-new", "telegram")))
-        assert [m["content"] for m in models[router].calls[-1] if m["role"] == "user"] == ["New thread"]
-    finally:
-        await runtime.close()
 
 
-async def test_handoff_keeps_original_request_and_specialist_owns_the_answer(setup):
-    manager, models, events, create = setup
-    router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Planner")["id"]
-    models[router].tool_calls = [{"name": "route_to_agent", "args": {"agent_id": specialist, "context": "The budget is $50."}}]
-    models[specialist].text = "Here is the plan."
-    runtime = create()
-    try:
-        first = await runtime.wait(runtime.submit(TaskRequest("Make a plan", router, "web-a", "web")))
-        assert first["status"] == "completed", first["error"]
-        assert first["result_agent_id"] == specialist
-        assert first["result"] == "Here is the plan."
-        assert len(models[router].calls) == 1  # No pass back through Perseus to rewrite it.
-        assert "Make a plan" in models[specialist].calls[-1][-1]["content"]
-        assert "The budget is $50." in models[specialist].calls[-1][-1]["content"]
-        second = await runtime.wait(runtime.submit(TaskRequest("Shorten it", router, "web-a", "web")))
-        assert second["status"] == "completed"
-        assert "Here is the plan." in str(models[specialist].calls[-1])
-        assert "route_to_agent" in str(models[router].calls[-1][1:-1])
-        assert str(models[router].calls[-1]).count("Here is the plan.") == 1
-        assert specialist in str(models[router].calls[-1])
-    finally:
-        await runtime.close()
 
 
-async def test_saved_router_runs_restore_other_agents_attributed_replies(setup):
-    manager, models, events, create = setup
-    router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Planner")["id"]
-    runtime = create()
-    try:
-        for owner, text, answer in [(router, "Call me Rowan", "Okay, Rowan."),
-                                   (specialist, "Private planning details", "Private answer")]:
-            rid = runtime.submit(TaskRequest(text, owner, "telegram-old", "telegram"))
-            run = runtime.store.get(rid)
-            run["result"] = answer
-            runtime._finish(run, "completed")
-        result = await runtime.wait(runtime.submit(TaskRequest("Remember my name?", router, "telegram-old", "telegram")))
-        assert result["status"] == "completed", result["error"]
-        messages = models[router].calls[-1]
-        assert "Call me Rowan" in str(messages)
-        assert "Okay, Rowan." in str(messages)
-        assert "Private answer" in str(messages)
-        assert specialist in str(messages)
-    finally:
-        await runtime.close()
 
 
 async def test_web_new_and_load_restore_the_same_per_agent_context(setup, monkeypatch):
@@ -170,7 +97,7 @@ async def test_telegram_new_and_history_restore_agent_context(setup, monkeypatch
     from questchain import telegram
     manager, models, events, create = setup
     router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Planner")["id"]
+    specialist = manager.get_by_class_name("Builder")["id"]
     runtime = create()
     monkeypatch.setattr(telegram, "_thread_ids", {})
     monkeypatch.setattr(telegram, "TELEGRAM_OWNER_ID", 42)
@@ -211,20 +138,6 @@ async def test_no_eligible_specialists_still_allows_normal_chat(setup):
         await runtime.close()
 
 
-async def test_multiple_handoffs_cannot_execute_multiple_agents(setup):
-    manager, models, events, create = setup
-    router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Planner")["id"]
-    models[router].tool_calls = [{"name": "route_to_agent", "args": {"agent_id": specialist}}] * 2
-    runtime = create()
-    try:
-        result = await runtime.wait(runtime.submit(TaskRequest("Plan", router, "web-a", "web")))
-        assert result["status"] == "failed"
-        assert "only tool call" in result["error"]
-        assert not models[specialist].calls
-        assert len(runtime.store.runs()) == 1
-    finally:
-        await runtime.close()
 
 
 @pytest.mark.parametrize("interrupted", [False, True])
@@ -298,125 +211,11 @@ async def test_interrupted_tool_batch_preserves_completed_results_and_valid_hist
     assert [m["role"] for m in saved] == ["user", "assistant", "tool", "tool", "assistant"]
     assert saved[2]["content"] == "First step completed."
     assert saved[3]["name"] == "second"
-    assert "unknown" in saved[3]["content"]
+    assert "not started" in saved[3]["content"]
+    assert "unknown" not in saved[3]["content"]
     assert "interrupted" in saved[4]["content"]
 
     model.tool_calls = []
     async for _ in agent.run("What happened?", "tool-interruption"):
         pass
     assert model.calls[-1][1:-1] == saved
-
-
-async def test_router_imports_results_once_after_restart_and_compaction(setup):
-    manager, models, events, create = setup
-    router = manager.get_active_id()
-    specialist = manager.get_by_class_name("Keeper")["id"]
-    models[specialist].text = "Saved project notes to /workspace/knowledge/project.md."
-    model = models[router]
-    model.num_ctx = 2048
-    model.text = "Conversation detail. " * 80
-    summaries = []
-
-    async def summarize(text):
-        summaries.append(text)
-        return "Athena saved project notes to /workspace/knowledge/project.md."
-
-    model.summarize = summarize
-    runtime = create()
-    try:
-        # Start Perseus's engine history before the other agent works.
-        await runtime.wait(runtime.submit(TaskRequest("Hello", router, "web-summary", "web")))
-        await runtime.wait(runtime.submit(TaskRequest("Save project notes", specialist, "web-summary", "web")))
-        for i in range(8):
-            result = await runtime.wait(runtime.submit(TaskRequest(f"Discuss detail {i}", router, "web-summary", "web")))
-            assert result["status"] == "completed", result["error"]
-        assert summaries
-        assert any("Saved project notes" in text for text in summaries)
-    finally:
-        await runtime.close()
-    runtime = create()
-    try:
-        model.text = "Athena saved the notes."
-        result = await runtime.wait(runtime.submit(TaskRequest("Who saved the notes?", router, "web-summary", "web")))
-        assert result["status"] == "completed", result["error"]
-        messages = str(model.calls[-1])
-        assert "Athena saved project notes" in messages
-        assert "[Earlier conversation" in messages
-        assert "Earlier conversation record from another agent" not in messages  # Already summarized, not reimported.
-        assert "_context_metadata" not in messages
-    finally:
-        await runtime.close()
-
-
-@pytest.mark.parametrize("role", ["Router", "Keeper", "Explorer", "Builder", "Planner"])
-async def test_each_role_summarizes_its_history_and_restores_summary(setup, role):
-    manager, models, events, create = setup
-    owner = manager.get_by_class_name(role)["id"]
-    model = models[owner]
-    model.num_ctx = 2048
-    model.text = "Saved conversation details. " * 60
-    summaries = []
-
-    async def summarize(text):
-        summaries.append(text)
-        return "The project is called Cedar; preserve its notes."
-
-    model.summarize = summarize
-    runtime = create()
-    try:
-        for i in range(5):
-            result = await runtime.wait(runtime.submit(TaskRequest(f"Cedar detail {i}", owner, "web-long", "web")))
-            assert result["status"] == "completed", result["error"]
-        assert summaries
-    finally:
-        await runtime.close()
-    runtime = create()
-    try:
-        model.text = "The project is Cedar."
-        await runtime.wait(runtime.submit(TaskRequest("Project name?", owner, "web-long", "web")))
-        assert "The project is called Cedar" in str(model.calls[-1])
-        assert "Project name?" in str(model.calls[-1][-1])
-    finally:
-        await runtime.close()
-
-
-async def test_athena_creates_edits_and_verifies_files_through_real_factory(setup, monkeypatch, tmp_path):
-    from questchain import agent as factory
-    from questchain.engine.builtins import filesystem
-    manager, models, events, create = setup
-    keeper = manager.get_by_class_name("Keeper")
-    keeper = manager.update(keeper["id"], tools=["read_file", "write_file", "edit_file", "ls", "glob", "grep"])
-    path = "/workspace/knowledge/project.md"
-    steps = [
-        ("write_file", {"path": path, "content": "# Project\nStatus: draft\n"}),
-        ("read_file", {"path": path}),
-        ("edit_file", {"path": path, "old_str": "Status: draft", "new_str": "Status: ready"}),
-        ("read_file", {"path": path}),
-    ]
-    model = ChatModel()
-
-    async def file_stream(messages, tools=None):
-        model.calls.append(copy.deepcopy(messages))
-        if steps:
-            name, args = steps.pop(0)
-            yield Chunk(done=True, tool_calls=[{"name": name, "args": args}])
-        else:
-            yield Chunk(text="Created and updated " + path, done=True)
-
-    model.chat_stream = file_stream
-    monkeypatch.setattr(factory, "OllamaModel", lambda *args, **kwargs: model)
-    monkeypatch.setattr(factory, "WORKSPACE_DIR", tmp_path)
-    monkeypatch.setattr(factory, "ensure_memory_dir", lambda: None)
-    monkeypatch.setattr(filesystem, "_ROOT", tmp_path)
-    runtime = create()
-    runtime.agent_factory = lambda d: factory.make_agent_from_def(d, default_model="fake")
-    try:
-        result = await runtime.wait(runtime.submit(TaskRequest("Create project notes, then update their status to ready.",
-                                                             keeper["id"], "web-files", "web")))
-        assert result["status"] == "completed", result["error"]
-        assert (tmp_path / "workspace/knowledge/project.md").read_text() == "# Project\nStatus: ready\n"
-        assert [e["name"] for e in events if e["type"] == "tool_call"] == ["write_file", "read_file", "edit_file", "read_file"]
-        assert "Status: ready" in model.calls[-1][-1]["content"]
-        assert "use write_file to create files" in model.calls[0][0]["content"]
-    finally:
-        await runtime.close()
