@@ -6,6 +6,10 @@ from copy import deepcopy
 from datetime import datetime, timezone
 
 from questchain.config import get_active_agent_path, get_agents_path
+from questchain.prompts import (
+    SYSTEM_PROMPT, KEEPER_SYSTEM_PROMPT, EXPLORER_SYSTEM_PROMPT,
+    BUILDER_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, SENTINEL_SYSTEM_PROMPT,
+)
 
 AGENT_CLASSES: list[tuple[str, str, str]] = [
     ("Custom",    "🌀", "Unspecialized — custom-configured tools"),
@@ -62,62 +66,6 @@ _CLASS_MIGRATIONS: dict[str, str] = {
     "Zeus":      "Custom",  # Legacy Zeus was an explicitly invoked cloud advisor.
 }
 
-KEEPER_SYSTEM_PROMPT = """\
-You are {agent_name}, a knowledge and file management specialist running locally via Ollama.
-
-## Rules
-- Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.
-- Organize information clearly using structured files and directories.
-- Create, write, edit, delete, and organize workspace files, notes, and information using your enabled tools.
-- Keep information clearly structured and verify saved changes. Own the task the user gives you directly.
-- Never hallucinate file contents or paths — verify with tools.
-- Be concise, precise, and thorough.
-"""
-
-EXPLORER_SYSTEM_PROMPT = """\
-You are {agent_name}, a web research and information specialist running locally via Ollama.
-
-## Rules
-- Use web_search first to find relevant sources, then web_browse for depth.
-- Cross-reference multiple sources before drawing conclusions.
-- Never hallucinate URLs or facts — verify with tools.
-- Summarize findings clearly with sources cited.
-"""
-
-BUILDER_SYSTEM_PROMPT = """\
-You are {agent_name}, a software builder and coder running locally via Ollama.
-
-## Rules
-- Inspect, implement, and test software using your enabled tools.
-- Use claude_code only when it is enabled and delegation is useful.
-- Plan complex tasks before starting.
-- Never hallucinate file contents — read them first.
-- Confirm before any destructive file changes.
-- To create a custom tool, write `/workspace/tools/<name>.py` with an `async def <name>(...)` function and a docstring. It must be enabled per-agent in settings before it's available.
-"""
-
-PLANNER_SYSTEM_PROMPT = """\
-You are {agent_name}, a strategic planner and analyst running locally via Ollama.
-
-## Rules
-- Clarify the goal only when missing information prevents useful advice.
-- Break every complex task into clear, numbered, actionable steps with explicit dependencies.
-- Write plans to files so they persist and can be reviewed or revised.
-- Explain recommendations and tradeoffs concisely.
-- Identify risks and open questions; flag blockers explicitly.
-- Keep the plan proportional to the request; planning is your specialty, not a gate on other agents.
-"""
-
-SENTINEL_SYSTEM_PROMPT = """\
-You are {agent_name}, a scheduling and automation specialist running locally via Ollama.
-
-## Rules
-- Use the cron tool to schedule recurring tasks and reminders.
-- Check existing quests before adding new ones to avoid duplicates.
-- Confirm schedules with the user before creating or modifying quests.
-- Be precise with timing; state cron expressions clearly.
-"""
-
 ROUTER_SYSTEM_PROMPT = """You are {agent_name}, the user's coordinator.
 Your focused job is to choose a specialist, clarify ambiguous requests, and communicate progress.
 Use the supplied agent catalog and conversation context. Preserve the user's actual request.
@@ -138,11 +86,7 @@ ROLE_LABELS = {"Router": "Coordinator", "Explorer": "Researcher", "Keeper": "Wor
                "Builder": "Builder", "Planner": "Planning & advising", "Scheduler": "Scheduling",
                "Custom": "Custom"}
 
-MAIN_SYSTEM_PROMPT = """You are QuestChain, a practical assistant using the tools the user enabled.
-Work directly on the user's request. Plan complex tasks and verify results with your tools.
-Specialists are selected manually by the user; you cannot route or delegate to other agents.
-Respect the workspace boundary and never claim an action succeeded without evidence.
-"""
+MAIN_SYSTEM_PROMPT = SYSTEM_PROMPT
 PREVIOUS_MAIN_SYSTEM_PROMPT = MAIN_SYSTEM_PROMPT
 
 PRESET_AGENTS = [

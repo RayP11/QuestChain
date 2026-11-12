@@ -211,7 +211,7 @@ class Agent:
     # ------------------------------------------------------------------
 
     def _build_system_prompt(self) -> str:
-        now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+        now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M %p %Z (UTC%z)")
         parts = []
 
         if self._personality_hint:

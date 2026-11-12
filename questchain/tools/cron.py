@@ -25,7 +25,7 @@ def cron_add(
         cron_expression: 5-field cron schedule (minute hour day month weekday).
         prompt: The prompt/instruction to execute when the job fires.
         timezone: IANA timezone name (default: UTC). Examples: America/New_York, Europe/London.
-        agent_id: Optional agent ID. If omitted, the coordinator is selected.
+        agent_id: Optional agent ID. If omitted, the main agent is selected.
             Unknown or archived IDs are rejected. Find active IDs with /agents.
     """
     from questchain.scheduler import get_scheduler
