@@ -150,11 +150,11 @@ def test_default_upgrade_is_once_and_preserves_custom_permissions(workspace):
     path.with_name("agents_bootstrap_v3").write_text("3")
     manager = AgentManager()
     manager.seed_preset_agents()
-    saved = manager.migrate_legacy("keeper")
+    saved = manager.get("keeper")
     assert saved["tools"] == old_tools
     assert saved["id"] == default["id"]
     for original in customized:
-        assert next(a for a in manager.legacy_agents() if a["id"] == original["id"]) == original
+        assert all(manager.get(original["id"])[k] == v for k, v in original.items() if k != "definition_version")
     manager.update("keeper", tools=old_tools)
     # Users may also create a new Keeper with an explicit selection after upgrading.
     added = manager.add("Read and write", None, None, old_tools, class_name="Keeper")

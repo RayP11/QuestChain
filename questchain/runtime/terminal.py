@@ -11,12 +11,13 @@ from questchain.runtime import TaskRequest
 async def run_terminal_task(runtime, request: TaskRequest | None, console, *, run_id=None) -> dict:
     bus = get_bus()
     queue = bus.subscribe()
-    run_id = run_id or runtime.submit(request)
     live = None
     response = ""
     current_message = None
-    waiter = asyncio.create_task(runtime.wait(run_id))
+    waiter = None
     try:
+        run_id = run_id or runtime.submit(request)
+        waiter = asyncio.create_task(runtime.wait(run_id))
         while not waiter.done() or not queue.empty():
             try:
                 event = await asyncio.wait_for(queue.get(), .1)
@@ -50,11 +51,12 @@ async def run_terminal_task(runtime, request: TaskRequest | None, console, *, ru
         runtime.mark_delivered(run_id)
         return result
     except (asyncio.CancelledError, KeyboardInterrupt):
-        runtime.cancel(run_id)
+        if run_id:
+            runtime.cancel(run_id)
         raise
     finally:
         if live:
             live.stop()
         bus.unsubscribe(queue)
-        if not waiter.done():
+        if waiter and not waiter.done():
             waiter.cancel()

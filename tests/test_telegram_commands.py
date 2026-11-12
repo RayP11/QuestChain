@@ -59,18 +59,18 @@ async def test_model_follows_live_agent_override_and_runtime_default(chat):
     assert "runtime-model" in await chat.command("model")
 
 
-async def test_router_tools_are_described_in_both_interfaces(chat, monkeypatch):
+async def test_tools_do_not_advertise_automatic_delegation(chat, monkeypatch):
     import io
     from rich.console import Console
     from questchain import cli
     router = chat.manager.get_active()
     chat.context.chat_data["agent_id"] = router["id"]
-    assert "delegate_to_agent" in await chat.command("tools")
+    assert "delegate_to_agent" not in await chat.command("tools")
     chat.manager.set_active(router["id"])
     output = io.StringIO()
     monkeypatch.setattr(cli, "console", Console(file=output))
     cli.handle_command("/tools", {"agent_manager": chat.manager})
-    assert "delegate_to_agent" in output.getvalue()
+    assert "delegate_to_agent" not in output.getvalue()
 
 
 async def test_new_clears_old_run_and_retry_cannot_cross_conversations(chat):
@@ -166,13 +166,14 @@ async def test_routed_result_keeps_specialist_author_and_hides_duplicate_child(c
     assert detail.count("Saved specialist answer") == 1
 
 
-async def test_selecting_agent_only_changes_its_chat_and_model_is_live(chat):
-    selected = chat.manager.get_active()
+async def test_selecting_specialist_changes_active_agent_and_model_is_live(chat):
+    selected = next(a for a in chat.manager.all_agents() if a["kind"] == "specialist")
     chat.manager.update(selected["id"], model="selected-model")
     query = SimpleNamespace(from_user=SimpleNamespace(id=42), data="agent:pick:" + selected["id"],
                             answer=AsyncMock(), edit_message_text=AsyncMock())
     await telegram.callback_agent(SimpleNamespace(callback_query=query), chat.context)
     assert "agent_id" not in chat.context.chat_data
+    assert chat.manager.get_active_id() == selected["id"]
     assert chat.context.bot_data["model_name"] == "stale-model"
     assert "selected-model" in await chat.command("model")
 

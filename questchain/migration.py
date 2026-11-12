@@ -6,16 +6,30 @@ import secrets
 import shutil
 import sqlite3
 import stat
+import tempfile
 from pathlib import Path
 
 VERSION = 4
 
 
 def atomic_json(path: Path, value) -> None:
+    """Atomically replace state without widening existing filesystem permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + '.tmp')
-    temp.write_text(json.dumps(value, indent=2), encoding='utf-8')
-    temp.replace(path)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                     prefix=path.name + '.', suffix='.tmp', delete=False) as output:
+        temp = Path(output.name)
+        temp.chmod(mode)
+        try:
+            json.dump(value, output, indent=2)
+        except BaseException:
+            output.close()
+            temp.unlink(missing_ok=True)
+            raise
+    try:
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def _backup(root: Path) -> None:
@@ -130,5 +144,69 @@ def migrate_roster(main: dict, presets: list[dict], guidance: dict) -> list[dict
         atomic_json(path, roster)
         atomic_json(marker, {'version': VERSION})
         return roster
+    finally:
+        store.close()
+
+
+def migrate_manual_roster(main: dict, presets: list[dict]) -> list[dict]:
+    """Preserve identities, tools, history and schedules while disabling routing.
+
+    Unlike v4 this does not archive/replace the user's roster or replay any jobs.
+    Existing v4 archives remain available for explicit import.
+    """
+    from questchain.config import get_agents_path, get_active_agent_path
+    path = get_agents_path()
+    root = path.parent
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / 'manual_agents_v5.json'
+    data = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
+    if not isinstance(data, list) or any(not isinstance(a, dict) or not a.get('id') for a in data):
+        raise ValueError('Invalid agents.json; saved definitions were left unchanged.')
+    if marker.exists():
+        return data
+    from questchain.runtime.store import RunStore
+    store = RunStore(root / 'tasks.sqlite3')
+    try:
+        # Another startup may have completed migration while we waited for the lock.
+        data = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
+        if not isinstance(data, list) or any(not isinstance(a, dict) or not a.get('id') for a in data):
+            raise ValueError('Invalid agents.json; saved definitions were left unchanged.')
+        if marker.exists():
+            return data
+        # Archive only the roster: no other state is modified by this migration.
+        destination = root / 'legacy' / 'before-manual-agents-v5.json'
+        if destination.is_symlink() or destination.parent.is_symlink():
+            raise ValueError('Migration archive must not be a symbolic link.')
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp = destination.with_suffix('.tmp')
+            if temp.is_symlink():
+                raise ValueError('Migration archive temp must not be a symbolic link.')
+            # Restrict permissions before placing any potentially private prompts here.
+            temp.touch(mode=0o600, exist_ok=True)
+            temp.chmod(0o600)
+            temp.write_text(json.dumps(data, indent=2), encoding='utf-8')
+            temp.replace(destination)
+        if not data:
+            active_path = get_active_agent_path()
+            if path.exists() or (active_path.exists() and active_path.read_text(encoding='utf-8').strip() == 'default'):
+                main = {**main, 'id': 'default'}
+            data = [main] + [{**p, 'id': secrets.token_hex(6), 'kind': 'specialist',
+                             'built_in': True, 'revision': 1} for p in presets]
+        primary = next((a for a in data if a.get('kind') == 'main'), None)
+        if primary is None:
+            primary = next((a for a in data if a['id'] == 'default'), None)
+        if primary is None:
+            primary = {**main, 'id': 'default'}
+            data.insert(0, primary)
+        for agent in data:
+            agent['kind'] = 'main' if agent is primary else 'specialist'
+            agent['routable'] = False
+            agent['definition_version'] = 5
+            agent.setdefault('revision', 1)
+            # Retain custom prompts verbatim; capabilities enforce no delegation.
+        atomic_json(path, data)
+        atomic_json(marker, {'version': 5})
+        return data
     finally:
         store.close()

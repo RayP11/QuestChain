@@ -2,7 +2,7 @@
 
 # Telegram Setup
 
-QuestChain runs alongside the CLI as a Telegram bot, giving you remote access from your phone. Agent definitions and quests are shared across interfaces. Each Telegram chat has its own conversation with the main assistant. Subagents work privately; historical results retain their original authors.
+QuestChain runs alongside the CLI as a Telegram bot, giving you remote access from your phone. Agent definitions and quests are shared across interfaces. Each Telegram chat has its own conversation. Use `/agents` to manually choose the active assistant or specialist; historical results retain their original authors.
 
 ---
 

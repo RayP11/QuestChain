@@ -47,11 +47,10 @@ const State = {
 };
 
 // ── WebSocket ─────────────────────────────────────────────────
-const _WS_TOKEN = document.querySelector('meta[name="ws-token"]')?.content || '';
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}${_WS_TOKEN ? '&token=' + encodeURIComponent(_WS_TOKEN) : ''}`;
+  const tokenParam = `?conversation=${encodeURIComponent(State.conversationId)}`;
   const ws = new WebSocket(`${proto}://${location.host}/ws${tokenParam}`);
   State.ws = ws;
 
@@ -107,7 +106,7 @@ function handleEvent(msg) {
       State.editingAgentId = null;
       break;
     case 'legacy_migrated':
-      document.getElementById('legacy-agent-message').textContent = `${msg.name} migrated. Automatic routing is off until you enable it in Edit.`;
+      document.getElementById('legacy-agent-message').textContent = `${msg.name} migrated. Select it from the roster to chat directly.`;
       break;
     case 'legacy_deleted':
       document.getElementById('legacy-agent-message').textContent = `${msg.name} deleted from the archive.`;
@@ -304,7 +303,7 @@ function renderConversations(conversations) {
 function onAgents(msg) {
   State.agents = msg.agents || [];
   State.activeAgentId = msg.active_id || '';
-  // Inspecting a worker never changes the chat target or resets on refresh.
+  // Keep the inspected stats panel stable across roster refreshes.
   if (!State.agents.some(a => a.id === State.viewingAgentId)) State.viewingAgentId = State.activeAgentId;
   renderRoster();
   renderChatAgentList();
@@ -507,10 +506,6 @@ function openAgentForm(agent) {
   document.getElementById('af-model').value = agent ? (agent.model || '') : '';
   document.getElementById('af-prompt').value = agent ? (agent.system_prompt || '') : '';
   document.getElementById('af-class').value = agent?.class_name || 'Custom';
-  document.getElementById('af-guidance').value = agent?.when_to_call || '';
-  document.getElementById('af-exclusions').value = agent?.when_not_to_call || '';
-  document.getElementById('af-examples').value = (agent?.routing_examples || []).join('\n');
-  document.getElementById('af-routable').checked = agent ? !!agent.routable : true;
   document.getElementById('af-error').textContent = '';
   renderToolPicker(agent ? (agent.tools || []) : []);
   if (!agent) applyRolePreset();
@@ -660,11 +655,7 @@ function renderChatAgentList() {
     el.addEventListener('click', () => {
       const id = el.dataset.id;
       State.viewingAgentId = id;
-
-      renderChatAgentList();
-      renderRoster();
-      switchPage('agent');
-      renderStatsFromAgents();
+      send({type: 'switch_agent', agent_id: id});
     });
   });
 }
@@ -775,7 +766,7 @@ function renderRoster() {
           <div class="roster-item-name">${escHtml(a.name || 'Agent')}</div>
           <div class="roster-item-level">Lv. ${escHtml(String(a.level ?? '?'))} · ${escHtml(roleLabel(a.class_name))}</div>
         </div>
-        ${isActive ? '<div class="roster-item-active-dot" title="Active in CLI"></div>' : ''}
+        ${isActive ? '<div class="roster-item-active-dot" title="Active agent"></div>' : ''}
         <div class="roster-item-actions">
           <button class="roster-item-action" data-action="edit" data-id="${escAttr(a.id)}" title="Edit agent">✏</button>
           ${delBtn}
@@ -788,7 +779,7 @@ function renderRoster() {
       if (e.target.closest('[data-action]')) return;
       const id = el.dataset.id;
       State.viewingAgentId = id;
-
+      send({type: 'switch_agent', agent_id: id});
       renderRoster();
       renderStatsFromAgents();
       updateChatHeader();
@@ -994,12 +985,12 @@ function renderBattleMap() {
         const id = el.dataset.id;
         {
           State.viewingAgentId = id;
-
+          send({type: 'switch_agent', agent_id: id});
           renderChatAgentList();
           renderRoster();
           updateChatHeader();
         }
-        switchPage('agent');
+        switchPage('chat');
       });
     });
   }
@@ -1118,11 +1109,9 @@ document.getElementById('af-cancel').addEventListener('click', () => {
 document.getElementById('af-save').addEventListener('click', () => {
   const name = document.getElementById('af-name').value.trim();
   if (!name) { document.getElementById('af-name').focus(); return; }
-  const guidance = document.getElementById('af-guidance').value.trim();
-  const routable = document.getElementById('af-routable').checked;
   const prompt = document.getElementById('af-prompt').value.trim();
-  if (!prompt || (routable && !guidance)) {
-    document.getElementById('af-error').textContent = !prompt ? 'Add a system prompt.' : 'Describe when to call this agent.';
+  if (!prompt) {
+    document.getElementById('af-error').textContent = 'Add a system prompt.';
     return;
   }
   if (!State.connected) { document.getElementById('af-error').textContent = 'Reconnect before saving.'; return; }
@@ -1132,9 +1121,6 @@ document.getElementById('af-save').addEventListener('click', () => {
     class_name: document.getElementById('af-class').value,
     model: document.getElementById('af-model').value.trim() || null,
     system_prompt: prompt,
-    when_to_call: guidance, routable,
-    when_not_to_call: document.getElementById('af-exclusions').value.trim(),
-    routing_examples: document.getElementById('af-examples').value.split('\n').map(s => s.trim()).filter(Boolean),
   };
   if (State.editingAgentId) {
     send({ type: 'update_agent', agent_id: State.editingAgentId, ...payload });
@@ -1172,7 +1158,6 @@ function applyRolePreset() {
   const preset = State.settings?.agent_presets?.[role];
   if (!preset) return;
   document.getElementById('af-prompt').value = preset.system_prompt;
-  document.getElementById('af-guidance').value = preset.when_to_call;
   renderToolPicker(preset.tools);
 }
 document.getElementById('af-class').addEventListener('change', applyRolePreset);

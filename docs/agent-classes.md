@@ -1,52 +1,31 @@
-# Your assistant and subagents
+# QuestChain and manually selected specialists
 
-Every terminal, web, and Telegram text or voice message goes to one main assistant. Its persisted default name is **QuestChain**; rename it in onboarding or agent settings. Viewing or configuring a worker never changes the chat destination.
+QuestChain is the main configurable assistant. Select a specialist yourself for a focused tool loadout, just as in the original pre-Perseus flow. There is no automatic routing, delegate tool, private worker execution, or parent synthesis.
 
-The main assistant owns planning, handles simple work directly, delegates bounded tasks when useful, reviews structured worker outcomes, and gives its own final answer.
-
-| Default worker | Role | Work |
-| --- | --- | --- |
-| Researcher | Explorer | Research external information and cite sources |
-| Workspace | Keeper | Read, create, edit, delete, summarize, and organize workspace files |
-| Builder | Builder | Inspect, implement, and test software |
-| Scheduler | Scheduler | Manage recurring jobs |
-
-Planner is an optional custom/legacy role, not a built-in worker. Planning belongs to the main assistant. Custom workers, including legacy Router definitions, remain configurable.
+Use the chat portrait roster, Agents page or map to select an agent. In the terminal use `/agents` and Switch; Telegram `/agents` offers selection buttons. The active choice is persisted and shared across interfaces. Each interface keeps its own conversation; model context remains scoped to the selected agent. A run already submitted retains its original agent even if you switch.
 
 ## Configuration and tools
 
-Use Settings in the web UI or `/agents` in terminal or Telegram to edit the assistant and create subagents. Definitions retain stable IDs, editable names, explicit tools, system prompts, invocation guidance, exclusions, examples, and model overrides. A blank model inherits the running default; an explicit override stays attached to that definition.
+Edit each agent's name, role, model, prompt and enabled tools. The main QuestChain agent is configurable too. Empty tools means none; `all` explicitly enables the built-in integrations that are available. Specialist defaults are Researcher (web search/browse), Workspace (file tools), Builder (files/shell) and Scheduler (quests). Additional Planner and Custom roles remain available. A legacy Router profile is manually selectable, but cannot route.
 
-Enable automatic routing after providing when-to-call guidance. The main assistant receives eligible workers' guidance and tool names, not their system prompts. An empty tool selection grants no tools; `all` is an explicit selection. Unavailable integrations are reported in settings. Tool permissions are rechecked immediately before execution.
+Tool permissions are rechecked before execution. Missing tools are reported, not silently replaced by another agent. Tavily remains the configured web-search integration and requires its API key. Selecting a specialist never grants it another agent's tools.
 
 Workspace has `read_file`, `write_file`, `edit_file`, `delete_file`, `ls`, `glob`, and `grep`. It verifies changes and preserves unrelated content. File paths remain inside the existing approved workspace boundary. Deletion rejects directories and symbolic links. Tool selection is not an operating-system sandbox.
 
-## Conversation and execution
+Shell commands accept an integer timeout of 1–1800 seconds (60 by default).
+Combined stdout and stderr may contain at most 256 KiB. Exceeding that budget
+stops the command and its owned process group, and returns an error instead of
+persisting oversized output. Narrow verbose commands before retrying; termination
+does not undo their side effects. These limits protect output buffering, not the
+command's own memory, disk, network, or OS permissions. Enabled shell and custom
+Python tools still run with the application's OS privileges; detached processes
+can escape process-group cleanup, and cancelling a custom Python thread does not
+stop its side effects.
 
-New Chat starts fresh; reopening history restores that interface's conversation. Terminal, web, and Telegram histories remain separate. Shared profile answers in `ABOUT.md` reach the main assistant in all interfaces. Old transcripts retain their historical authors, and new replies go to the main assistant.
+## Execution and migration
 
-`delegate_to_agent` executes a bounded worker task and returns its status, result, error, run ID, and verification flag. Workers have no recursive delegation tool. Their tokens, tool events, audio, and internal run records stay out of user-facing chat and reconnect snapshots. The main assistant may show read-only progress and synthesizes its own answer.
+Scheduled quests run directly as their explicitly assigned agent. There is no second model synthesizing their output. Runs remain bounded, cancellable, and explicitly retryable. Restart interrupts unfinished runs without replaying actions. Check external effects before retrying.
 
-One root execution owns the run slot; its children execute inline without queueing behind their waiting parent or reacquiring that slot. Cancel stops the root and its active child. Failures return to the parent for review. Retry is explicit and cannot undo or safely repeat already completed external effects. Restart marks unfinished runs interrupted and does not replay actions.
+Each run has a tool-call budget of 128 attempts by default; `QUESTCHAIN_MAX_TOOL_CALLS` accepts 1–10000. Every dispatch attempt counts, including denied and failed calls. The 30-iteration and 30-minute limits still apply. A retry or new scheduled occurrence has a fresh budget. A tool budget is not an operating-system sandbox.
 
-## Archive-and-import upgrade
-
-Migration is versioned and restart-safe. Before replacing the old roster, QuestChain saves the data directory under `~/.questchain/legacy/before-single-assistant-v4/`, including previous archives, definitions, selection, progression, history, and a consistent SQLite backup containing committed WAL data. Existing backups are preserved.
-
-The latest legacy definitions move to `legacy/agents.json`, and a new main assistant and generic worker roster are seeded. No legacy agent is silently selected as the main assistant. Existing modern main definitions and user-created workers remain; an old built-in Planner is archived intact, even if customized. A user-created Planner stays active. Only an exact previous default main prompt receives the planning instruction upgrade; custom prompts remain unchanged.
-
-Import an archived definition deliberately:
-
-- Web: Settings → Legacy agents → Migrate.
-- Terminal: `/legacy`, then `/legacy migrate ID`.
-- Telegram: `/agents`, then Migrate legacy.
-
-Import preserves ID, name, prompt, model, and tools, translates known legacy roles, and creates a subagent with automatic routing off. Review before enabling it. Import does not change the chat target or resume scheduled jobs. Archived definitions can be deleted with confirmation without deleting transcripts or progression.
-
-## Scheduled work
-
-Jobs retain their IDs and occurrence records. Migration pauses legacy or missing-owner jobs; review the owner and explicitly resume them. Importing an old ID never silently resumes its schedules. Missing-owner jobs cannot resume until an owner is available.
-
-Jobs assigned to the main assistant may delegate normally. An explicitly assigned worker executes privately, then the main assistant reviews its outcome and produces the final response. Scheduled occurrences use fresh context. Delivery failures and duplicate occurrence callbacks do not rerun work.
-
-Run records live in `tasks.sqlite3`; definitions and schedules remain JSON. Only one running process may own the data directory. `/runs`, `/history`, `/cancel`, and `/retry` expose saved work in terminal and Telegram; the web UI provides history and run controls.
+The manual-flow migration preserves existing IDs, selected tools, custom prompts, progression, conversations and schedules. It saves the previous roster before setting routing metadata inactive. Previously archived definitions remain available for explicit import; previously paused quests stay paused. No archived data is deleted and no schedule is automatically resumed. Existing legacy routing prompts are preserved as user configuration, with runtime instructions and tool enforcement disabling delegation.

@@ -91,6 +91,7 @@ def create_questchain_agent(
             registry.register(tool_def)
 
     system_prompt = (SYSTEM_PROMPT if system_prompt_override is None else system_prompt_override).replace("{agent_name}", agent_name)
+    system_prompt += "\n\nWork directly with your enabled tools. Agent selection is manual; do not delegate, route requests, or claim another specialist acted. If a required tool is unavailable, tell the user to select an appropriate specialist or change tool settings."
     if class_name == "Keeper":
         system_prompt += (
             "\n\nManage workspace knowledge using your enabled file tools. "

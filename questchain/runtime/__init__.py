@@ -7,16 +7,21 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from questchain.engine.budget import ToolBudgetExceeded, ToolCallBudget, new_tool_budget
 from questchain.runtime.store import RunStore
-from questchain.runtime.routing import add_routing_tool
 
 logger = logging.getLogger(__name__)
 TERMINAL = frozenset({"completed", "partial", "failed", "cancelled", "interrupted", "waiting_input"})
+_MAX_PENDING_RUNS = 32  # Root runs: queued plus executing; inline children reuse their parent's slot.
+
+
+class TaskCapacityError(ValueError):
+    """Admission was rejected; no run was accepted or queued for later replay."""
 
 
 def now() -> str:
@@ -48,7 +53,7 @@ class TaskRuntime:
         self._audio_callbacks = {}
         self.lock = busy_lock or asyncio.Lock()
         self.event_sink = event_sink or get_bus().publish_nowait
-        self.queue = asyncio.PriorityQueue()
+        self.queue = asyncio.PriorityQueue(maxsize=_MAX_PENDING_RUNS)
         self._counter = 0
         self._worker_task = None
         self._active_task = None
@@ -73,15 +78,14 @@ class TaskRuntime:
             existing = self.store.occurrence(request.occurrence_key)
             if existing:
                 return existing["id"]
+        # submit() contains no awaits: admission and allocation are atomic within
+        # the runtime's event loop. Check before creating durable state or futures.
+        if len(self._futures) >= _MAX_PENDING_RUNS:
+            raise TaskCapacityError("Task capacity reached (32 pending runs). Wait for work to finish or cancel a queued run, then retry explicitly.")
         definition = self.manager.get(request.agent_id)
         if not definition:
             raise ValueError("The assigned agent no longer exists.")
-        if request.source != "cron" and definition.get("kind") != "main":
-            raise ValueError("Subagents cannot be direct chat destinations.")
         scheduled_worker_id = None
-        if request.source == "cron" and definition.get("kind") == "subagent":
-            scheduled_worker_id = definition["id"]
-            definition = self.manager.get_active()
         if request.reply_to_run_id:
             previous = self.store.get(request.reply_to_run_id)
             if previous["conversation_id"] != request.conversation_id:
@@ -149,7 +153,7 @@ class TaskRuntime:
             run = self.store.get(run["parent_run_id"])
         if run["status"] not in TERMINAL:
             raise ValueError("Wait for the run to finish or cancel it before retrying.")
-        return self.submit(TaskRequest(run["text"], (run.get("scheduled_worker_id") or run["agent_id"]) if run["source"] == "cron" else self.manager.get_active_id(), run["conversation_id"], run["source"],
+        return self.submit(TaskRequest(run["text"], (run.get("scheduled_worker_id") or run["agent_id"]), run["conversation_id"], run["source"],
                                        run.get("reply_to_run_id", ""), destination=run.get("destination", ""),
                                        audio_callback=audio_callback), task_id=run["task_id"])
 
@@ -175,8 +179,29 @@ class TaskRuntime:
         self.store.put(run)
         self._emit(run, "assistant_done", content=run["result"], error=error)
         future = self._futures.pop(run["id"], None)
+        self._remove_queued(run["id"])
         if future and not future.done():
             future.set_result(dict(run))
+
+    def _remove_queued(self, run_id: str) -> None:
+        """Reclaim cancelled queue entries immediately, preserving priority/join.
+
+        The bounded queue is rebuilt synchronously through its public API so
+        cancellation bursts cannot leave an unbounded number of tombstones.
+        """
+        retained = []
+        removed_count = 0
+        while not self.queue.empty():
+            item = self.queue.get_nowait()
+            removed_count += 1
+            if item[2] != run_id:
+                retained.append(item)
+        for item in retained:
+            self.queue.put_nowait(item)
+        # Reinsert first: unfinished work must never transiently reach zero and
+        # wake join() while retained requests still await execution.
+        for _ in range(removed_count):
+            self.queue.task_done()
 
     async def _worker(self) -> None:
         while not self.queue.empty():
@@ -208,11 +233,13 @@ class TaskRuntime:
                 self._active_run = None
                 self.queue.task_done()
 
-    async def _execute(self, run: dict) -> None:
+    async def _execute(self, run: dict, tool_budget: ToolCallBudget | None = None) -> None:
+        budget = tool_budget if tool_budget is not None else new_tool_budget()
         from questchain.agents import tool_access_allowed
         if self.manager.get(run["agent_id"]) is None:
             raise ValueError("Assigned agent was deleted. Choose an owner and retry.")
-        run.update(status="running", started_at=now())
+        run.update(status="running", started_at=now(),
+                   tool_calls_used=budget.used, tool_call_limit=budget.limit)
         self.store.put(run)
         self._emit(run, "run_status")
         definition = run["definition"]
@@ -222,47 +249,6 @@ class TaskRuntime:
         on_audio = discard_audio if run.get("private") else self._audio_callbacks.get(run["id"])
         agent = self.agent_factory(definition) if self.agent_factory else make_agent_from_def(
             definition, audio_router=on_audio, default_model=self.default_model)
-        is_main = definition.get("kind") == "main" and not run.get("private")
-        if run.get("private") and hasattr(agent, "_base_system_prompt"):
-            agent._base_system_prompt += (
-                "\n\nFor this run you are an internal subagent. Execute only the bounded task "
-                "with your enabled tools and return findings, evidence, changes and limitations "
-                "to the main assistant. You cannot spawn workers, route requests, or speak "
-                "directly to the user. A legacy coordinator role does not change this scope."
-            )
-
-        async def delegate_to_agent(agent_id: str, task: str, context: str = "") -> str:
-            if not isinstance(task, str) or not task.strip() or len(task) > 16000:
-                raise ValueError("Give the worker a bounded task of 1–16000 characters.")
-            if not isinstance(context, str) or len(context) > 8000:
-                raise ValueError("Context must be text of at most 8000 characters.")
-            destination = self.manager.get(agent_id)
-            if destination is None or (agent_id not in {a["id"] for a in self.manager.catalog()} and agent_id != run.get("scheduled_worker_id")):
-                raise ValueError("Selected subagent is no longer eligible.")
-            child = {**run, "id": uuid.uuid4().hex, "parent_run_id": run["id"], "private": True,
-                     "text": task, "agent_id": agent_id, "agent_name": destination["name"],
-                     "definition": destination, "message_id": uuid.uuid4().hex,
-                     "status": "queued", "occurrence_key": None, "result": "", "error": "",
-                     "reply_to_run_id": "", "handoff_context": context, "scheduled_worker_id": None}
-            self.store.put(child)
-            self._emit(run, "delegation_progress", worker_name=destination["name"], worker_status="running")
-            try:
-                # The root owns the execution slot. Inline children reuse it; they never
-                # queue behind the parent or acquire the same lock a second time.
-                await self._execute(child)
-            except asyncio.CancelledError:
-                self._finish(child, "cancelled", error="Parent execution stopped; review effects before retrying.")
-                raise
-            except Exception as exc:
-                self._finish(child, "failed", error=str(exc))
-            outcome = self.store.get(child["id"])
-            self._emit(run, "delegation_progress", worker_name=destination["name"], worker_status=outcome["status"])
-            return json.dumps({"run_id": child["id"], "worker": destination["name"],
-                               "status": outcome["status"], "result": outcome["result"],
-                               "error": outcome["error"], "verified": outcome.get("verified", False)})
-
-        if is_main and hasattr(agent, "tools"):
-            add_routing_tool(agent, self.manager.catalog(), delegate_to_agent)
         # Check selected capabilities against the actual runner, before inference.
         selected = definition.get("tools", [])
         if selected != "all" and hasattr(agent, "tools"):
@@ -275,14 +261,12 @@ class TaskRuntime:
 
         async def on_tool(name: str, arguments: dict) -> None:
             current = self.manager.get(run["agent_id"])
-            routing = is_main and name == "delegate_to_agent" and current and current.get("kind") == "main"
-            if not routing and (current is None or not tool_access_allowed(current, name) or not tool_access_allowed(definition, name)):
+            if name in {"delegate_to_agent", "route_to_agent"}:
+                raise PermissionError("Agent delegation is disabled. Select a specialist manually.")
+            if current is None or not tool_access_allowed(current, name) or not tool_access_allowed(definition, name):
                 raise PermissionError(f"Tool '{name}' is no longer enabled for this agent.")
-            if name in {"delegate_to_agent", "route_to_agent"} and not routing:
-                raise PermissionError("Only the main assistant may delegate.")
             called.append(name)
-            if not routing:
-                self._emit(run, "tool_call", name=name)
+            self._emit(run, "tool_call", name=name)
 
         prompt = run["text"]
         if run.get("handoff_context"):
@@ -308,12 +292,10 @@ class TaskRuntime:
         pending = ""
         try:
             async with (nullcontext() if run.get("private") else self.lock), asyncio.timeout(1800):
-                if run.get("scheduled_worker_id"):
-                    outcome = await delegate_to_agent(run["scheduled_worker_id"], run["text"])
-                    prompt += "\n\nThe explicitly assigned scheduled worker has already executed. Review this outcome and provide the final response; do not repeat its actions:\n" + outcome
                 async for token in agent.run(prompt, thread_id="run-" + context_key, on_tool_call=on_tool,
                                              initial_messages=self._history(run),
-                                             shared_history=self._shared_history(run) if is_main else None):
+                                             tool_budget=budget,
+                                             shared_history=None):
                     chunks.append(token)
                     pending += token
                     # Bound database writes and event queues, while keeping streaming responsive.
@@ -324,6 +306,7 @@ class TaskRuntime:
                         pending = ""
                         last_checkpoint = time.monotonic()
         finally:
+            run.update(tool_calls_used=budget.used, tool_call_limit=budget.limit)
             run["result"] = "".join(chunks)
             current = self.store.get(run["id"])
             if current["status"] in TERMINAL:

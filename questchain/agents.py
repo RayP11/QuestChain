@@ -69,7 +69,7 @@ You are {agent_name}, a knowledge and file management specialist running locally
 - Read files carefully before modifying. Use delete_file for a file the user specifically asks to delete; confirm exact paths for ambiguous cleanup requests.
 - Organize information clearly using structured files and directories.
 - Create, write, edit, delete, and organize workspace files, notes, and information using your enabled tools.
-- Keep information clearly structured and verify saved changes. The main assistant owns the overall plan.
+- Keep information clearly structured and verify saved changes. Own the task the user gives you directly.
 - Never hallucinate file contents or paths — verify with tools.
 - Be concise, precise, and thorough.
 """
@@ -138,19 +138,12 @@ ROLE_LABELS = {"Router": "Coordinator", "Explorer": "Researcher", "Keeper": "Wor
                "Builder": "Builder", "Planner": "Planning & advising", "Scheduler": "Scheduling",
                "Custom": "Custom"}
 
-MAIN_SYSTEM_PROMPT = """You are {agent_name}, a capable assistant running locally via Ollama.
-You are the single assistant the user talks to. Own each request from start to finish.
-Handle planning yourself: break complex goals into steps, track dependencies and priorities,
-adapt the plan as results arrive, and explain decisions. Delegate bounded execution, not ownership of the plan.
-Handle simple work directly. Use delegate_to_agent when a configured subagent is useful.
-Treat worker outcomes as evidence, review errors and limitations, then give your own final answer.
-Never claim an action succeeded without evidence. Verify facts and file contents with tools.
-Respect enabled tools and the approved workspace boundary. Confirm ambiguous destructive actions.
+MAIN_SYSTEM_PROMPT = """You are QuestChain, a practical assistant using the tools the user enabled.
+Work directly on the user's request. Plan complex tasks and verify results with your tools.
+Specialists are selected manually by the user; you cannot route or delegate to other agents.
+Respect the workspace boundary and never claim an action succeeded without evidence.
 """
-
-PREVIOUS_MAIN_SYSTEM_PROMPT = MAIN_SYSTEM_PROMPT.replace(
-    "Handle planning yourself: break complex goals into steps, track dependencies and priorities,\n"
-    "adapt the plan as results arrive, and explain decisions. Delegate bounded execution, not ownership of the plan.\n", "")
+PREVIOUS_MAIN_SYSTEM_PROMPT = MAIN_SYSTEM_PROMPT
 
 PRESET_AGENTS = [
     {"name": "Researcher", "model": None, "system_prompt": EXPLORER_SYSTEM_PROMPT,
@@ -201,6 +194,8 @@ def get_dynamic_selectable_tools() -> list[tuple[str, str]]:
 def tool_access_allowed(definition: dict, tool_name: str) -> bool:
     """Check live configured access, including grouped tools and role restrictions."""
     from questchain.agent import _CLASS_TOOL_BLACKLIST
+    if tool_name in {"delegate_to_agent", "route_to_agent"}:
+        return False
     selected_name = "shell" if tool_name == "execute" else "cron" if tool_name.startswith("cron_") else tool_name
     if selected_name in _CLASS_TOOL_BLACKLIST.get(definition.get("class_name"), ()):
         return False
@@ -285,7 +280,7 @@ class AgentManager:
         role = _CLASS_MIGRATIONS.get(original.get("class_name"), original.get("class_name", "Custom"))
         if role not in {c[0] for c in AGENT_CLASSES}:
             role = "Custom"
-        agent = {**original, "class_name": role, "definition_version": 3, "kind": "subagent",
+        agent = {**original, "class_name": role, "definition_version": 3, "kind": "specialist",
                  "system_prompt": original.get("system_prompt", preset_prompt(role)),
                  "when_to_call": original.get("when_to_call", CLASS_GUIDANCE.get(role, "")),
                  "when_not_to_call": original.get("when_not_to_call", ""),
@@ -336,10 +331,10 @@ class AgentManager:
             "when_to_call": when_to_call,
             "when_not_to_call": when_not_to_call,
             "routing_examples": routing_examples or [],
-            "routable": bool(when_to_call) if routable is None else routable,
+            "routable": False,
             "revision": 1,
             "definition_version": 3,
-            "kind": "subagent",
+            "kind": "specialist",
         }
         self._validate(agent_def)
         self._agents.append(agent_def)
@@ -378,8 +373,7 @@ class AgentManager:
             raise ValueError("Choose an existing role or Custom.")
         if not isinstance(agent.get("routable", False), bool):
             raise ValueError("Automatic routing must be enabled or disabled.")
-        if agent.get("routable") and not agent["when_to_call"]:
-            raise ValueError("Describe when to call this agent before enabling automatic routing.")
+        agent["routable"] = False  # Legacy metadata is retained, never executed.
         examples = agent.get("routing_examples", [])
         if not isinstance(examples, list) or len(examples) > 10 or any(
             not isinstance(e, str) or len(e) > 500 for e in examples
@@ -394,14 +388,11 @@ class AgentManager:
             raise ValueError("Model must be a model name.")
 
     def catalog(self) -> list[dict]:
-        """Build a fresh, bounded selection catalog without exposing system prompts."""
-        fields = ("id", "name", "class_name", "when_to_call", "when_not_to_call", "routing_examples", "revision")
-        return [{**{k: a.get(k) for k in fields}, "tools": a.get("tools", [])}
-                for a in self.all_agents() if a.get("routable") and a.get("when_to_call")
-                and a.get("kind") == "subagent" and not tool_issues(a)]
+        """No model-visible routing catalog: selection belongs to the user."""
+        return []
 
     def remove(self, agent_id: str) -> bool:
-        if agent_id == self.get_active_id():
+        if self.get(agent_id) and self.get(agent_id).get("kind") == "main":
             raise ValueError("The main assistant cannot be deleted.")
         if len(self._agents) <= 1 and self.get(agent_id):
             raise ValueError("Keep at least one agent, or create a replacement first.")
@@ -422,8 +413,12 @@ class AgentManager:
         return agent
 
     def get_active_id(self) -> str:
+        path = get_active_agent_path()
+        active_id = path.read_text(encoding="utf-8").strip() if path.exists() else ""
+        if self.get(active_id):
+            return active_id
         main = next((a for a in self._agents if a.get("kind") == "main"), None)
-        return main["id"] if main else "main"
+        return main["id"] if main else self._agents[0]["id"]
 
     def get_by_class_name(self, class_name: str) -> dict | None:
         """Return the first agent with the given class_name, or None."""
@@ -437,8 +432,8 @@ class AgentManager:
         return
 
     def set_active(self, agent_id: str) -> None:
-        if agent_id != self.get_active_id():
-            raise ValueError("Subagents cannot be direct chat destinations.")
+        if self.get(agent_id) is None:
+            raise ValueError("Agent not found.")
         path = get_active_agent_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(agent_id, encoding="utf-8")
@@ -448,12 +443,9 @@ class AgentManager:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        from questchain.migration import migrate_roster
-        self._agents = migrate_roster(deepcopy(BUILTIN_AGENT), PRESET_AGENTS, CLASS_GUIDANCE)
+        from questchain.migration import migrate_manual_roster
+        self._agents = migrate_manual_roster(deepcopy(BUILTIN_AGENT), PRESET_AGENTS)
 
     def _save(self) -> None:
-        path = get_agents_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self._agents, indent=2), encoding="utf-8")
-        temp.replace(path)
+        from questchain.migration import atomic_json
+        atomic_json(get_agents_path(), self._agents)

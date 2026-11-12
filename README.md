@@ -21,7 +21,7 @@
 
 ---
 
-QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Nothing leaves your machine.
+QuestChain is an AI assistant that runs entirely on your machine. No cloud, no subscriptions, no usage limits. Just your hardware running a capable local model 24/7. It reads your files, runs shell commands, searches the web, schedules jobs, and works through your task list while you sleep. Model inference runs locally; enabled web search, Telegram, and other integrations communicate with their providers.
 
 ---
 
@@ -46,7 +46,7 @@ QuestChain is an AI assistant that runs entirely on your machine. No cloud, no s
 
 I tried [OpenClaw](https://github.com/OpenClaw-AI/OpenClaw) and was having a lot of fun playing around with it. However, I couldn't afford the api token cost and I wasn't able to run local models quickly without having to buy even more expensive hardware. So I was inspired to create a framework which could run models as small as 3B autonomously and productively.
 
-QuestChain is that framework: a party of micro agents all jam-packed with tool loadouts for specific tasks, fully autonomous, and with a twist of gamification.
+QuestChain is that framework: a main assistant and manually selected specialists with focused tool loadouts, and with a twist of gamification.
 
 ### At a glance
 
@@ -85,7 +85,7 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 | Class | Icon | Specialty | Tool Preset |
 |---|---|---|---|
 | Custom | 🌀 | You decide | You configure |
-| Coordinator | 🧭 | Routes work and communicates status | No execution tools |
+| Legacy Coordinator | 🧭 | Manually selected legacy profile | No execution tools |
 | Keeper | 📚 | Files & knowledge | File tools |
 | Explorer | 🔭 | Research & discovery | Web search + browse |
 | Builder | ⚒️ | Code & systems | Files and shell; optional Claude Code |
@@ -94,15 +94,11 @@ Classes are QuestChain's micro-agent system. Each class is a specialized agent w
 
 ---
 
-## One assistant and configurable subagents
+## QuestChain and manually selected specialists
 
-Chat with **QuestChain**, or give your main assistant a custom name. Every text or voice request in terminal, web, and Telegram goes to that assistant. It owns planning, handles simple work directly, and delegates bounded tasks to **Researcher**, **Workspace**, **Builder**, and **Scheduler** when useful. Workers return private outcomes; the main assistant gives the final answer.
+Select **QuestChain**, **Researcher**, **Workspace**, **Builder**, or **Scheduler** yourself. Each uses its own configured tools, model and prompt and answers you directly. No automatic routing or private delegation takes place. Switch through the chat roster, Agents page, or `/agents` in terminal and Telegram. Main QuestChain is configurable too.
 
-Create and configure custom subagents in any interface. Viewing a worker does not switch chat to it. Model overrides remain optional, and each worker retains its explicit tool permissions. Workspace can read, write, edit, delete, and organize files inside the existing workspace boundary. Planner remains available as an optional custom/legacy role.
-
-New Chat and saved history remain separate per interface. Shared profile answers reach the main assistant everywhere. Legacy history preserves its original authorship.
-
-Upgrading backs up existing state and archives the latest legacy definitions, then seeds the new roster. Import old definitions explicitly as subagents with routing disabled for review. Legacy schedules stay paused until explicitly resumed, even after importing their owner. [Assistant and migration guide](docs/agent-classes.md).
+New Chat and saved history remain separate per interface; agent model context is scoped to that agent. Upgrading preserves existing identities, permissions, custom prompts and schedules. Previously archived definitions can still be imported explicitly; paused schedules are not resumed. See the [agent and migration guide](docs/agent-classes.md).
 
 ## Quests
 
@@ -173,6 +169,22 @@ questchain start -t <thread-id>       # Resume a previous conversation
 questchain start --web                # Start with web UI (gateway + CLI)
 ```
 
+The web control plane binds only to loopback (`127.0.0.1`, `localhost`, or `::1`).
+Direct LAN/wildcard binding is rejected. For remote use, keep it on loopback and
+connect through an authenticated SSH tunnel, for example
+`ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 your-host`, then open `http://localhost:8765`.
+Do not publish the tunnel port or put the gateway behind a public forwarding proxy.
+
+Set `QUESTCHAIN_WS_TOKEN` to a strong private password to require authentication
+for both the web page and WebSocket. The browser login username is `questchain`;
+the password is that setting's value. The secret is never included in the HTML.
+Existing native WebSocket clients can still use `?token=...`, but should prefer
+HTTP Basic authentication headers to avoid putting secrets in URLs. Without a
+password, local processes can control the application. This is a single-user
+control plane with the application's OS privileges, not a sandbox or multi-user
+service. Existing direct-network `--web-host` configurations must switch to a
+loopback tunnel.
+
 ### Updating an installed copy
 
 Exit QuestChain with Ctrl+C, Ctrl+D, or `/exit`, then run:
@@ -223,6 +235,30 @@ python -m questchain
 ```
 
 > Ollama must still be running before starting QuestChain. See Step 1 above.
+
+### Regression checks
+
+Pull requests run Linux Python regressions, the chat Markdown JavaScript tests,
+a strict documentation build, and a separate Windows launcher upgrade check.
+The regression tests use fake model responses; Ollama and API keys are not needed.
+To reproduce the Linux checks with Python 3.13, Node.js 24, and uv 0.13.5:
+
+```bash
+uv sync --locked --python 3.13
+QUESTCHAIN_DATA_DIR="$(mktemp -d)" uv run --no-sync python -m pytest -q -ra
+node --test tests/chat-markdown.test.cjs
+uv tool run --from mkdocs-material==9.6.23 mkdocs build --strict
+```
+
+The two launcher tests are intentionally skipped on Linux. The Windows CI job
+runs only `tests/test_updater_windows.py`, using temporary offline wheels and
+isolated uv tool directories; it does not claim full Windows regression coverage.
+PR checks have read-only repository permissions, no persisted checkout credentials,
+no shared caches or application secrets, and bounded GitHub-hosted jobs. The
+existing documentation deployment workflow remains separate. Application
+dependencies come from `uv.lock`; documentation and launcher test tools have
+pinned direct versions but their transitive dependencies are not locked. When
+updating action pins, verify the full commit against the upstream release tag.
 
 ---
 
@@ -279,7 +315,7 @@ My own QuestChain agent Jarvis has actually started vibing its own features and 
 | `/model` | Change the global default model; restart to apply |
 | `/tools` | Show the selected agent's tools and availability |
 | `/quests` | Open the Quests menu; `/quests help` shows text commands |
-| `/agents` | Configure the main assistant and subagents |
+| `/agents` | Select or configure QuestChain and specialists |
 | `/runs` | List runs in the current conversation |
 | `/retry [run ID]` | Retry the last run or a specified run in this conversation |
 | `/cancel [run ID]` | Cancel a queued or running task in this conversation |
@@ -318,7 +354,7 @@ Restart QuestChain and the bot starts alongside the CLI. Telegram conversations 
 | `/new` | Start a fresh conversation and clear the previous run selection |
 | `/model` | Show the selected agent's current model, including its override |
 | `/tools` | Show the selected agent's tools and availability |
-| `/agents` | Configure assistant; create, edit, or import subagents |
+| `/agents` | Select, create, edit, or import specialists |
 | `/quests` | List quests and show scheduling commands |
 | `/runs [run ID]` | List this conversation's runs, or read one saved result |
 | `/history [conversation ID]` | List this chat's saved conversations, or resume one |
@@ -395,3 +431,7 @@ Contributions are welcome. Bug reports, feature requests, and pull requests all 
 <br>
 <sub>If QuestChain is meaningful to you, a ⭐ helps others find it.</sub>
 </div>
+
+## Manual specialist selection
+
+Choose QuestChain or a specialist directly from the chat roster, Agents page, terminal `/agents`, or Telegram `/agents`. The selected agent uses its own configured tools and model. Automatic agent-to-agent routing/delegation is disabled. Scheduled quests execute as their assigned agent without a second synthesis step. See [agent behavior and migration](docs/agent-classes.md).

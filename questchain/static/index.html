@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="ws-token" content="">
 <title>QuestChain</title>
 <style>
 /* ── Reset & base ──────────────────────────────────────────── */
@@ -1168,18 +1167,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
               <label class="form-label" for="af-prompt">System prompt</label>
               <textarea class="form-input form-textarea" id="af-prompt" maxlength="4000" placeholder="How should this agent work?"></textarea>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="af-guidance">When to call this agent</label>
-              <textarea class="form-input form-textarea" id="af-guidance" maxlength="2000" placeholder="Describe the requests this agent should receive. The coordinator uses this to choose an agent."></textarea>
-              <label><input id="af-routable" type="checkbox" checked> Allow automatic routing</label>
-            </div>
-            <details>
-              <summary>Routing examples and exclusions</summary>
-              <label class="form-label" for="af-exclusions">When NOT to call</label>
-              <textarea class="form-input" id="af-exclusions" maxlength="2000" placeholder="Work this agent should leave to another specialist"></textarea>
-              <label class="form-label" for="af-examples">Example requests (one per line)</label>
-              <textarea class="form-input" id="af-examples" placeholder="Polish these release notes"></textarea>
-            </details>
+
             <div id="af-error" role="alert"></div>
             <div class="form-group" id="af-tools-group">
               <label class="form-label">Tools <span class="text-muted-hint">Select the tools this agent can use. No selection means no tools.</span></label>
@@ -1235,7 +1223,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           <span class="settings-section-title">Legacy agents</span>
         </div>
         <div class="settings-section-body">
-          <p class="text-muted-hint">Archived agents are inactive. Migrate one to keep its original name, tools, prompt and ID. Review its settings before enabling automatic routing.</p>
+          <p class="text-muted-hint">Archived agents are inactive. Migrate one to keep its original name, tools, prompt and ID. Review its settings, then select it to chat directly.</p>
           <div id="legacy-agent-list"></div>
           <p id="legacy-agent-message" role="status"></p>
         </div>
