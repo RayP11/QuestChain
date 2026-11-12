@@ -791,7 +791,7 @@ def _settings_payload() -> dict:
                 "kind": a.get("kind", "specialist"),
                 "class_name": a.get("class_name", "Custom"),
                 "model": a.get("model") or "",
-                "system_prompt": a.get("system_prompt") or "",
+                "system_prompt": a.get("system_prompt"),
                 "tools": a.get("tools", "all"),
                 "when_to_call": a.get("when_to_call", ""),
                 "when_not_to_call": a.get("when_not_to_call", ""),
