@@ -43,6 +43,8 @@ const State = {
   page: 'map',
   settings: null,
   editingAgentId: null,
+  editingOriginalPrompt: null,
+  editingDisplayedPrompt: '',
   pendingEditId: null,   // agent to open in edit form once settings load
 };
 
@@ -504,7 +506,11 @@ function openAgentForm(agent) {
   State.editingAgentId = agent ? agent.id : null;
   document.getElementById('af-name').value = agent ? agent.name : '';
   document.getElementById('af-model').value = agent ? (agent.model || '') : '';
-  document.getElementById('af-prompt').value = agent ? (agent.system_prompt || '') : '';
+  const promptInput = document.getElementById('af-prompt');
+  State.editingOriginalPrompt = agent ? (agent.system_prompt ?? null) : null;
+  promptInput.value = State.editingOriginalPrompt ?? '';
+  // Textareas normalize line endings; retain the exact saved value when untouched.
+  State.editingDisplayedPrompt = promptInput.value;
   document.getElementById('af-class').value = agent?.class_name || 'Custom';
   document.getElementById('af-error').textContent = '';
   renderToolPicker(agent ? (agent.tools || []) : []);
@@ -1109,11 +1115,9 @@ document.getElementById('af-cancel').addEventListener('click', () => {
 document.getElementById('af-save').addEventListener('click', () => {
   const name = document.getElementById('af-name').value.trim();
   if (!name) { document.getElementById('af-name').focus(); return; }
-  const prompt = document.getElementById('af-prompt').value.trim();
-  if (!prompt) {
-    document.getElementById('af-error').textContent = 'Add a system prompt.';
-    return;
-  }
+  const promptValue = document.getElementById('af-prompt').value;
+  const prompt = State.editingAgentId && promptValue === State.editingDisplayedPrompt
+    ? State.editingOriginalPrompt : promptValue;
   if (!State.connected) { document.getElementById('af-error').textContent = 'Reconnect before saving.'; return; }
   const payload = {
     name,

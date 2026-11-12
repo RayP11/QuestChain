@@ -187,19 +187,43 @@ def migrate_manual_roster(main: dict, presets: list[dict]) -> list[dict]:
             temp.chmod(0o600)
             temp.write_text(json.dumps(data, indent=2), encoding='utf-8')
             temp.replace(destination)
-        if not data:
-            active_path = get_active_agent_path()
-            if path.exists() or (active_path.exists() and active_path.read_text(encoding='utf-8').strip() == 'default'):
-                main = {**main, 'id': 'default'}
-            data = [main] + [{**p, 'id': secrets.token_hex(6), 'kind': 'specialist',
-                             'built_in': True, 'revision': 1} for p in presets]
+        archive = root / 'legacy' / 'agents.json'
+        archived = json.loads(archive.read_text(encoding='utf-8')) if archive.exists() else []
+        if not isinstance(archived, list) or any(not isinstance(a, dict) or not a.get('id') for a in archived):
+            raise ValueError('Invalid legacy agents.json; saved definitions were left unchanged.')
+        reserved_ids = {a['id'] for a in data + archived}
+
+        def allocate_id(preferred: str) -> str:
+            candidate = preferred
+            while candidate in reserved_ids:
+                candidate = preferred + '-' + secrets.token_hex(6)
+            reserved_ids.add(candidate)
+            return candidate
+
         primary = next((a for a in data if a.get('kind') == 'main'), None)
         if primary is None:
             primary = next((a for a in data if a['id'] == 'default'), None)
         if primary is None:
-            primary = {**main, 'id': 'default'}
+            # Master archived the old implicit/custom default when introducing
+            # Perseus. Restore that exact configuration, never tools='all' under
+            # an archived identity. Keep the original archive and paused jobs.
+            saved_default = next((a for a in archived if a['id'] == 'default'), None)
+            if saved_default is not None:
+                primary = dict(saved_default)
+                data.insert(0, primary)
+        if not data:
+            active_path = get_active_agent_path()
+            preferred = 'default' if path.exists() or (active_path.exists() and active_path.read_text(encoding='utf-8').strip() == 'default') else main['id']
+            primary = {**main, 'id': allocate_id(preferred)}
+            data = [primary] + [{**p, 'id': allocate_id(secrets.token_hex(6)), 'kind': 'specialist',
+                                'built_in': True, 'revision': 1} for p in presets]
+        if primary is None:
+            primary = {**main, 'id': allocate_id('default')}
             data.insert(0, primary)
+        from questchain.agents import _CLASS_MIGRATIONS
         for agent in data:
+            role = agent.get('class_name', 'Custom')
+            agent['class_name'] = _CLASS_MIGRATIONS.get(role, role)
             agent['kind'] = 'main' if agent is primary else 'specialist'
             agent['routable'] = False
             agent['definition_version'] = 5

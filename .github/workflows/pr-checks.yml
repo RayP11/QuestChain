@@ -42,8 +42,8 @@ jobs:
         env:
           QUESTCHAIN_DATA_DIR: ${{ runner.temp }}/questchain-test-data
         run: uv run --no-sync python -m pytest -q -ra
-      - name: Chat markdown regressions
-        run: node --test tests/chat-markdown.test.cjs
+      - name: Browser JavaScript regressions
+        run: node --test tests/*.test.cjs
       - name: Build documentation strictly (no deployment)
         run: uv tool run --from mkdocs-material==9.6.23 mkdocs build --strict
 

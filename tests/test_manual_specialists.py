@@ -290,3 +290,81 @@ def test_migration_preserves_private_roster_and_archive_modes(isolated):
     archive = isolated / 'legacy/before-manual-agents-v5.json'
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(archive.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize('prompt,tools', [(None, []), ('', []), ('  Exact custom prompt  ', ['read_file'])])
+@pytest.mark.parametrize('active_roster', [[], [{'id': 'perseus', 'name': 'Perseus', 'class_name': 'Router', 'tools': [], 'system_prompt': 'Route work'}]])
+def test_master_archived_restricted_default_restored_without_widening(isolated, active_roster, prompt, tools):
+    isolated.mkdir(parents=True)
+    archive = isolated / 'legacy' / 'agents.json'
+    archive.parent.mkdir()
+    original = {'id': 'default', 'name': 'My local assistant', 'class_name': 'Custom',
+                'tools': tools, 'model': 'custom:4b', 'system_prompt': prompt,
+                'revision': 7, 'built_in': True}
+    archive.write_text(json.dumps([original]), encoding='utf-8')
+    before_archive = archive.read_bytes()
+    (isolated / 'agents.json').write_text(json.dumps(active_roster), encoding='utf-8')
+    jobs = isolated / 'cron_jobs.json'
+    jobs.write_text('[{"id":"paused","agent_id":"default","enabled":false}]', encoding='utf-8')
+    before_jobs = jobs.read_bytes()
+    manager = AgentManager()
+    restored = manager.get('default')
+    assert restored['kind'] == 'main'
+    for key, value in original.items():
+        assert restored[key] == value
+    assert not tool_access_allowed(restored, 'write_file')
+    assert not tool_access_allowed(restored, 'shell')
+    assert archive.read_bytes() == before_archive
+    assert jobs.read_bytes() == before_jobs
+    assert AgentManager().get('default') == restored
+    assert len({a['id'] for a in manager.all_agents()}) == len(manager.all_agents())
+
+
+@pytest.mark.parametrize('current_id,current_kind', [('default', 'specialist'), ('main', 'main')])
+def test_current_roster_precedes_archived_default(isolated, current_id, current_kind):
+    isolated.mkdir(parents=True)
+    archive = isolated / 'legacy' / 'agents.json'
+    archive.parent.mkdir()
+    original = {'id': 'default', 'name': 'Archived restricted', 'class_name': 'Custom',
+                'tools': [], 'model': 'old:4b', 'system_prompt': None, 'revision': 3}
+    current = {'id': current_id, 'kind': current_kind, 'name': 'Current', 'class_name': 'Custom',
+               'tools': ['read_file'], 'model': 'current:4b', 'system_prompt': '', 'revision': 6}
+    archive.write_text(json.dumps([original]), encoding='utf-8')
+    original_bytes = archive.read_bytes()
+    (isolated / 'agents.json').write_text(json.dumps([current]), encoding='utf-8')
+    manager = AgentManager()
+    assert [a['id'] for a in manager.all_agents() if a['kind'] == 'main'] == [current_id]
+    for key, value in current.items():
+        if key != 'kind':
+            assert manager.get(current_id)[key] == value
+    if current_id == 'main':
+        assert manager.legacy_agents() == [original]
+        imported = manager.migrate_legacy('default')
+        for key, value in original.items():
+            if key != 'revision':
+                assert imported[key] == value
+        assert imported['kind'] == 'specialist'
+    assert archive.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize('archived', [False, True])
+@pytest.mark.parametrize('legacy_role,current_role', [('Archivist','Keeper'), ('Scout','Explorer'), ('Athena','Builder'), ('Oracle','Planner')])
+def test_legacy_roles_normalized_without_changing_selected_tools(isolated, archived, legacy_role, current_role):
+    isolated.mkdir(parents=True)
+    original = {'id': 'default', 'name': 'Original', 'class_name': legacy_role,
+                'tools': ['read_file'], 'model': None, 'system_prompt': '', 'revision': 2}
+    if archived:
+        archive = isolated / 'legacy' / 'agents.json'
+        archive.parent.mkdir()
+        archive.write_text(json.dumps([original]), encoding='utf-8')
+        (isolated / 'agents.json').write_text('[]', encoding='utf-8')
+    else:
+        (isolated / 'agents.json').write_text(json.dumps([original]), encoding='utf-8')
+    manager = AgentManager()
+    restored = manager.get('default')
+    assert restored['class_name'] == current_role
+    assert restored['tools'] == original['tools']
+    assert not tool_access_allowed(restored, 'shell')
+    manager.update('default', name='Renamed')
+    assert manager.get('default')['system_prompt'] == ''
+    assert manager.get('default')['tools'] == ['read_file']
